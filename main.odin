@@ -22,7 +22,7 @@ import "core:slice"
 import "core:strings"
 import "core:sys/windows"
 import "core:time"
-import d3d12 "vendor:directx/d3d12"
+import dx "vendor:directx/d3d12"
 import d3dc "vendor:directx/d3d_compiler"
 import dxgi "vendor:directx/dxgi"
 import sdl "vendor:sdl2"
@@ -38,7 +38,7 @@ ConstantBufferData :: struct #align (256) {
 	time: f32,
 }
 
-check :: proc(res: d3d12.HRESULT, message: string) {
+check :: proc(res: dx.HRESULT, message: string) {
 	if (res >= 0) {
 		return
 	}
@@ -71,7 +71,7 @@ main :: proc() {
 	}
 
 	defer sdl.DestroyWindow(window)
-	hr: d3d12.HRESULT
+	hr: dx.HRESULT
 
 	// Init DXGI factory. DXGI is the link between the window and DirectX
 	factory: ^dxgi.IFactory4
@@ -93,9 +93,9 @@ main :: proc() {
 
 	// Debug layer
 	when ODIN_DEBUG {
-		debug_controller: ^d3d12.IDebug
+		debug_controller: ^dx.IDebug
 		// continue here
-		hr = d3d12.GetDebugInterface(d3d12.IDebug_UUID, (^rawptr)(&debug_controller))
+		hr = dx.GetDebugInterface(dx.IDebug_UUID, (^rawptr)(&debug_controller))
 		check(hr, "failed getting debug interface")
 
 		debug_controller->EnableDebugLayer()
@@ -109,7 +109,7 @@ main :: proc() {
 			continue
 		}
 
-		if d3d12.CreateDevice((^dxgi.IUnknown)(adapter), ._12_0, dxgi.IDevice_UUID, nil) >= 0 {
+		if dx.CreateDevice((^dxgi.IUnknown)(adapter), ._12_0, dxgi.IDevice_UUID, nil) >= 0 {
 			break
 		} else {
 			fmt.println("Failed to create device")
@@ -122,22 +122,22 @@ main :: proc() {
 	}
 
 	// Create D3D12 device that represents the GPU
-	device: ^d3d12.IDevice
-	hr = d3d12.CreateDevice(
+	device: ^dx.IDevice
+	hr = dx.CreateDevice(
 		(^dxgi.IUnknown)(adapter),
 		._12_0,
-		d3d12.IDevice_UUID,
+		dx.IDevice_UUID,
 		(^rawptr)(&device),
 	)
 	check(hr, "Failed to create device")
-	queue: ^d3d12.ICommandQueue
+	queue: ^dx.ICommandQueue
 
 	{
-		desc := d3d12.COMMAND_QUEUE_DESC {
+		desc := dx.COMMAND_QUEUE_DESC {
 			Type = .DIRECT,
 		}
 
-		hr = device->CreateCommandQueue(&desc, d3d12.ICommandQueue_UUID, (^rawptr)(&queue))
+		hr = device->CreateCommandQueue(&desc, dx.ICommandQueue_UUID, (^rawptr)(&queue))
 		check(hr, "Failed creating command queue")
 	}
 
@@ -147,9 +147,9 @@ main :: proc() {
 	frame_index := swapchain->GetCurrentBackBufferIndex()
 
 	// Descriptors describe the GPU data and are allocated from a Descriptor Heap
-	rtv_descriptor_heap: ^d3d12.IDescriptorHeap
+	rtv_descriptor_heap: ^dx.IDescriptorHeap
 	{
-		desc := d3d12.DESCRIPTOR_HEAP_DESC {
+		desc := dx.DESCRIPTOR_HEAP_DESC {
 			NumDescriptors = NUM_RENDERTARGETS,
 			Type           = .RTV,
 			Flags          = {},
@@ -158,23 +158,23 @@ main :: proc() {
 		hr =
 		device->CreateDescriptorHeap(
 			&desc,
-			d3d12.IDescriptorHeap_UUID,
+			dx.IDescriptorHeap_UUID,
 			(^rawptr)(&rtv_descriptor_heap),
 		)
 		check(hr, "Failed creating descriptor heap")
 	}
 
 	// Fetch the two render targets from the swapchain
-	targets: [NUM_RENDERTARGETS]^d3d12.IResource
+	targets: [NUM_RENDERTARGETS]^dx.IResource
 
 	{
 		rtv_descriptor_size: u32 = device->GetDescriptorHandleIncrementSize(.RTV)
 
-		rtv_descriptor_handle: d3d12.CPU_DESCRIPTOR_HANDLE
+		rtv_descriptor_handle: dx.CPU_DESCRIPTOR_HANDLE
 		rtv_descriptor_heap->GetCPUDescriptorHandleForHeapStart(&rtv_descriptor_handle)
 
 		for i: u32 = 0; i < NUM_RENDERTARGETS; i += 1 {
-			hr = swapchain->GetBuffer(i, d3d12.IResource_UUID, (^rawptr)(&targets[i]))
+			hr = swapchain->GetBuffer(i, dx.IResource_UUID, (^rawptr)(&targets[i]))
 			check(hr, "Failed getting render target")
 			device->CreateRenderTargetView(targets[i], nil, rtv_descriptor_handle)
 			rtv_descriptor_handle.ptr += uint(rtv_descriptor_size)
@@ -182,25 +182,25 @@ main :: proc() {
 	}
 
 	// The command allocator is used to create the commandlist that is used to tell the GPU what to draw
-	command_allocator: ^d3d12.ICommandAllocator
+	command_allocator: ^dx.ICommandAllocator
 	hr =
 	device->CreateCommandAllocator(
 		.DIRECT,
-		d3d12.ICommandAllocator_UUID,
+		dx.ICommandAllocator_UUID,
 		(^rawptr)(&command_allocator),
 	)
 	check(hr, "Failed creating command allocator")
 
 
-	constant_buffer: ^d3d12.IResource
+	constant_buffer: ^dx.IResource
 	map_start: rawptr
 
 	// constant buffer
 	{
-		heap_properties := d3d12.HEAP_PROPERTIES {
+		heap_properties := dx.HEAP_PROPERTIES {
 			Type = .UPLOAD,
 		}
-		constant_buffer_desc := d3d12.RESOURCE_DESC {
+		constant_buffer_desc := dx.RESOURCE_DESC {
 			Width = 256,
 			Dimension = .BUFFER,
 			Height = 1,
@@ -214,11 +214,11 @@ main :: proc() {
 		hr =
 		device->CreateCommittedResource(
 			&heap_properties,
-			d3d12.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
+			dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
 			&constant_buffer_desc,
-			d3d12.RESOURCE_STATE_GENERIC_READ,
+			dx.RESOURCE_STATE_GENERIC_READ,
 			nil,
-			d3d12.IResource_UUID,
+			dx.IResource_UUID,
 			(^rawptr)(&constant_buffer),
 		)
 
@@ -226,35 +226,35 @@ main :: proc() {
 
 
 		// empty range means the cpu won't read from it
-		constant_buffer->Map(0, &d3d12.RANGE{}, &map_start)
+		constant_buffer->Map(0, &dx.RANGE{}, &map_start)
 
 
 		/// creating a cbv (constant buffer view)
 
 		// creating descriptor heap
-		cbv_heap_desc := d3d12.DESCRIPTOR_HEAP_DESC {
+		cbv_heap_desc := dx.DESCRIPTOR_HEAP_DESC {
 			NumDescriptors = 1,
 			Type           = .CBV_SRV_UAV,
 			Flags          = {.SHADER_VISIBLE},
 		}
 
-		cbv_heap: ^d3d12.IDescriptorHeap
+		cbv_heap: ^dx.IDescriptorHeap
 		hr =
 		device->CreateDescriptorHeap(
 			&cbv_heap_desc,
-			d3d12.IDescriptorHeap_UUID,
+			dx.IDescriptorHeap_UUID,
 			(^rawptr)(&cbv_heap),
 		)
 		check(hr, "failed creating descriptor heap")
 
 		// creating the cbv
 
-		cbv_desc := d3d12.CONSTANT_BUFFER_VIEW_DESC {
+		cbv_desc := dx.CONSTANT_BUFFER_VIEW_DESC {
 			BufferLocation = constant_buffer->GetGPUVirtualAddress(),
 			SizeInBytes    = 256,
 		}
 
-		cpu_desc_handle: d3d12.CPU_DESCRIPTOR_HANDLE
+		cpu_desc_handle: dx.CPU_DESCRIPTOR_HANDLE
 		cbv_heap->GetCPUDescriptorHandleForHeapStart(&cpu_desc_handle)
 		device->CreateConstantBufferView(&cbv_desc, cpu_desc_handle)
 
@@ -278,11 +278,11 @@ main :: proc() {
 		The graphics command list has both a graphics and compute root signature. A compute command list will
 		simply have one compute root signature. These root signatures are independent of each other.
 	*/
-	root_signature: ^d3d12.IRootSignature
+	root_signature: ^dx.IRootSignature
 
 	{
 
-		root_parameters: [1]d3d12.ROOT_PARAMETER
+		root_parameters: [1]dx.ROOT_PARAMETER
 		root_parameters[0] = {
 			ParameterType = .CBV,
 			Descriptor = {ShaderRegister = 0, RegisterSpace = 0},
@@ -290,22 +290,22 @@ main :: proc() {
 		}
 
 
-		desc := d3d12.VERSIONED_ROOT_SIGNATURE_DESC {
+		desc := dx.VERSIONED_ROOT_SIGNATURE_DESC {
 			Version = ._1_0,
 			// defining the cbv here
 			Desc_1_0 = {NumParameters = 1, pParameters = &root_parameters[0]},
 		}
 
 		desc.Desc_1_0.Flags = {.ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT}
-		serialized_desc: ^d3d12.IBlob
-		hr = d3d12.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
+		serialized_desc: ^dx.IBlob
+		hr = dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
 		check(hr, "Failed to serialize root signature")
 		hr =
 		device->CreateRootSignature(
 			0,
 			serialized_desc->GetBufferPointer(),
 			serialized_desc->GetBufferSize(),
-			d3d12.IRootSignature_UUID,
+			dx.IRootSignature_UUID,
 			(^rawptr)(&root_signature),
 		)
 		check(hr, "Failed creating root signature")
@@ -313,7 +313,7 @@ main :: proc() {
 	}
 
 	// The pipeline contains the shaders etc to use
-	pipeline: ^d3d12.IPipelineState
+	pipeline: ^dx.IPipelineState
 
 	{
 		// Compile vertex and pixel shaders
@@ -348,8 +348,8 @@ cbuffer ConstantBuffer : register(b0) {
 			compile_flags |= u32(d3dc.D3DCOMPILE.SKIP_OPTIMIZATION)
 		}
 
-		vs: ^d3d12.IBlob = nil
-		ps: ^d3d12.IBlob = nil
+		vs: ^dx.IBlob = nil
+		ps: ^dx.IBlob = nil
 
 		// errors
 		vs_res: ^d3dc.ID3DBlob
@@ -396,7 +396,7 @@ cbuffer ConstantBuffer : register(b0) {
 		check(hr, "Failed to compile pixel shader")
 
 		// This layout matches the vertices data defined further down
-		vertex_format: []d3d12.INPUT_ELEMENT_DESC = {
+		vertex_format: []dx.INPUT_ELEMENT_DESC = {
 			{
 				SemanticName = "POSITION",
 				Format = .R32G32B32_FLOAT,
@@ -410,7 +410,7 @@ cbuffer ConstantBuffer : register(b0) {
 			},
 		}
 
-		default_blend_state := d3d12.RENDER_TARGET_BLEND_DESC {
+		default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
 			BlendEnable           = false,
 			LogicOpEnable         = false,
 			SrcBlend              = .ONE,
@@ -420,10 +420,10 @@ cbuffer ConstantBuffer : register(b0) {
 			DestBlendAlpha        = .ZERO,
 			BlendOpAlpha          = .ADD,
 			LogicOp               = .NOOP,
-			RenderTargetWriteMask = u8(d3d12.COLOR_WRITE_ENABLE_ALL),
+			RenderTargetWriteMask = u8(dx.COLOR_WRITE_ENABLE_ALL),
 		}
 
-		pipeline_state_desc := d3d12.GRAPHICS_PIPELINE_STATE_DESC {
+		pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
 			pRootSignature = root_signature,
 			VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
 			PS = {pShaderBytecode = ps->GetBufferPointer(), BytecodeLength = ps->GetBufferSize()},
@@ -462,7 +462,7 @@ cbuffer ConstantBuffer : register(b0) {
 		hr =
 		device->CreateGraphicsPipelineState(
 			&pipeline_state_desc,
-			d3d12.IPipelineState_UUID,
+			dx.IPipelineState_UUID,
 			(^rawptr)(&pipeline),
 		)
 		check(hr, "Pipeline creation failed")
@@ -472,22 +472,22 @@ cbuffer ConstantBuffer : register(b0) {
 	}
 
 	// Create the commandlist that is reused further down.
-	cmdlist: ^d3d12.IGraphicsCommandList
+	cmdlist: ^dx.IGraphicsCommandList
 	hr =
 	device->CreateCommandList(
 		0,
 		.DIRECT,
 		command_allocator,
 		pipeline,
-		d3d12.ICommandList_UUID,
+		dx.ICommandList_UUID,
 		(^rawptr)(&cmdlist),
 	)
 	check(hr, "Failed to create command list")
 	hr = cmdlist->Close()
 	check(hr, "Failed to close command list")
 
-	vertex_buffer: ^d3d12.IResource
-	vertex_buffer_view: d3d12.VERTEX_BUFFER_VIEW
+	vertex_buffer: ^dx.IResource
+	vertex_buffer_view: dx.VERTEX_BUFFER_VIEW
 
 	{
 		// The position and color data for the triangle's vertices go together per-vertex
@@ -516,13 +516,13 @@ cbuffer ConstantBuffer : register(b0) {
 			0,
 		}
 
-		heap_props := d3d12.HEAP_PROPERTIES {
+		heap_props := dx.HEAP_PROPERTIES {
 			Type = .UPLOAD,
 		}
 
 		vertex_buffer_size := len(vertices) * size_of(vertices[0])
 
-		resource_desc := d3d12.RESOURCE_DESC {
+		resource_desc := dx.RESOURCE_DESC {
 			Dimension = .BUFFER,
 			Alignment = 0,
 			Width = u64(vertex_buffer_size),
@@ -540,15 +540,15 @@ cbuffer ConstantBuffer : register(b0) {
 			&heap_props,
 			{},
 			&resource_desc,
-			d3d12.RESOURCE_STATE_GENERIC_READ,
+			dx.RESOURCE_STATE_GENERIC_READ,
 			nil,
-			d3d12.IResource_UUID,
+			dx.IResource_UUID,
 			(^rawptr)(&vertex_buffer),
 		)
 		check(hr, "Failed creating vertex buffer")
 
 		gpu_data: rawptr
-		read_range: d3d12.RANGE
+		read_range: dx.RANGE
 
 		hr = vertex_buffer->Map(0, &read_range, &gpu_data)
 		check(hr, "Failed creating verex buffer resource")
@@ -556,7 +556,7 @@ cbuffer ConstantBuffer : register(b0) {
 		mem.copy(gpu_data, &vertices[0], vertex_buffer_size)
 		vertex_buffer->Unmap(0, nil)
 
-		vertex_buffer_view = d3d12.VERTEX_BUFFER_VIEW {
+		vertex_buffer_view = dx.VERTEX_BUFFER_VIEW {
 			BufferLocation = vertex_buffer->GetGPUVirtualAddress(),
 			StrideInBytes  = u32(vertex_buffer_size / 3),
 			SizeInBytes    = u32(vertex_buffer_size),
@@ -565,11 +565,11 @@ cbuffer ConstantBuffer : register(b0) {
 
 	// This fence is used to wait for frames to finish
 	fence_value: u64
-	fence: ^d3d12.IFence
+	fence: ^dx.IFence
 	fence_event: windows.HANDLE
 
 	{
-		hr = device->CreateFence(fence_value, {}, d3d12.IFence_UUID, (^rawptr)(&fence))
+		hr = device->CreateFence(fence_value, {}, dx.IFence_UUID, (^rawptr)(&fence))
 		check(hr, "Failed to create fence")
 		fence_value += 1
 		manual_reset: windows.BOOL = false
@@ -609,12 +609,12 @@ cbuffer ConstantBuffer : register(b0) {
 		hr = cmdlist->Reset(command_allocator, pipeline)
 		check(hr, "Failed to reset command list")
 
-		viewport := d3d12.VIEWPORT {
+		viewport := dx.VIEWPORT {
 			Width  = f32(wx),
 			Height = f32(wy),
 		}
 
-		scissor_rect := d3d12.RECT {
+		scissor_rect := dx.RECT {
 			left   = 0,
 			right  = wx,
 			top    = 0,
@@ -628,21 +628,21 @@ cbuffer ConstantBuffer : register(b0) {
 		cmdlist->RSSetViewports(1, &viewport)
 		cmdlist->RSSetScissorRects(1, &scissor_rect)
 
-		to_render_target_barrier := d3d12.RESOURCE_BARRIER {
+		to_render_target_barrier := dx.RESOURCE_BARRIER {
 			Type  = .TRANSITION,
 			Flags = {},
 		}
 
 		to_render_target_barrier.Transition = {
 			pResource   = targets[frame_index],
-			StateBefore = d3d12.RESOURCE_STATE_PRESENT,
+			StateBefore = dx.RESOURCE_STATE_PRESENT,
 			StateAfter  = {.RENDER_TARGET},
-			Subresource = d3d12.RESOURCE_BARRIER_ALL_SUBRESOURCES,
+			Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
 		}
 
 		cmdlist->ResourceBarrier(1, &to_render_target_barrier)
 
-		rtv_handle: d3d12.CPU_DESCRIPTOR_HANDLE
+		rtv_handle: dx.CPU_DESCRIPTOR_HANDLE
 		rtv_descriptor_heap->GetCPUDescriptorHandleForHeapStart(&rtv_handle)
 
 		if (frame_index > 0) {
@@ -657,13 +657,13 @@ cbuffer ConstantBuffer : register(b0) {
 		cmdlist->ClearRenderTargetView(rtv_handle, &clearcolor, 0, nil)
 
 		// draw call
-		cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
+		// cmdlist->IASetPrimitiveTopology(.TRIANGLELIST) // i comment this out and it still works fine for now
 		cmdlist->IASetVertexBuffers(0, 1, &vertex_buffer_view)
 		cmdlist->DrawInstanced(3, 1, 0, 0)
 
 		to_present_barrier := to_render_target_barrier
 		to_present_barrier.Transition.StateBefore = {.RENDER_TARGET}
-		to_present_barrier.Transition.StateAfter = d3d12.RESOURCE_STATE_PRESENT
+		to_present_barrier.Transition.StateAfter = dx.RESOURCE_STATE_PRESENT
 
 		cmdlist->ResourceBarrier(1, &to_present_barrier)
 
@@ -671,8 +671,8 @@ cbuffer ConstantBuffer : register(b0) {
 		check(hr, "Failed to close command list")
 
 		// execute
-		cmdlists := [?]^d3d12.IGraphicsCommandList{cmdlist}
-		queue->ExecuteCommandLists(len(cmdlists), (^^d3d12.ICommandList)(&cmdlists[0]))
+		cmdlists := [?]^dx.IGraphicsCommandList{cmdlist}
+		queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
 
 		// present
 		{
@@ -706,7 +706,7 @@ cbuffer ConstantBuffer : register(b0) {
 
 create_swapchain :: proc(
 	factory: ^dxgi.IFactory4,
-	queue: ^d3d12.ICommandQueue,
+	queue: ^dx.ICommandQueue,
 	window: ^sdl.Window,
 ) -> (
 	swapchain: ^dxgi.ISwapChain3,
