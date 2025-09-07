@@ -38,6 +38,32 @@ ConstantBufferData :: struct #align (256) {
 	time: f32,
 }
 
+Context :: struct {
+	device: ^dx.IDevice,
+	factory: ^dxgi.IFactory4,
+	swapchain: ^dxgi.ISwapChain3,
+	map_start: rawptr, //maps to our test constant buffer
+	command_allocator: ^dx.ICommandAllocator,
+	pipeline: ^dx.IPipelineState,
+	cmdlist: ^dx.IGraphicsCommandList,
+
+	root_signature: ^dx.IRootSignature,
+	constant_buffer: ^dx.IResource,
+	vertex_buffer_view: dx.VERTEX_BUFFER_VIEW,
+	queue: ^dx.ICommandQueue,
+
+	rtv_descriptor_heap: ^dx.IDescriptorHeap,
+
+	frame_index : u32,
+
+	targets: [NUM_RENDERTARGETS]^dx.IResource, // render targets
+
+	// fence stuff
+	fence: ^dx.IFence,
+	fence_value: u64,
+	fence_event: windows.HANDLE,
+}
+
 check :: proc(res: dx.HRESULT, message: string) {
 	if (res >= 0) {
 		return
@@ -46,6 +72,9 @@ check :: proc(res: dx.HRESULT, message: string) {
 	fmt.printf("%v. Error code: %0x\n", message, u32(res))
 	os.exit(-1)
 }
+
+dx_context : Context
+start_time: time.Time
 
 main :: proc() {
 	// Init SDL and create window
@@ -71,83 +100,28 @@ main :: proc() {
 	}
 
 	defer sdl.DestroyWindow(window)
+
+	init_dx()
+
+	device := dx_context.device
+
 	hr: dx.HRESULT
-
-	// Init DXGI factory. DXGI is the link between the window and DirectX
-	factory: ^dxgi.IFactory4
-
-	{
-		flags: dxgi.CREATE_FACTORY
-
-		when ODIN_DEBUG {
-			flags += {.DEBUG}
-		}
-
-		hr = dxgi.CreateDXGIFactory2(flags, dxgi.IFactory4_UUID, cast(^rawptr)&factory)
-		check(hr, "Failed creating factory")
-	}
-
-	// Find the DXGI adapter (GPU)
-	adapter: ^dxgi.IAdapter1
-	error_not_found := dxgi.HRESULT(-142213123)
-
-	// Debug layer
-	when ODIN_DEBUG {
-		debug_controller: ^dx.IDebug
-		// continue here
-		hr = dx.GetDebugInterface(dx.IDebug_UUID, (^rawptr)(&debug_controller))
-		check(hr, "failed getting debug interface")
-
-		debug_controller->EnableDebugLayer()
-	}
-
-
-	for i: u32 = 0; factory->EnumAdapters1(i, &adapter) != error_not_found; i += 1 {
-		desc: dxgi.ADAPTER_DESC1
-		adapter->GetDesc1(&desc)
-		if .SOFTWARE in desc.Flags {
-			continue
-		}
-
-		if dx.CreateDevice((^dxgi.IUnknown)(adapter), ._12_0, dxgi.IDevice_UUID, nil) >= 0 {
-			break
-		} else {
-			fmt.println("Failed to create device")
-		}
-	}
-
-	if adapter == nil {
-		fmt.println("Could not find hardware adapter")
-		return
-	}
-
-	// Create D3D12 device that represents the GPU
-	device: ^dx.IDevice
-	hr = dx.CreateDevice(
-		(^dxgi.IUnknown)(adapter),
-		._12_0,
-		dx.IDevice_UUID,
-		(^rawptr)(&device),
-	)
-	check(hr, "Failed to create device")
-	queue: ^dx.ICommandQueue
 
 	{
 		desc := dx.COMMAND_QUEUE_DESC {
 			Type = .DIRECT,
 		}
 
-		hr = device->CreateCommandQueue(&desc, dx.ICommandQueue_UUID, (^rawptr)(&queue))
+		hr = device->CreateCommandQueue(&desc, dx.ICommandQueue_UUID, (^rawptr)(&dx_context.queue))
 		check(hr, "Failed creating command queue")
 	}
 
 	// Create the swapchain, it's the thing that contains render targets that we draw into. It has 2 render targets (NUM_RENDERTARGETS), giving us double buffering.
-	swapchain := create_swapchain(factory, queue, window)
+	dx_context.swapchain = create_swapchain(dx_context.factory, dx_context.queue, window)
 
-	frame_index := swapchain->GetCurrentBackBufferIndex()
+	dx_context.frame_index = dx_context.swapchain->GetCurrentBackBufferIndex()
 
 	// Descriptors describe the GPU data and are allocated from a Descriptor Heap
-	rtv_descriptor_heap: ^dx.IDescriptorHeap
 	{
 		desc := dx.DESCRIPTOR_HEAP_DESC {
 			NumDescriptors = NUM_RENDERTARGETS,
@@ -159,41 +133,37 @@ main :: proc() {
 		device->CreateDescriptorHeap(
 			&desc,
 			dx.IDescriptorHeap_UUID,
-			(^rawptr)(&rtv_descriptor_heap),
+			(^rawptr)(&dx_context.rtv_descriptor_heap),
 		)
 		check(hr, "Failed creating descriptor heap")
 	}
 
 	// Fetch the two render targets from the swapchain
-	targets: [NUM_RENDERTARGETS]^dx.IResource
 
 	{
 		rtv_descriptor_size: u32 = device->GetDescriptorHandleIncrementSize(.RTV)
 
 		rtv_descriptor_handle: dx.CPU_DESCRIPTOR_HANDLE
-		rtv_descriptor_heap->GetCPUDescriptorHandleForHeapStart(&rtv_descriptor_handle)
+		dx_context.rtv_descriptor_heap->GetCPUDescriptorHandleForHeapStart(&rtv_descriptor_handle)
 
 		for i: u32 = 0; i < NUM_RENDERTARGETS; i += 1 {
-			hr = swapchain->GetBuffer(i, dx.IResource_UUID, (^rawptr)(&targets[i]))
+			hr = dx_context.swapchain->GetBuffer(i, dx.IResource_UUID, (^rawptr)(&dx_context.targets[i]))
 			check(hr, "Failed getting render target")
-			device->CreateRenderTargetView(targets[i], nil, rtv_descriptor_handle)
+			device->CreateRenderTargetView(dx_context.targets[i], nil, rtv_descriptor_handle)
 			rtv_descriptor_handle.ptr += uint(rtv_descriptor_size)
 		}
 	}
 
 	// The command allocator is used to create the commandlist that is used to tell the GPU what to draw
-	command_allocator: ^dx.ICommandAllocator
 	hr =
 	device->CreateCommandAllocator(
 		.DIRECT,
 		dx.ICommandAllocator_UUID,
-		(^rawptr)(&command_allocator),
+		(^rawptr)(&dx_context.command_allocator),
 	)
 	check(hr, "Failed creating command allocator")
 
 
-	constant_buffer: ^dx.IResource
-	map_start: rawptr
 
 	// constant buffer
 	{
@@ -219,15 +189,13 @@ main :: proc() {
 			dx.RESOURCE_STATE_GENERIC_READ,
 			nil,
 			dx.IResource_UUID,
-			(^rawptr)(&constant_buffer),
+			(^rawptr)(&dx_context.constant_buffer),
 		)
 
 		check(hr, "failed creating constant buffer")
 
-
 		// empty range means the cpu won't read from it
-		constant_buffer->Map(0, &dx.RANGE{}, &map_start)
-
+		dx_context.constant_buffer->Map(0, &dx.RANGE{}, &dx_context.map_start)
 
 		/// creating a cbv (constant buffer view)
 
@@ -250,7 +218,7 @@ main :: proc() {
 		// creating the cbv
 
 		cbv_desc := dx.CONSTANT_BUFFER_VIEW_DESC {
-			BufferLocation = constant_buffer->GetGPUVirtualAddress(),
+			BufferLocation = dx_context.constant_buffer->GetGPUVirtualAddress(),
 			SizeInBytes    = 256,
 		}
 
@@ -267,7 +235,7 @@ main :: proc() {
 		// }
 
 		cbvdata_example := ConstantBufferData{0}
-		mem.copy(map_start, (rawptr)(&cbvdata_example), size_of(cbvdata_example))
+		mem.copy(dx_context.map_start, (rawptr)(&cbvdata_example), size_of(cbvdata_example))
 	}
 
 
@@ -278,7 +246,6 @@ main :: proc() {
 		The graphics command list has both a graphics and compute root signature. A compute command list will
 		simply have one compute root signature. These root signatures are independent of each other.
 	*/
-	root_signature: ^dx.IRootSignature
 
 	{
 
@@ -306,14 +273,13 @@ main :: proc() {
 			serialized_desc->GetBufferPointer(),
 			serialized_desc->GetBufferSize(),
 			dx.IRootSignature_UUID,
-			(^rawptr)(&root_signature),
+			(^rawptr)(&dx_context.root_signature),
 		)
 		check(hr, "Failed creating root signature")
 		serialized_desc->Release()
 	}
 
 	// The pipeline contains the shaders etc to use
-	pipeline: ^dx.IPipelineState
 
 	{
 		// Compile vertex and pixel shaders
@@ -424,7 +390,7 @@ cbuffer ConstantBuffer : register(b0) {
 		}
 
 		pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
-			pRootSignature = root_signature,
+			pRootSignature = dx_context.root_signature,
 			VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
 			PS = {pShaderBytecode = ps->GetBufferPointer(), BytecodeLength = ps->GetBufferSize()},
 			StreamOutput = {},
@@ -463,7 +429,7 @@ cbuffer ConstantBuffer : register(b0) {
 		device->CreateGraphicsPipelineState(
 			&pipeline_state_desc,
 			dx.IPipelineState_UUID,
-			(^rawptr)(&pipeline),
+			(^rawptr)(&dx_context.pipeline),
 		)
 		check(hr, "Pipeline creation failed")
 
@@ -472,22 +438,20 @@ cbuffer ConstantBuffer : register(b0) {
 	}
 
 	// Create the commandlist that is reused further down.
-	cmdlist: ^dx.IGraphicsCommandList
 	hr =
 	device->CreateCommandList(
 		0,
 		.DIRECT,
-		command_allocator,
-		pipeline,
+		dx_context.command_allocator,
+		dx_context.pipeline,
 		dx.ICommandList_UUID,
-		(^rawptr)(&cmdlist),
+		(^rawptr)(&dx_context.cmdlist),
 	)
 	check(hr, "Failed to create command list")
-	hr = cmdlist->Close()
+	hr = dx_context.cmdlist->Close()
 	check(hr, "Failed to close command list")
 
 	vertex_buffer: ^dx.IResource
-	vertex_buffer_view: dx.VERTEX_BUFFER_VIEW
 
 	{
 		// The position and color data for the triangle's vertices go together per-vertex
@@ -556,7 +520,7 @@ cbuffer ConstantBuffer : register(b0) {
 		mem.copy(gpu_data, &vertices[0], vertex_buffer_size)
 		vertex_buffer->Unmap(0, nil)
 
-		vertex_buffer_view = dx.VERTEX_BUFFER_VIEW {
+		dx_context.vertex_buffer_view = dx.VERTEX_BUFFER_VIEW {
 			BufferLocation = vertex_buffer->GetGPUVirtualAddress(),
 			StrideInBytes  = u32(vertex_buffer_size / 3),
 			SizeInBytes    = u32(vertex_buffer_size),
@@ -564,24 +528,20 @@ cbuffer ConstantBuffer : register(b0) {
 	}
 
 	// This fence is used to wait for frames to finish
-	fence_value: u64
-	fence: ^dx.IFence
-	fence_event: windows.HANDLE
-
 	{
-		hr = device->CreateFence(fence_value, {}, dx.IFence_UUID, (^rawptr)(&fence))
+		hr = device->CreateFence(dx_context.fence_value, {}, dx.IFence_UUID, (^rawptr)(&dx_context.fence))
 		check(hr, "Failed to create fence")
-		fence_value += 1
+		dx_context.fence_value += 1
 		manual_reset: windows.BOOL = false
 		initial_state: windows.BOOL = false
-		fence_event = windows.CreateEventW(nil, manual_reset, initial_state, nil)
-		if fence_event == nil {
+		dx_context.fence_event = windows.CreateEventW(nil, manual_reset, initial_state, nil)
+		if dx_context.fence_event == nil {
 			fmt.println("Failed to create fence event")
 			return
 		}
 	}
 
-	start_time := time.now()
+	start_time = time.now()
 
 	main_loop: for {
 		for e: sdl.Event; sdl.PollEvent(&e); {
@@ -591,116 +551,8 @@ cbuffer ConstantBuffer : register(b0) {
 			}
 		}
 
-		// ticking cbv value
-		thetime := time.diff(start_time, time.now())
-		float_val := f32(thetime) / f32(time.Second)
-		if float_val > 1 {
-			start_time = time.now()
-		}
+		render()
 
-		cbvdata_example := ConstantBufferData{float_val}
-		mem.copy(map_start, (rawptr)(&cbvdata_example), size_of(cbvdata_example))
-		// case .WINDOWEVENT:
-		// This is equivalent to WM_PAINT in win32 API
-		// if e.window.event == .EXPOSED {
-		hr = command_allocator->Reset()
-		check(hr, "Failed resetting command allocator")
-
-		hr = cmdlist->Reset(command_allocator, pipeline)
-		check(hr, "Failed to reset command list")
-
-		viewport := dx.VIEWPORT {
-			Width  = f32(wx),
-			Height = f32(wy),
-		}
-
-		scissor_rect := dx.RECT {
-			left   = 0,
-			right  = wx,
-			top    = 0,
-			bottom = wy,
-		}
-
-
-		// This state is reset everytime the cmd list is reset, so we need to rebind it
-		cmdlist->SetGraphicsRootSignature(root_signature)
-		cmdlist->SetGraphicsRootConstantBufferView(0, constant_buffer->GetGPUVirtualAddress())
-		cmdlist->RSSetViewports(1, &viewport)
-		cmdlist->RSSetScissorRects(1, &scissor_rect)
-
-		to_render_target_barrier := dx.RESOURCE_BARRIER {
-			Type  = .TRANSITION,
-			Flags = {},
-		}
-
-		to_render_target_barrier.Transition = {
-			pResource   = targets[frame_index],
-			StateBefore = dx.RESOURCE_STATE_PRESENT,
-			StateAfter  = {.RENDER_TARGET},
-			Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
-		}
-
-		cmdlist->ResourceBarrier(1, &to_render_target_barrier)
-
-		rtv_handle: dx.CPU_DESCRIPTOR_HANDLE
-		rtv_descriptor_heap->GetCPUDescriptorHandleForHeapStart(&rtv_handle)
-
-		if (frame_index > 0) {
-			s := device->GetDescriptorHandleIncrementSize(.RTV)
-			rtv_handle.ptr += uint(frame_index * s)
-		}
-
-		cmdlist->OMSetRenderTargets(1, &rtv_handle, false, nil)
-
-		// clear backbuffer
-		clearcolor := [?]f32{0.05, 0.05, 0.05, 1.0}
-		cmdlist->ClearRenderTargetView(rtv_handle, &clearcolor, 0, nil)
-
-		// draw call
-		// cmdlist->IASetPrimitiveTopology(.TRIANGLELIST) // i comment this out and it still works fine for now
-		cmdlist->IASetVertexBuffers(0, 1, &vertex_buffer_view)
-		cmdlist->DrawInstanced(3, 1, 0, 0)
-
-		to_present_barrier := to_render_target_barrier
-		to_present_barrier.Transition.StateBefore = {.RENDER_TARGET}
-		to_present_barrier.Transition.StateAfter = dx.RESOURCE_STATE_PRESENT
-
-		cmdlist->ResourceBarrier(1, &to_present_barrier)
-
-		hr = cmdlist->Close()
-		check(hr, "Failed to close command list")
-
-		// execute
-		cmdlists := [?]^dx.IGraphicsCommandList{cmdlist}
-		queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
-
-		// present
-		{
-			flags: dxgi.PRESENT
-			params: dxgi.PRESENT_PARAMETERS
-			hr = swapchain->Present1(1, flags, &params)
-			check(hr, "Present failed")
-		}
-
-		// wait for frame to finish
-		{
-			current_fence_value := fence_value
-
-			hr = queue->Signal(fence, current_fence_value)
-			check(hr, "Failed to signal fence")
-
-			fence_value += 1
-			completed := fence->GetCompletedValue()
-
-			if completed < current_fence_value {
-				hr = fence->SetEventOnCompletion(current_fence_value, fence_event)
-				check(hr, "Failed to set event on completion flag")
-				windows.WaitForSingleObject(fence_event, windows.INFINITE)
-			}
-
-			frame_index = swapchain->GetCurrentBackBufferIndex()
-		}
-		// }
 	}
 }
 
@@ -740,4 +592,189 @@ create_swapchain :: proc(
 	check(hr, "Failed to create swap chain")
 
 	return
+}
+
+// inits dx factory device
+init_dx :: proc() {
+	hr: dx.HRESULT
+
+	// Init DXGI factory. DXGI is the link between the window and DirectX
+	factory: ^dxgi.IFactory4
+
+	{
+		flags: dxgi.CREATE_FACTORY
+
+		when ODIN_DEBUG {
+			flags += {.DEBUG}
+		}
+
+		hr = dxgi.CreateDXGIFactory2(flags, dxgi.IFactory4_UUID, cast(^rawptr)&factory)
+		check(hr, "Failed creating factory")
+	}
+
+	dx_context.factory = factory
+
+	// Find the DXGI adapter (GPU)
+	adapter: ^dxgi.IAdapter1
+	error_not_found := dxgi.HRESULT(-142213123)
+
+	// Debug layer
+	when ODIN_DEBUG {
+		debug_controller: ^dx.IDebug
+		// continue here
+		hr = dx.GetDebugInterface(dx.IDebug_UUID, (^rawptr)(&debug_controller))
+		check(hr, "failed getting debug interface")
+
+		debug_controller->EnableDebugLayer()
+	}
+
+	for i: u32 = 0; factory->EnumAdapters1(i, &adapter) != error_not_found; i += 1 {
+		desc: dxgi.ADAPTER_DESC1
+		adapter->GetDesc1(&desc)
+		if .SOFTWARE in desc.Flags {
+			continue
+		}
+
+		if dx.CreateDevice((^dxgi.IUnknown)(adapter), ._12_0, dxgi.IDevice_UUID, nil) >= 0 {
+			break
+		} else {
+			fmt.println("Failed to create device")
+		}
+	}
+
+	if adapter == nil {
+		fmt.println("Could not find hardware adapter")
+		return
+	}
+
+	device: ^dx.IDevice
+
+	// Create D3D12 device that represents the GPU
+	hr = dx.CreateDevice(
+		(^dxgi.IUnknown)(adapter),
+		._12_0,
+		dx.IDevice_UUID,
+		(^rawptr)(&device),
+	)
+	check(hr, "Failed to create device")
+
+	dx_context.device = device
+}
+
+render :: proc() {
+
+	command_allocator := dx_context.command_allocator
+	pipeline := dx_context.pipeline
+	cmdlist := dx_context.cmdlist
+
+
+	hr : dx.HRESULT
+	// ticking cbv value
+	thetime := time.diff(start_time, time.now())
+	float_val := f32(thetime) / f32(time.Second)
+	if float_val > 1 {
+		start_time = time.now()
+	}
+
+	cbvdata_example := ConstantBufferData{float_val}
+	mem.copy(dx_context.map_start, (rawptr)(&cbvdata_example), size_of(cbvdata_example))
+	// case .WINDOWEVENT:
+	// This is equivalent to WM_PAINT in win32 API
+	// if e.window.event == .EXPOSED {
+	hr = command_allocator->Reset()
+	check(hr, "Failed resetting command allocator")
+
+	hr = cmdlist->Reset(command_allocator, pipeline)
+	check(hr, "Failed to reset command list")
+
+	viewport := dx.VIEWPORT {
+		Width  = f32(wx),
+		Height = f32(wy),
+	}
+
+	scissor_rect := dx.RECT {
+		left   = 0,
+		right  = wx,
+		top    = 0,
+		bottom = wy,
+	}
+
+	// This state is reset everytime the cmd list is reset, so we need to rebind it
+	cmdlist->SetGraphicsRootSignature(dx_context.root_signature)
+	cmdlist->SetGraphicsRootConstantBufferView(0, dx_context.constant_buffer->GetGPUVirtualAddress())
+	cmdlist->RSSetViewports(1, &viewport)
+	cmdlist->RSSetScissorRects(1, &scissor_rect)
+
+	to_render_target_barrier := dx.RESOURCE_BARRIER {
+		Type  = .TRANSITION,
+		Flags = {},
+	}
+
+	to_render_target_barrier.Transition = {
+		pResource   = dx_context.targets[dx_context.frame_index],
+		StateBefore = dx.RESOURCE_STATE_PRESENT,
+		StateAfter  = {.RENDER_TARGET},
+		Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
+	}
+
+	cmdlist->ResourceBarrier(1, &to_render_target_barrier)
+
+	rtv_handle: dx.CPU_DESCRIPTOR_HANDLE
+	dx_context.rtv_descriptor_heap->GetCPUDescriptorHandleForHeapStart(&rtv_handle)
+
+	if (dx_context.frame_index > 0) {
+		s := dx_context.device->GetDescriptorHandleIncrementSize(.RTV)
+		rtv_handle.ptr += uint(dx_context.frame_index * s)
+	}
+
+	cmdlist->OMSetRenderTargets(1, &rtv_handle, false, nil)
+
+	// clear backbuffer
+	clearcolor := [?]f32{0.05, 0.05, 0.05, 1.0}
+	cmdlist->ClearRenderTargetView(rtv_handle, &clearcolor, 0, nil)
+
+	// draw call
+	// cmdlist->IASetPrimitiveTopology(.TRIANGLELIST) // i comment this out and it still works fine for now
+	cmdlist->IASetVertexBuffers(0, 1, &dx_context.vertex_buffer_view)
+	cmdlist->DrawInstanced(3, 1, 0, 0)
+
+	to_present_barrier := to_render_target_barrier
+	to_present_barrier.Transition.StateBefore = {.RENDER_TARGET}
+	to_present_barrier.Transition.StateAfter = dx.RESOURCE_STATE_PRESENT
+
+	cmdlist->ResourceBarrier(1, &to_present_barrier)
+
+	hr = cmdlist->Close()
+	check(hr, "Failed to close command list")
+
+	// execute
+	cmdlists := [?]^dx.IGraphicsCommandList{cmdlist}
+	dx_context.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
+
+	// present
+	{
+		flags: dxgi.PRESENT
+		params: dxgi.PRESENT_PARAMETERS
+		hr = dx_context.swapchain->Present1(1, flags, &params)
+		check(hr, "Present failed")
+	}
+
+	// wait for frame to finish
+	{
+		current_fence_value := dx_context.fence_value
+
+		hr = dx_context.queue->Signal(dx_context.fence, current_fence_value)
+		check(hr, "Failed to signal fence")
+
+		dx_context.fence_value += 1
+		completed := dx_context.fence->GetCompletedValue()
+
+		if completed < current_fence_value {
+			hr = dx_context.fence->SetEventOnCompletion(current_fence_value, dx_context.fence_event)
+			check(hr, "Failed to set event on completion flag")
+			windows.WaitForSingleObject(dx_context.fence_event, windows.INFINITE)
+		}
+
+		dx_context.frame_index = dx_context.swapchain->GetCurrentBackBufferIndex()
+	}
 }
