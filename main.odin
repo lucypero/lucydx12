@@ -39,18 +39,21 @@ ConstantBufferData :: struct #align (256) {
 }
 
 Context :: struct {
+	// core stuff
 	device: ^dx.IDevice,
 	factory: ^dxgi.IFactory4,
+	queue: ^dx.ICommandQueue,
 	swapchain: ^dxgi.ISwapChain3,
-	map_start: rawptr, //maps to our test constant buffer
+
 	command_allocator: ^dx.ICommandAllocator,
 	pipeline: ^dx.IPipelineState,
 	cmdlist: ^dx.IGraphicsCommandList,
 
+	map_start: rawptr, //maps to our test constant buffer
+
 	root_signature: ^dx.IRootSignature,
 	constant_buffer: ^dx.IResource,
 	vertex_buffer_view: dx.VERTEX_BUFFER_VIEW,
-	queue: ^dx.ICommandQueue,
 
 	rtv_descriptor_heap: ^dx.IDescriptorHeap,
 
@@ -239,6 +242,10 @@ main :: proc() {
 	}
 
 
+	// texture test
+	create_texture()
+
+
 	/* 
 	From https://docs.microsoft.com/en-us/windows/win32/direct3d12/root-signatures-overview:
 	
@@ -255,7 +262,6 @@ main :: proc() {
 			Descriptor = {ShaderRegister = 0, RegisterSpace = 0},
 			ShaderVisibility = .ALL, // vertex, pixel, or both (all)
 		}
-
 
 		desc := dx.VERSIONED_ROOT_SIGNATURE_DESC {
 			Version = ._1_0,
@@ -777,4 +783,61 @@ render :: proc() {
 
 		dx_context.frame_index = dx_context.swapchain->GetCurrentBackBufferIndex()
 	}
+}
+
+// creating resource and uploading it to the gpu
+create_texture :: proc() {
+
+	//create texture resource
+	texture : ^dx.IResource
+
+	// default heap (this is where the final texture will reside)
+
+	heap_properties := dx.HEAP_PROPERTIES {
+		Type = .DEFAULT,
+	}
+	texture_desc := dx.RESOURCE_DESC {
+		Width = 256,
+		Dimension = .TEXTURE2D,
+		Height = 256,
+		Layout = .UNKNOWN,
+		Format = .R32G32B32_FLOAT,
+		DepthOrArraySize = 1,
+		MipLevels = 1,
+		SampleDesc = {Count = 1},
+	}
+
+	hr :=
+	dx_context.device->CreateCommittedResource(
+		&heap_properties,
+		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
+		&texture_desc,
+		dx.RESOURCE_STATE_GENERIC_READ,
+		nil,
+		dx.IResource_UUID,
+		(^rawptr)(&texture),
+	)
+
+	check(hr, "failed creating texture")
+
+	// creating upload heap and resource (needed to upload texture data from cpu to the default heap)
+
+	heap_properties = dx.HEAP_PROPERTIES {
+		Type = .UPLOAD
+	}
+
+	texture_upload : ^dx.IResource
+
+	hr =
+	dx_context.device->CreateCommittedResource(
+		&heap_properties,
+		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
+		&texture_desc,
+		dx.RESOURCE_STATE_GENERIC_READ,
+		nil,
+		dx.IResource_UUID,
+		(^rawptr)(&texture_upload),
+	)
+
+	check(hr, "failed creating upload texture")
 }
