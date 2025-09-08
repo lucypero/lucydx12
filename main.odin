@@ -740,7 +740,7 @@ render :: proc() {
 	cmdlist->ClearRenderTargetView(rtv_handle, &clearcolor, 0, nil)
 
 	// draw call
-	// cmdlist->IASetPrimitiveTopology(.TRIANGLELIST) // i comment this out and it still works fine for now
+	cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
 	cmdlist->IASetVertexBuffers(0, 1, &dx_context.vertex_buffer_view)
 	cmdlist->DrawInstanced(3, 1, 0, 0)
 
@@ -791,15 +791,17 @@ create_texture :: proc() {
 	//create texture resource
 	texture : ^dx.IResource
 
+	texture_width :: 256
+
 	// default heap (this is where the final texture will reside)
 
 	heap_properties := dx.HEAP_PROPERTIES {
 		Type = .DEFAULT,
 	}
 	texture_desc := dx.RESOURCE_DESC {
-		Width = 256,
+		Width = texture_width,
 		Dimension = .TEXTURE2D,
-		Height = 256,
+		Height = texture_width,
 		Layout = .UNKNOWN,
 		Format = .R32G32B32_FLOAT,
 		DepthOrArraySize = 1,
@@ -827,12 +829,23 @@ create_texture :: proc() {
 	}
 
 	texture_upload : ^dx.IResource
+	upload_desc := dx.RESOURCE_DESC {
+		Dimension = .BUFFER,
+		Alignment = 0,
+		Width = texture_width * texture_width, // size of the texture in bytes
+		Height = 1,
+		MipLevels = 1,
+		Format = .UNKNOWN,
+		Layout = .ROW_MAJOR,
+		DepthOrArraySize = 1,
+		SampleDesc = {Count = 1},
+	}
 
 	hr =
 	dx_context.device->CreateCommittedResource(
 		&heap_properties,
 		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
-		&texture_desc,
+		&upload_desc,
 		dx.RESOURCE_STATE_GENERIC_READ,
 		nil,
 		dx.IResource_UUID,
