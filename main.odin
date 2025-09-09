@@ -242,9 +242,6 @@ main :: proc() {
 	}
 
 
-	// texture test
-	create_texture()
-
 
 	/* 
 	From https://docs.microsoft.com/en-us/windows/win32/direct3d12/root-signatures-overview:
@@ -456,6 +453,10 @@ cbuffer ConstantBuffer : register(b0) {
 	check(hr, "Failed to create command list")
 	hr = dx_context.cmdlist->Close()
 	check(hr, "Failed to close command list")
+
+
+	// texture test
+	create_texture()
 
 	vertex_buffer: ^dx.IResource
 
@@ -803,7 +804,7 @@ create_texture :: proc() {
 		Dimension = .TEXTURE2D,
 		Height = texture_width,
 		Layout = .UNKNOWN,
-		Format = .R32G32B32_FLOAT,
+		Format = .R8G8B8A8_UNORM,
 		DepthOrArraySize = 1,
 		MipLevels = 1,
 		SampleDesc = {Count = 1},
@@ -822,6 +823,12 @@ create_texture :: proc() {
 
 	check(hr, "failed creating texture")
 
+	// getting data from texture that we'll use later
+	text_footprint : dx.PLACED_SUBRESOURCE_FOOTPRINT
+	text_bytes : u64
+
+	dx_context.device->GetCopyableFootprints(&texture_desc, 0, 1, 0, &text_footprint, nil, nil, &text_bytes)
+
 	// creating upload heap and resource (needed to upload texture data from cpu to the default heap)
 
 	heap_properties = dx.HEAP_PROPERTIES {
@@ -832,7 +839,7 @@ create_texture :: proc() {
 	upload_desc := dx.RESOURCE_DESC {
 		Dimension = .BUFFER,
 		Alignment = 0,
-		Width = texture_width * texture_width, // size of the texture in bytes
+		Width = text_bytes, // size of the texture in bytes
 		Height = 1,
 		MipLevels = 1,
 		Format = .UNKNOWN,
@@ -853,4 +860,34 @@ create_texture :: proc() {
 	)
 
 	check(hr, "failed creating upload texture")
+
+	// here you do a Map and you memcpy the data to the upload resource.
+	// you'll have to use an image library here to get the pixel data of an image.
+
+	texture_map_start : rawptr
+	texture_upload->Map(0, &dx.RANGE{}, &texture_map_start)
+
+	// sending random data for now
+	the_texture_data: [25]f32 = 25
+	mem.copy(texture_map_start, (rawptr)(&the_texture_data), size_of(the_texture_data))
+
+	// here you send the gpu command to copy the data to the texture resource.
+
+	copy_location_src := dx.TEXTURE_COPY_LOCATION {
+		pResource = texture_upload,
+		Type = .PLACED_FOOTPRINT,
+		PlacedFootprint = text_footprint
+	}
+
+	copy_location_dst := dx.TEXTURE_COPY_LOCATION {
+		pResource = texture,
+		Type = .SUBRESOURCE_INDEX,
+		SubresourceIndex = 0
+	}
+
+	dx_context.cmdlist->Reset(dx_context.command_allocator, dx_context.pipeline)
+	dx_context.cmdlist->CopyTextureRegion(&copy_location_dst, 0, 0, 0, &copy_location_src, nil)
+	dx_context.cmdlist->Close()
+
+	// TODO: do a fence here, wait for it, then release the upload resource
 }
