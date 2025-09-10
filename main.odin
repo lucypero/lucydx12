@@ -55,10 +55,13 @@ Context :: struct {
 	frame_index:         u32,
 	targets:             [NUM_RENDERTARGETS]^dx.IResource, // render targets
 
-	// fence stuff
+	// fence stuff (for waiting to render frame)
 	fence:               ^dx.IFence,
 	fence_value:         u64,
 	fence_event:         windows.HANDLE,
+
+	// texture
+	texture : ^dx.IResource,
 }
 
 check :: proc(res: dx.HRESULT, message: string) {
@@ -893,11 +896,7 @@ create_texture :: proc() {
 
 	dx_context.cmdlist->Reset(dx_context.command_allocator, dx_context.pipeline)
 	dx_context.cmdlist->CopyTextureRegion(&copy_location_dst, 0, 0, 0, &copy_location_src, nil)
-	dx_context.cmdlist->Close()
 
-	// execute
-	cmdlists := [?]^dx.IGraphicsCommandList{dx_context.cmdlist}
-	dx_context.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
 
 	// TODO: do a fence here, wait for it, then release the upload resource, and change the texture state to generic read
 
@@ -905,9 +904,34 @@ create_texture :: proc() {
 	fence: ^dx.IFence
 	hr = dx_context.device->CreateFence(fence_value, {}, dx.IFence_UUID, (^rawptr)(&fence))
 	fence_value += 1
-	hr = dx_context.queue->Signal(fence, fence_value)
 
-	//  "system" (this: ^IDevice, InitialValue: u64, Flags: FENCE_FLAGS, riid: ^IID, ppFence: ^rawptr) -> HRESULT,
+
+	// you need to set a resource barrier here to transition the texture resource to a generic read state
+	// read gemini answer: https://gemini.google.com/app/b17b9b13fb300d60
+
+	barrier : dx.RESOURCE_BARRIER = {
+		Type = .TRANSITION,
+		Flags = {},
+		Transition = {
+			pResource = texture,
+			StateBefore = {.COPY_DEST},
+			StateAfter = dx.RESOURCE_STATE_GENERIC_READ,
+			Subresource = 0
+		}
+	}
+
+	// run resource barrier
+	dx_context.cmdlist->ResourceBarrier(1, &barrier)
+
+
+	// close command list and execute
+	dx_context.cmdlist->Close()
+	cmdlists := [?]^dx.IGraphicsCommandList{dx_context.cmdlist}
+	dx_context.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
+
+	// we signal only after executing the command list.
+	// otherwise we are not sure that the gpu is done with the upload resource.
+	hr = dx_context.queue->Signal(fence, fence_value)
 
 	// 4. Wait for the GPU to reach the signal point.
 	// First, create an event handle.
@@ -917,7 +941,6 @@ create_texture :: proc() {
 		fmt.println("Failed to create fence event")
 		return
 	}
-
 
 	completed := fence->GetCompletedValue()
 
@@ -929,7 +952,4 @@ create_texture :: proc() {
 
 	// here, the gpu is done! now release upload resource then change texture type to generic read
 	texture_upload->Release()
-
-	// you need to set a resource barrier here to transition the texture resource to a generic read state
-	// read gemini answer: https://gemini.google.com/app/b17b9b13fb300d60
 }
