@@ -40,31 +40,25 @@ ConstantBufferData :: struct #align (256) {
 
 Context :: struct {
 	// core stuff
-	device: ^dx.IDevice,
-	factory: ^dxgi.IFactory4,
-	queue: ^dx.ICommandQueue,
-	swapchain: ^dxgi.ISwapChain3,
-
-	command_allocator: ^dx.ICommandAllocator,
-	pipeline: ^dx.IPipelineState,
-	cmdlist: ^dx.IGraphicsCommandList,
-
-	map_start: rawptr, //maps to our test constant buffer
-
-	root_signature: ^dx.IRootSignature,
-	constant_buffer: ^dx.IResource,
-	vertex_buffer_view: dx.VERTEX_BUFFER_VIEW,
-
+	device:              ^dx.IDevice,
+	factory:             ^dxgi.IFactory4,
+	queue:               ^dx.ICommandQueue,
+	swapchain:           ^dxgi.ISwapChain3,
+	command_allocator:   ^dx.ICommandAllocator,
+	pipeline:            ^dx.IPipelineState,
+	cmdlist:             ^dx.IGraphicsCommandList,
+	map_start:           rawptr, //maps to our test constant buffer
+	root_signature:      ^dx.IRootSignature,
+	constant_buffer:     ^dx.IResource,
+	vertex_buffer_view:  dx.VERTEX_BUFFER_VIEW,
 	rtv_descriptor_heap: ^dx.IDescriptorHeap,
-
-	frame_index : u32,
-
-	targets: [NUM_RENDERTARGETS]^dx.IResource, // render targets
+	frame_index:         u32,
+	targets:             [NUM_RENDERTARGETS]^dx.IResource, // render targets
 
 	// fence stuff
-	fence: ^dx.IFence,
-	fence_value: u64,
-	fence_event: windows.HANDLE,
+	fence:               ^dx.IFence,
+	fence_value:         u64,
+	fence_event:         windows.HANDLE,
 }
 
 check :: proc(res: dx.HRESULT, message: string) {
@@ -76,7 +70,7 @@ check :: proc(res: dx.HRESULT, message: string) {
 	os.exit(-1)
 }
 
-dx_context : Context
+dx_context: Context
 start_time: time.Time
 
 main :: proc() {
@@ -150,7 +144,12 @@ main :: proc() {
 		dx_context.rtv_descriptor_heap->GetCPUDescriptorHandleForHeapStart(&rtv_descriptor_handle)
 
 		for i: u32 = 0; i < NUM_RENDERTARGETS; i += 1 {
-			hr = dx_context.swapchain->GetBuffer(i, dx.IResource_UUID, (^rawptr)(&dx_context.targets[i]))
+			hr =
+			dx_context.swapchain->GetBuffer(
+				i,
+				dx.IResource_UUID,
+				(^rawptr)(&dx_context.targets[i]),
+			)
 			check(hr, "Failed getting render target")
 			device->CreateRenderTargetView(dx_context.targets[i], nil, rtv_descriptor_handle)
 			rtv_descriptor_handle.ptr += uint(rtv_descriptor_size)
@@ -165,7 +164,6 @@ main :: proc() {
 		(^rawptr)(&dx_context.command_allocator),
 	)
 	check(hr, "Failed creating command allocator")
-
 
 
 	// constant buffer
@@ -211,11 +209,7 @@ main :: proc() {
 
 		cbv_heap: ^dx.IDescriptorHeap
 		hr =
-		device->CreateDescriptorHeap(
-			&cbv_heap_desc,
-			dx.IDescriptorHeap_UUID,
-			(^rawptr)(&cbv_heap),
-		)
+		device->CreateDescriptorHeap(&cbv_heap_desc, dx.IDescriptorHeap_UUID, (^rawptr)(&cbv_heap))
 		check(hr, "failed creating descriptor heap")
 
 		// creating the cbv
@@ -240,7 +234,6 @@ main :: proc() {
 		cbvdata_example := ConstantBufferData{0}
 		mem.copy(dx_context.map_start, (rawptr)(&cbvdata_example), size_of(cbvdata_example))
 	}
-
 
 
 	/* 
@@ -536,7 +529,13 @@ cbuffer ConstantBuffer : register(b0) {
 
 	// This fence is used to wait for frames to finish
 	{
-		hr = device->CreateFence(dx_context.fence_value, {}, dx.IFence_UUID, (^rawptr)(&dx_context.fence))
+		hr =
+		device->CreateFence(
+			dx_context.fence_value,
+			{},
+			dx.IFence_UUID,
+			(^rawptr)(&dx_context.fence),
+		)
 		check(hr, "Failed to create fence")
 		dx_context.fence_value += 1
 		manual_reset: windows.BOOL = false
@@ -657,12 +656,7 @@ init_dx :: proc() {
 	device: ^dx.IDevice
 
 	// Create D3D12 device that represents the GPU
-	hr = dx.CreateDevice(
-		(^dxgi.IUnknown)(adapter),
-		._12_0,
-		dx.IDevice_UUID,
-		(^rawptr)(&device),
-	)
+	hr = dx.CreateDevice((^dxgi.IUnknown)(adapter), ._12_0, dx.IDevice_UUID, (^rawptr)(&device))
 	check(hr, "Failed to create device")
 
 	dx_context.device = device
@@ -675,7 +669,7 @@ render :: proc() {
 	cmdlist := dx_context.cmdlist
 
 
-	hr : dx.HRESULT
+	hr: dx.HRESULT
 	// ticking cbv value
 	thetime := time.diff(start_time, time.now())
 	float_val := f32(thetime) / f32(time.Second)
@@ -708,7 +702,10 @@ render :: proc() {
 
 	// This state is reset everytime the cmd list is reset, so we need to rebind it
 	cmdlist->SetGraphicsRootSignature(dx_context.root_signature)
-	cmdlist->SetGraphicsRootConstantBufferView(0, dx_context.constant_buffer->GetGPUVirtualAddress())
+	cmdlist->SetGraphicsRootConstantBufferView(
+		0,
+		dx_context.constant_buffer->GetGPUVirtualAddress(),
+	)
 	cmdlist->RSSetViewports(1, &viewport)
 	cmdlist->RSSetScissorRects(1, &scissor_rect)
 
@@ -777,7 +774,8 @@ render :: proc() {
 		completed := dx_context.fence->GetCompletedValue()
 
 		if completed < current_fence_value {
-			hr = dx_context.fence->SetEventOnCompletion(current_fence_value, dx_context.fence_event)
+			hr =
+			dx_context.fence->SetEventOnCompletion(current_fence_value, dx_context.fence_event)
 			check(hr, "Failed to set event on completion flag")
 			windows.WaitForSingleObject(dx_context.fence_event, windows.INFINITE)
 		}
@@ -790,7 +788,7 @@ render :: proc() {
 create_texture :: proc() {
 
 	//create texture resource
-	texture : ^dx.IResource
+	texture: ^dx.IResource
 
 	texture_width :: 256
 
@@ -810,12 +808,11 @@ create_texture :: proc() {
 		SampleDesc = {Count = 1},
 	}
 
-	hr :=
-	dx_context.device->CreateCommittedResource(
+	hr := dx_context.device->CreateCommittedResource(
 		&heap_properties,
 		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
 		&texture_desc,
-		dx.RESOURCE_STATE_GENERIC_READ,
+		{.COPY_DEST},
 		nil,
 		dx.IResource_UUID,
 		(^rawptr)(&texture),
@@ -824,18 +821,27 @@ create_texture :: proc() {
 	check(hr, "failed creating texture")
 
 	// getting data from texture that we'll use later
-	text_footprint : dx.PLACED_SUBRESOURCE_FOOTPRINT
-	text_bytes : u64
+	text_footprint: dx.PLACED_SUBRESOURCE_FOOTPRINT
+	text_bytes: u64
 
-	dx_context.device->GetCopyableFootprints(&texture_desc, 0, 1, 0, &text_footprint, nil, nil, &text_bytes)
+	dx_context.device->GetCopyableFootprints(
+		&texture_desc,
+		0,
+		1,
+		0,
+		&text_footprint,
+		nil,
+		nil,
+		&text_bytes,
+	)
 
 	// creating upload heap and resource (needed to upload texture data from cpu to the default heap)
 
 	heap_properties = dx.HEAP_PROPERTIES {
-		Type = .UPLOAD
+		Type = .UPLOAD,
 	}
 
-	texture_upload : ^dx.IResource
+	texture_upload: ^dx.IResource
 	upload_desc := dx.RESOURCE_DESC {
 		Dimension = .BUFFER,
 		Alignment = 0,
@@ -864,7 +870,7 @@ create_texture :: proc() {
 	// here you do a Map and you memcpy the data to the upload resource.
 	// you'll have to use an image library here to get the pixel data of an image.
 
-	texture_map_start : rawptr
+	texture_map_start: rawptr
 	texture_upload->Map(0, &dx.RANGE{}, &texture_map_start)
 
 	// sending random data for now
@@ -874,20 +880,56 @@ create_texture :: proc() {
 	// here you send the gpu command to copy the data to the texture resource.
 
 	copy_location_src := dx.TEXTURE_COPY_LOCATION {
-		pResource = texture_upload,
-		Type = .PLACED_FOOTPRINT,
-		PlacedFootprint = text_footprint
+		pResource       = texture_upload,
+		Type            = .PLACED_FOOTPRINT,
+		PlacedFootprint = text_footprint,
 	}
 
 	copy_location_dst := dx.TEXTURE_COPY_LOCATION {
-		pResource = texture,
-		Type = .SUBRESOURCE_INDEX,
-		SubresourceIndex = 0
+		pResource        = texture,
+		Type             = .SUBRESOURCE_INDEX,
+		SubresourceIndex = 0,
 	}
 
 	dx_context.cmdlist->Reset(dx_context.command_allocator, dx_context.pipeline)
 	dx_context.cmdlist->CopyTextureRegion(&copy_location_dst, 0, 0, 0, &copy_location_src, nil)
 	dx_context.cmdlist->Close()
 
-	// TODO: do a fence here, wait for it, then release the upload resource
+	// execute
+	cmdlists := [?]^dx.IGraphicsCommandList{dx_context.cmdlist}
+	dx_context.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
+
+	// TODO: do a fence here, wait for it, then release the upload resource, and change the texture state to generic read
+
+	fence_value: u64
+	fence: ^dx.IFence
+	hr = dx_context.device->CreateFence(fence_value, {}, dx.IFence_UUID, (^rawptr)(&fence))
+	fence_value += 1
+	hr = dx_context.queue->Signal(fence, fence_value)
+
+	//  "system" (this: ^IDevice, InitialValue: u64, Flags: FENCE_FLAGS, riid: ^IID, ppFence: ^rawptr) -> HRESULT,
+
+	// 4. Wait for the GPU to reach the signal point.
+	// First, create an event handle.
+	fence_event := windows.CreateEventW(nil, false, false, nil)
+
+	if fence_event == nil {
+		fmt.println("Failed to create fence event")
+		return
+	}
+
+
+	completed := fence->GetCompletedValue()
+
+	if completed < fence_value {
+		// the gpu is not finished yet , so we wait
+		fence->SetEventOnCompletion(fence_value, fence_event)
+		windows.WaitForSingleObject(fence_event, windows.INFINITE)
+	}
+
+	// here, the gpu is done! now release upload resource then change texture type to generic read
+	texture_upload->Release()
+
+	// you need to set a resource barrier here to transition the texture resource to a generic read state
+	// read gemini answer: https://gemini.google.com/app/b17b9b13fb300d60
 }
