@@ -62,6 +62,9 @@ Context :: struct {
 
 	// texture
 	texture : ^dx.IResource,
+
+	// descriptor heap
+	descriptor_heap_cbv_srv_uav: ^dx.IDescriptorHeap
 }
 
 check :: proc(res: dx.HRESULT, message: string) {
@@ -201,39 +204,7 @@ main :: proc() {
 		// empty range means the cpu won't read from it
 		dx_context.constant_buffer->Map(0, &dx.RANGE{}, &dx_context.map_start)
 
-		/// creating a cbv (constant buffer view)
-
-		// creating descriptor heap
-		cbv_heap_desc := dx.DESCRIPTOR_HEAP_DESC {
-			NumDescriptors = 1,
-			Type           = .CBV_SRV_UAV,
-			Flags          = {.SHADER_VISIBLE},
-		}
-
-		cbv_heap: ^dx.IDescriptorHeap
-		hr =
-		device->CreateDescriptorHeap(&cbv_heap_desc, dx.IDescriptorHeap_UUID, (^rawptr)(&cbv_heap))
-		check(hr, "failed creating descriptor heap")
-
-		// creating the cbv
-
-		cbv_desc := dx.CONSTANT_BUFFER_VIEW_DESC {
-			BufferLocation = dx_context.constant_buffer->GetGPUVirtualAddress(),
-			SizeInBytes    = 256,
-		}
-
-		cpu_desc_handle: dx.CPU_DESCRIPTOR_HANDLE
-		cbv_heap->GetCPUDescriptorHandleForHeapStart(&cpu_desc_handle)
-		device->CreateConstantBufferView(&cbv_desc, cpu_desc_handle)
-
-		// updating the constant buffer
-
-		// example float value
-
-		// ConstantBufferData :: struct #align (256) {
-		// 	time: f32,
-		// }
-
+		// giving the constant buffer some data
 		cbvdata_example := ConstantBufferData{0}
 		mem.copy(dx_context.map_start, (rawptr)(&cbvdata_example), size_of(cbvdata_example))
 	}
@@ -450,9 +421,10 @@ cbuffer ConstantBuffer : register(b0) {
 	hr = dx_context.cmdlist->Close()
 	check(hr, "Failed to close command list")
 
-
 	// texture test
 	create_texture()
+
+	create_descriptor_heap_cbv_srv_uav()
 
 	vertex_buffer: ^dx.IResource
 
@@ -705,10 +677,17 @@ render :: proc() {
 
 	// This state is reset everytime the cmd list is reset, so we need to rebind it
 	cmdlist->SetGraphicsRootSignature(dx_context.root_signature)
+
+	// setting descriptor heap for our cbv srv uav's
+	cmdlist->SetDescriptorHeaps(1, &dx_context.descriptor_heap_cbv_srv_uav)
+
+	// set descriptor heap instead of doing this
+
 	cmdlist->SetGraphicsRootConstantBufferView(
 		0,
 		dx_context.constant_buffer->GetGPUVirtualAddress(),
 	)
+
 	cmdlist->RSSetViewports(1, &viewport)
 	cmdlist->RSSetScissorRects(1, &scissor_rect)
 
@@ -790,8 +769,7 @@ render :: proc() {
 // creating resource and uploading it to the gpu
 create_texture :: proc() {
 
-	//create texture resource
-	texture: ^dx.IResource
+	c := &dx_context
 
 	texture_width :: 256
 
@@ -818,7 +796,7 @@ create_texture :: proc() {
 		{.COPY_DEST},
 		nil,
 		dx.IResource_UUID,
-		(^rawptr)(&texture),
+		(^rawptr)(&c.texture),
 	)
 
 	check(hr, "failed creating texture")
@@ -889,7 +867,7 @@ create_texture :: proc() {
 	}
 
 	copy_location_dst := dx.TEXTURE_COPY_LOCATION {
-		pResource        = texture,
+		pResource        = c.texture,
 		Type             = .SUBRESOURCE_INDEX,
 		SubresourceIndex = 0,
 	}
@@ -913,7 +891,7 @@ create_texture :: proc() {
 		Type = .TRANSITION,
 		Flags = {},
 		Transition = {
-			pResource = texture,
+			pResource = c.texture,
 			StateBefore = {.COPY_DEST},
 			StateAfter = dx.RESOURCE_STATE_GENERIC_READ,
 			Subresource = 0
@@ -952,4 +930,49 @@ create_texture :: proc() {
 
 	// here, the gpu is done! now release upload resource then change texture type to generic read
 	texture_upload->Release()
+
+
+	// creating SRV
+
+
+}
+
+// creates the descriptor heap that will hold all our cbv's srv's and uav's
+create_descriptor_heap_cbv_srv_uav :: proc() {
+
+	c := &dx_context
+
+	// creating descriptor heap
+	cbv_heap_desc := dx.DESCRIPTOR_HEAP_DESC {
+		NumDescriptors = 2,
+		Type           = .CBV_SRV_UAV,
+		Flags          = {.SHADER_VISIBLE},
+	}
+
+	hr := c.device->CreateDescriptorHeap(&cbv_heap_desc, dx.IDescriptorHeap_UUID, (^rawptr)(&c.descriptor_heap_cbv_srv_uav))
+	check(hr, "failed creating descriptor heap")
+
+	// creating SRV (my texture)
+
+	cpu_desc_handle_srv: dx.CPU_DESCRIPTOR_HANDLE
+	c.descriptor_heap_cbv_srv_uav->GetCPUDescriptorHandleForHeapStart(&cpu_desc_handle_srv)
+	increment_size := c.device->GetDescriptorHandleIncrementSize(.CBV_SRV_UAV)
+	// ptr is a uint
+	cpu_desc_handle_srv.ptr += 1 * (uint)(increment_size)
+
+	c.device->CreateShaderResourceView(c.texture, nil, cpu_desc_handle_srv)
+
+	// CreateShaderResourceView:         proc "system" (this: ^IDevice, pResource: ^IResource, pDesc: ^SHADER_RESOURCE_VIEW_DESC, DestDescriptor: CPU_DESCRIPTOR_HANDLE),
+
+	// creating cbv for my test constant buffer
+	
+	cbv_desc := dx.CONSTANT_BUFFER_VIEW_DESC {
+		BufferLocation = dx_context.constant_buffer->GetGPUVirtualAddress(),
+		SizeInBytes    = 256,
+	}
+
+	cpu_desc_handle_cbv: dx.CPU_DESCRIPTOR_HANDLE
+	c.descriptor_heap_cbv_srv_uav->GetCPUDescriptorHandleForHeapStart(&cpu_desc_handle_cbv)
+	c.device->CreateConstantBufferView(&cbv_desc, cpu_desc_handle_srv)
+
 }
