@@ -220,17 +220,26 @@ main :: proc() {
 
 	{
 
-		root_parameters: [1]dx.ROOT_PARAMETER
+		root_parameters: [2]dx.ROOT_PARAMETER
+
+		// our test constant buffer
 		root_parameters[0] = {
 			ParameterType = .CBV,
 			Descriptor = {ShaderRegister = 0, RegisterSpace = 0},
 			ShaderVisibility = .ALL, // vertex, pixel, or both (all)
 		}
 
+		// our test texture
+		root_parameters[1] = {
+			ParameterType = .SRV,
+			Descriptor = {ShaderRegister = 1, RegisterSpace = 0},
+			ShaderVisibility = .PIXEL
+		}
+
 		desc := dx.VERSIONED_ROOT_SIGNATURE_DESC {
 			Version = ._1_0,
 			// defining the cbv here
-			Desc_1_0 = {NumParameters = 1, pParameters = &root_parameters[0]},
+			Desc_1_0 = {NumParameters = 2, pParameters = &root_parameters[0]},
 		}
 
 		desc.Desc_1_0.Flags = {.ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT}
@@ -271,7 +280,12 @@ cbuffer ConstantBuffer : register(b0) {
 			   result.color.b = 0;
 			   return result;
 			}
+
+			Texture2D<float4> myTexture : register(t1);
+			SamplerState mySampler : register(s0);
+
 			float4 PSMain(PSInput input) : SV_TARGET {
+			   float4 pixelColor = myTexture.Sample(mySampler, inputUV); // we need to pass UVs too
 			   return input.color;
 			};`
 
