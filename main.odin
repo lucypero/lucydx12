@@ -27,6 +27,8 @@ import dx "vendor:directx/d3d12"
 import d3dc "vendor:directx/d3d_compiler"
 import dxgi "vendor:directx/dxgi"
 import sdl "vendor:sdl2"
+import img "vendor:stb/image"
+import "core:c"
 
 NUM_RENDERTARGETS :: 2
 
@@ -757,9 +759,17 @@ render :: proc() {
 // creating resource and uploading it to the gpu
 create_texture :: proc() {
 
-	c := &dx_context
+	ct := &dx_context
 
-	texture_width :: 256
+
+	// reading from image
+	texture_width, texture_height, channels: c.int
+
+	img_data := img.load("astrobot.png", &texture_width, &texture_height, &channels, 0)
+	if img_data == nil {
+		fmt.eprintln("error reading image")
+		os.exit(1)
+	}
 
 	// default heap (this is where the final texture will reside)
 
@@ -767,9 +777,9 @@ create_texture :: proc() {
 		Type = .DEFAULT,
 	}
 	texture_desc := dx.RESOURCE_DESC {
-		Width = texture_width,
+		Width = (u64)(texture_width),
 		Dimension = .TEXTURE2D,
-		Height = texture_width,
+		Height = (u32)(texture_height),
 		Layout = .UNKNOWN,
 		Format = .R8G8B8A8_UNORM,
 		DepthOrArraySize = 1,
@@ -784,7 +794,7 @@ create_texture :: proc() {
 		{.COPY_DEST},
 		nil,
 		dx.IResource_UUID,
-		(^rawptr)(&c.texture),
+		(^rawptr)(&ct.texture),
 	)
 
 	check(hr, "failed creating texture")
@@ -843,8 +853,10 @@ create_texture :: proc() {
 	texture_upload->Map(0, &dx.RANGE{}, &texture_map_start)
 
 	// sending random data for now
-	the_texture_data: [25]f32 = 25
-	mem.copy(texture_map_start, (rawptr)(&the_texture_data), size_of(the_texture_data))
+
+
+	// TODO: u gotta make sure u are getting the bytes in the right format, then copy each channel (RGBA) etc...
+	// mem.copy(texture_map_start, (rawptr)(&the_texture_data), size_of(img_data))
 
 	// here you send the gpu command to copy the data to the texture resource.
 
@@ -855,7 +867,7 @@ create_texture :: proc() {
 	}
 
 	copy_location_dst := dx.TEXTURE_COPY_LOCATION {
-		pResource        = c.texture,
+		pResource        = ct.texture,
 		Type             = .SUBRESOURCE_INDEX,
 		SubresourceIndex = 0,
 	}
@@ -879,7 +891,7 @@ create_texture :: proc() {
 		Type = .TRANSITION,
 		Flags = {},
 		Transition = {
-			pResource = c.texture,
+			pResource = ct.texture,
 			StateBefore = {.COPY_DEST},
 			StateAfter = dx.RESOURCE_STATE_GENERIC_READ,
 			Subresource = 0
