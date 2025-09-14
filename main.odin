@@ -342,18 +342,19 @@ main :: proc() {
 			{
 				SemanticName = "POSITION",
 				Format = .R32G32B32_FLOAT,
+				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
 				InputSlotClass = .PER_VERTEX_DATA,
 			},
 			{
 				SemanticName = "TEXCOORD",
 				Format = .R32G32_FLOAT,
-				AlignedByteOffset = size_of(f32) * 3,
+				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
 				InputSlotClass = .PER_VERTEX_DATA,
 			},
 			{
 				SemanticName = "COLOR",
 				Format = .R32G32B32A32_FLOAT,
-				AlignedByteOffset = size_of(f32) * 5,
+				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
 				InputSlotClass = .PER_VERTEX_DATA,
 			},
 		}
