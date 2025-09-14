@@ -15,6 +15,7 @@
 
 package d3d12_triangle
 
+import "core:odin/ast"
 import "core:fmt"
 import "core:mem"
 import "core:os"
@@ -51,7 +52,8 @@ Context :: struct {
 	root_signature:      ^dx.IRootSignature,
 	constant_buffer:     ^dx.IResource,
 	vertex_buffer_view:  dx.VERTEX_BUFFER_VIEW,
-	rtv_descriptor_heap: ^dx.IDescriptorHeap,
+	// descriptor heap for the render target view
+	rtv_descriptor_heap: ^dx.IDescriptorHeap, 
 	frame_index:         u32,
 	targets:             [NUM_RENDERTARGETS]^dx.IResource, // render targets
 
@@ -63,7 +65,7 @@ Context :: struct {
 	// texture
 	texture : ^dx.IResource,
 
-	// descriptor heap
+	// descriptor heap for our cbv and srv (texture)
 	descriptor_heap_cbv_srv_uav: ^dx.IDescriptorHeap
 }
 
@@ -218,58 +220,23 @@ main :: proc() {
 		simply have one compute root signature. These root signatures are independent of each other.
 	*/
 
-	{
+	create_root_signature()
 
-		root_parameters: [2]dx.ROOT_PARAMETER
-
-		// our test constant buffer
-		root_parameters[0] = {
-			ParameterType = .CBV,
-			Descriptor = {ShaderRegister = 0, RegisterSpace = 0},
-			ShaderVisibility = .ALL, // vertex, pixel, or both (all)
-		}
-
-		// our test texture
-		root_parameters[1] = {
-			ParameterType = .SRV,
-			Descriptor = {ShaderRegister = 1, RegisterSpace = 0},
-			ShaderVisibility = .PIXEL
-		}
-
-		desc := dx.VERSIONED_ROOT_SIGNATURE_DESC {
-			Version = ._1_0,
-			// defining the cbv here
-			Desc_1_0 = {NumParameters = 2, pParameters = &root_parameters[0]},
-		}
-
-		desc.Desc_1_0.Flags = {.ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT}
-		serialized_desc: ^dx.IBlob
-		hr = dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
-		check(hr, "Failed to serialize root signature")
-		hr =
-		device->CreateRootSignature(
-			0,
-			serialized_desc->GetBufferPointer(),
-			serialized_desc->GetBufferSize(),
-			dx.IRootSignature_UUID,
-			(^rawptr)(&dx_context.root_signature),
-		)
-		check(hr, "Failed creating root signature")
-		serialized_desc->Release()
-	}
 
 	// The pipeline contains the shaders etc to use
 
 	{
 		// Compile vertex and pixel shaders
-		data: cstring = `struct PSInput {
+		data: cstring = `
+		
+			struct PSInput {
 			   float4 position : SV_POSITION;
 			   float4 color : COLOR;
 			};
 
-cbuffer ConstantBuffer : register(b0) {
-    float someValue;
-};
+			cbuffer ConstantBuffer : register(b0) {
+				float someValue;
+			};
 
 			PSInput VSMain(float4 position : POSITION0, float4 color : COLOR0) {
 			   PSInput result;
@@ -285,8 +252,9 @@ cbuffer ConstantBuffer : register(b0) {
 			SamplerState mySampler : register(s0);
 
 			float4 PSMain(PSInput input) : SV_TARGET {
-			   float4 pixelColor = myTexture.Sample(mySampler, inputUV); // we need to pass UVs too
-			   return input.color;
+			   float4 pixelColor = myTexture.Sample(mySampler, input.position.xy); // we need to pass UVs too
+			//    return pixelColor;
+			   return input.color + pixelColor;
 			};`
 
 
@@ -695,7 +663,13 @@ render :: proc() {
 	// setting descriptor heap for our cbv srv uav's
 	cmdlist->SetDescriptorHeaps(1, &dx_context.descriptor_heap_cbv_srv_uav)
 
-	// set descriptor heap instead of doing this
+	// setting descriptor tables for our texture
+	gpu_descriptor_handle : dx.GPU_DESCRIPTOR_HANDLE
+	dx_context.descriptor_heap_cbv_srv_uav->GetGPUDescriptorHandleForHeapStart(&gpu_descriptor_handle)
+	increment_size := dx_context.device->GetDescriptorHandleIncrementSize(.CBV_SRV_UAV)
+	gpu_descriptor_handle.ptr += 1 * (u64)(increment_size)
+
+	cmdlist->SetGraphicsRootDescriptorTable(1, gpu_descriptor_handle)
 
 	cmdlist->SetGraphicsRootConstantBufferView(
 		0,
@@ -971,8 +945,9 @@ create_descriptor_heap_cbv_srv_uav :: proc() {
 	cpu_desc_handle_srv: dx.CPU_DESCRIPTOR_HANDLE
 	c.descriptor_heap_cbv_srv_uav->GetCPUDescriptorHandleForHeapStart(&cpu_desc_handle_srv)
 	increment_size := c.device->GetDescriptorHandleIncrementSize(.CBV_SRV_UAV)
-	// ptr is a uint
+	// advancing pointer
 	cpu_desc_handle_srv.ptr += 1 * (uint)(increment_size)
+	// ptr is a uint
 
 	c.device->CreateShaderResourceView(c.texture, nil, cpu_desc_handle_srv)
 
@@ -987,6 +962,83 @@ create_descriptor_heap_cbv_srv_uav :: proc() {
 
 	cpu_desc_handle_cbv: dx.CPU_DESCRIPTOR_HANDLE
 	c.descriptor_heap_cbv_srv_uav->GetCPUDescriptorHandleForHeapStart(&cpu_desc_handle_cbv)
-	c.device->CreateConstantBufferView(&cbv_desc, cpu_desc_handle_srv)
+	c.device->CreateConstantBufferView(&cbv_desc, cpu_desc_handle_cbv)
 
+}
+
+create_root_signature :: proc() {
+
+	// We'll define a descriptor range for our texture SRV
+	texture_range := dx.DESCRIPTOR_RANGE {
+		RangeType = .SRV,
+		NumDescriptors = 1, // Only one texture
+		BaseShaderRegister = 1, // Corresponds to t1 in the shader
+		RegisterSpace = 0,
+		OffsetInDescriptorsFromTableStart = dx.DESCRIPTOR_RANGE_OFFSET_APPEND,
+	}
+
+	root_parameters_len :: 2
+
+	root_parameters: [root_parameters_len]dx.ROOT_PARAMETER
+
+	// our test constant buffer
+	root_parameters[0] = {
+		ParameterType = .CBV,
+		Descriptor = {ShaderRegister = 0, RegisterSpace = 0},
+		ShaderVisibility = .ALL, // vertex, pixel, or both (all)
+	}
+
+	// our descriptor table for the texture
+	root_parameters[1] = {
+		ParameterType = .DESCRIPTOR_TABLE,
+		DescriptorTable = {
+			NumDescriptorRanges = 1,
+			pDescriptorRanges = &texture_range
+		},
+		ShaderVisibility = .PIXEL
+	}
+
+	// our static sampler
+
+	// We'll define a static sampler description
+	sampler_desc := dx.STATIC_SAMPLER_DESC {
+		Filter = .MIN_MAG_MIP_LINEAR, // Tri-linear filtering
+		AddressU = .WRAP,           // Repeat the texture in the U direction
+		AddressV = .WRAP,           // Repeat the texture in the V direction
+		AddressW = .WRAP,           // Repeat the texture in the W direction
+		MipLODBias = 0.0,
+		MaxAnisotropy = 0,
+		ComparisonFunc = .NEVER,
+		BorderColor = .OPAQUE_BLACK,
+		MinLOD = 0.0,
+		MaxLOD = dx.FLOAT32_MAX,
+		ShaderRegister = 0, // This corresponds to the s0 register in the shader
+		RegisterSpace = 0,
+		ShaderVisibility = .PIXEL,
+	}
+
+	desc := dx.VERSIONED_ROOT_SIGNATURE_DESC {
+		Version = ._1_0,
+		Desc_1_0 = {
+			NumParameters = root_parameters_len,
+			pParameters = &root_parameters[0],
+			NumStaticSamplers = 1,
+			pStaticSamplers = &sampler_desc
+		},
+	}
+
+	desc.Desc_1_0.Flags = {.ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT}
+	serialized_desc: ^dx.IBlob
+	hr := dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
+	check(hr, "Failed to serialize root signature")
+	hr =
+	dx_context.device->CreateRootSignature(
+		0,
+		serialized_desc->GetBufferPointer(),
+		serialized_desc->GetBufferSize(),
+		dx.IRootSignature_UUID,
+		(^rawptr)(&dx_context.root_signature),
+	)
+	check(hr, "Failed creating root signature")
+	serialized_desc->Release()
 }
