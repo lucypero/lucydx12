@@ -32,6 +32,8 @@ import "core:c"
 
 NUM_RENDERTARGETS :: 2
 
+vertex_count :: 6
+
 // window dimensions
 wx := i32(640)
 wy := i32(480)
@@ -227,12 +229,21 @@ main :: proc() {
 
 	// The pipeline contains the shaders etc to use
 
+	// SHADERCODE
+
 	{
 		// Compile vertex and pixel shaders
 		data: cstring = `
+
+			struct VSInput {
+			   float3 position : POSITION;
+			   float2 uvs : TEXCOORD;
+			   float4 color : COLOR;
+			};
 		
 			struct PSInput {
 			   float4 position : SV_POSITION;
+			   float2 uvs : TEXCOORD0;
 			   float4 color : COLOR;
 			};
 
@@ -240,13 +251,12 @@ main :: proc() {
 				float someValue;
 			};
 
-			PSInput VSMain(float4 position : POSITION0, float4 color : COLOR0) {
+			PSInput VSMain(VSInput the_input) {
 			   PSInput result;
-			   result.position = position;
-			   result.color = color;
-			   result.color.r = someValue;
-			   result.color.g = 0;
-			   result.color.b = 0;
+			   result.position.xyz = the_input.position;
+			   result.position.w = 1;
+			   result.uvs = the_input.uvs.xy;
+			   result.color = the_input.color;
 			   return result;
 			}
 
@@ -254,9 +264,9 @@ main :: proc() {
 			SamplerState mySampler : register(s0);
 
 			float4 PSMain(PSInput input) : SV_TARGET {
-			   float4 pixelColor = myTexture.Sample(mySampler, input.position.xy); // we need to pass UVs too
-			//    return pixelColor;
-			   return input.color + pixelColor;
+			   float4 pixelColor = myTexture.Sample(mySampler, input.uvs); // we need to pass UVs too
+			   return pixelColor;
+			   //return input.color; 
 			};`
 
 
@@ -273,6 +283,7 @@ main :: proc() {
 
 		// errors
 		vs_res: ^d3dc.ID3DBlob
+		ps_res: ^d3dc.ID3DBlob
 
 		hr = d3dc.Compile(
 			rawptr(data),
@@ -311,9 +322,20 @@ main :: proc() {
 			compile_flags,
 			0,
 			&ps,
-			nil,
+			&ps_res,
 		)
 		check(hr, "Failed to compile pixel shader")
+
+		if (ps_res != nil) {
+			// errors in shader compilation
+			a := strings.string_from_ptr(
+				(^u8)(ps_res->GetBufferPointer()),
+				int(ps_res->GetBufferSize()),
+			)
+			fmt.println("DXC PS ERRORS: ", a)
+		}
+
+		// INPUTLAYOUT
 
 		// This layout matches the vertices data defined further down
 		vertex_format: []dx.INPUT_ELEMENT_DESC = {
@@ -323,9 +345,15 @@ main :: proc() {
 				InputSlotClass = .PER_VERTEX_DATA,
 			},
 			{
+				SemanticName = "TEXCOORD",
+				Format = .R32G32_FLOAT,
+				AlignedByteOffset = size_of(f32) * 3,
+				InputSlotClass = .PER_VERTEX_DATA,
+			},
+			{
 				SemanticName = "COLOR",
 				Format = .R32G32B32A32_FLOAT,
-				AlignedByteOffset = size_of(f32) * 3,
+				AlignedByteOffset = size_of(f32) * 5,
 				InputSlotClass = .PER_VERTEX_DATA,
 			},
 		}
@@ -413,30 +441,19 @@ main :: proc() {
 	vertex_buffer: ^dx.IResource
 
 	{
+
+		// VERTEXDATA
+
 		// The position and color data for the triangle's vertices go together per-vertex
 		vertices := [?]f32 {
-			// pos            color
-			0.0,
-			0.5,
-			0.0,
-			1,
-			0,
-			0,
-			0,
-			0.5,
-			-0.5,
-			0.0,
-			0,
-			1,
-			0,
-			0,
-			-0.5,
-			-0.5,
-			0.0,
-			0,
-			0,
-			1,
-			0,
+			// pos              uv           color
+			-0.5, -0.5, 0.0,    0.0, 1.0,      1, 0, 0, 0,
+			 0.5,  0.5, 0.0,    1.0, 0.0,      0, 1, 0, 0,
+			 0.5, -0.5, 0.0,    1.0, 1.0,      0, 0, 1, 0,
+
+			-0.5, -0.5, 0.0,    0.0, 1.0,      1, 0, 0, 0,
+			-0.5,  0.5, 0.0,    0.0, 0.0,      0, 0, 1, 0,
+			 0.5,  0.5, 0.0,    1.0, 0.0,      0, 1, 0, 0,
 		}
 
 		heap_props := dx.HEAP_PROPERTIES {
@@ -481,7 +498,7 @@ main :: proc() {
 
 		dx_context.vertex_buffer_view = dx.VERTEX_BUFFER_VIEW {
 			BufferLocation = vertex_buffer->GetGPUVirtualAddress(),
-			StrideInBytes  = u32(vertex_buffer_size / 3),
+			StrideInBytes  = u32(vertex_buffer_size / vertex_count),
 			SizeInBytes    = u32(vertex_buffer_size),
 		}
 	}
@@ -712,7 +729,7 @@ render :: proc() {
 	// draw call
 	cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
 	cmdlist->IASetVertexBuffers(0, 1, &dx_context.vertex_buffer_view)
-	cmdlist->DrawInstanced(3, 1, 0, 0)
+	cmdlist->DrawInstanced(vertex_count, 1, 0, 0)
 
 	to_present_barrier := to_render_target_barrier
 	to_present_barrier.Transition.StateBefore = {.RENDER_TARGET}
@@ -802,17 +819,10 @@ create_texture :: proc() {
 	// getting data from texture that we'll use later
 	text_footprint: dx.PLACED_SUBRESOURCE_FOOTPRINT
 	text_bytes: u64
+	num_rows : u32
+	row_size : u64
 
-	dx_context.device->GetCopyableFootprints(
-		&texture_desc,
-		0,
-		1,
-		0,
-		&text_footprint,
-		nil,
-		nil,
-		&text_bytes,
-	)
+	dx_context.device->GetCopyableFootprints( &texture_desc, 0, 1, 0, &text_footprint, &num_rows, &row_size, &text_bytes)
 
 	// creating upload heap and resource (needed to upload texture data from cpu to the default heap)
 
@@ -851,12 +861,13 @@ create_texture :: proc() {
 
 	texture_map_start: rawptr
 	texture_upload->Map(0, &dx.RANGE{}, &texture_map_start)
+	texture_map_start_mp : [^]u8 = auto_cast texture_map_start
 
-	// sending random data for now
-
-
-	// TODO: u gotta make sure u are getting the bytes in the right format, then copy each channel (RGBA) etc...
-	// mem.copy(texture_map_start, (rawptr)(&the_texture_data), size_of(img_data))
+	for row in 0..<texture_height {
+		mem.copy(texture_map_start_mp[u32(text_footprint.Footprint.RowPitch) * u32(row):],
+				 img_data[texture_width * channels * row:],
+				  int(texture_width * channels))
+	}
 
 	// here you send the gpu command to copy the data to the texture resource.
 
@@ -1015,8 +1026,8 @@ create_root_signature :: proc() {
 	// We'll define a static sampler description
 	sampler_desc := dx.STATIC_SAMPLER_DESC {
 		Filter = .MIN_MAG_MIP_LINEAR, // Tri-linear filtering
-		AddressU = .WRAP,           // Repeat the texture in the U direction
-		AddressV = .WRAP,           // Repeat the texture in the V direction
+		AddressU = .CLAMP,           // Repeat the texture in the U direction
+		AddressV = .CLAMP,           // Repeat the texture in the V direction
 		AddressW = .WRAP,           // Repeat the texture in the W direction
 		MipLODBias = 0.0,
 		MaxAnisotropy = 0,
