@@ -29,8 +29,11 @@ import dxgi "vendor:directx/dxgi"
 import sdl "vendor:sdl2"
 import img "vendor:stb/image"
 import "core:c"
+import "core:math"
 
 NUM_RENDERTARGETS :: 2
+
+TURNS_TO_RAD :: math.PI * 2
 
 vertex_count :: 6
 
@@ -40,8 +43,11 @@ wy := i32(480)
 
 // constant buffer data
 ConstantBufferData :: struct #align (256) {
+	wvp: dxm,
 	time: f32,
 }
+
+dxm :: matrix[4,4]f32
 
 Context :: struct {
 	// core stuff
@@ -95,7 +101,7 @@ main :: proc() {
 
 	defer sdl.Quit()
 	window := sdl.CreateWindow(
-		"d3d12 triangle",
+		"lucydx12",
 		sdl.WINDOWPOS_UNDEFINED,
 		sdl.WINDOWPOS_UNDEFINED,
 		wx,
@@ -184,7 +190,7 @@ main :: proc() {
 			Type = .UPLOAD,
 		}
 		constant_buffer_desc := dx.RESOURCE_DESC {
-			Width = 256,
+			Width = size_of(ConstantBufferData),
 			Dimension = .BUFFER,
 			Height = 1,
 			Layout = .ROW_MAJOR,
@@ -210,9 +216,9 @@ main :: proc() {
 		// empty range means the cpu won't read from it
 		dx_context.constant_buffer->Map(0, &dx.RANGE{}, &dx_context.map_start)
 
-		// giving the constant buffer some data
-		cbvdata_example := ConstantBufferData{0}
-		mem.copy(dx_context.map_start, (rawptr)(&cbvdata_example), size_of(cbvdata_example))
+		// // giving the constant buffer some data
+		// cbvdata_example := ConstantBufferData{0}
+		// mem.copy(dx_context.map_start, (rawptr)(&cbvdata_example), size_of(cbvdata_example))
 	}
 
 
@@ -639,6 +645,34 @@ init_dx :: proc() {
 	dx_context.device = device
 }
 
+get_projection_matrix :: proc(fov_rad: f32, screenWidth: i32, screenHeight: i32, near: f32, far: f32) -> dxm {
+    f := 1.0 / math.tan_f32(fov_rad * 0.5)
+    aspect := f32(screenWidth) / f32(screenHeight)
+
+	// TODO: formula might be different because this is a left handed system.
+
+    return dxm{
+        f / aspect, 0.0, 0.0,  0.0,
+		0.0, f, 0.0,  0.0,
+		0.0, 0.0, -far / (far - near), -1.0,
+		0.0, 0.0, -far * near / (far - near),  0.0
+    }
+}
+
+get_wvp :: proc() -> dxm {
+
+	// TODO: change view so we are away from origin. at z= -2 approx
+
+	// it's an identity matrix because we are at origin looking at forward Z
+	view : matrix[4,4]f32
+	view = 1 // setting view as identity
+
+	fov :: 0.5 * TURNS_TO_RAD
+	proj := get_projection_matrix(fov, wx, wy, 0, 100)
+
+	return view * proj
+}
+
 render :: proc() {
 
 	command_allocator := dx_context.command_allocator
@@ -654,7 +688,15 @@ render :: proc() {
 		start_time = time.now()
 	}
 
-	cbvdata_example := ConstantBufferData{float_val}
+	// sending constant buffer data
+
+	wvp := get_wvp()
+
+	cbvdata_example := ConstantBufferData{
+		wvp = wvp,
+		time = float_val
+	}
+
 	mem.copy(dx_context.map_start, (rawptr)(&cbvdata_example), size_of(cbvdata_example))
 	// case .WINDOWEVENT:
 	// This is equivalent to WM_PAINT in win32 API
@@ -784,6 +826,8 @@ create_texture :: proc() {
 	texture_width, texture_height, channels: c.int
 
 	img_data := img.load("astrobot.png", &texture_width, &texture_height, &channels, 0)
+	defer(img.image_free(img_data))
+
 	if img_data == nil {
 		fmt.eprintln("error reading image")
 		os.exit(1)
@@ -869,6 +913,7 @@ create_texture :: proc() {
 				 img_data[texture_width * channels * row:],
 				  int(texture_width * channels))
 	}
+
 
 	// here you send the gpu command to copy the data to the texture resource.
 
@@ -981,7 +1026,7 @@ create_descriptor_heap_cbv_srv_uav :: proc() {
 	
 	cbv_desc := dx.CONSTANT_BUFFER_VIEW_DESC {
 		BufferLocation = dx_context.constant_buffer->GetGPUVirtualAddress(),
-		SizeInBytes    = 256,
+		SizeInBytes    = size_of(ConstantBufferData),
 	}
 
 	cpu_desc_handle_cbv: dx.CPU_DESCRIPTOR_HANDLE
