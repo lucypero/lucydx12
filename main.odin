@@ -49,6 +49,8 @@ ConstantBufferData :: struct #align (256) {
 
 dxm :: matrix[4,4]f32
 
+cam_pos : [3]f32
+
 Context :: struct {
 	// core stuff
 	device:              ^dx.IDevice,
@@ -238,44 +240,13 @@ main :: proc() {
 	// SHADERCODE
 
 	{
-		// Compile vertex and pixel shaders
-		data: cstring = `
 
-			struct VSInput {
-			   float3 position : POSITION;
-			   float2 uvs : TEXCOORD;
-			   float4 color : COLOR;
-			};
-		
-			struct PSInput {
-			   float4 position : SV_POSITION;
-			   float2 uvs : TEXCOORD0;
-			   float4 color : COLOR;
-			};
-
-			cbuffer ConstantBuffer : register(b0) {
-				float someValue;
-			};
-
-			PSInput VSMain(VSInput the_input) {
-			   PSInput result;
-			   result.position.xyz = the_input.position;
-			   result.position.w = 1;
-			   result.uvs = the_input.uvs.xy;
-			   result.color = the_input.color;
-			   return result;
-			}
-
-			Texture2D<float4> myTexture : register(t1);
-			SamplerState mySampler : register(s0);
-
-			float4 PSMain(PSInput input) : SV_TARGET {
-			   float4 pixelColor = myTexture.Sample(mySampler, input.uvs); // we need to pass UVs too
-			   return pixelColor;
-			   //return input.color; 
-			};`
-
-
+		data, ok := os.read_entire_file("shader.hlsl")
+		if !ok {
+			fmt.eprintln("could not read file")
+			os.exit(1)
+		}
+		defer(delete(data))
 		data_size: uint = len(data)
 
 		compile_flags: u32 = 0
@@ -292,17 +263,8 @@ main :: proc() {
 		ps_res: ^d3dc.ID3DBlob
 
 		hr = d3dc.Compile(
-			rawptr(data),
-			data_size,
-			nil,
-			nil,
-			nil,
-			"VSMain",
-			"vs_4_0",
-			compile_flags,
-			0,
-			&vs,
-			&vs_res,
+			rawptr(&data[0]), data_size, nil, nil, nil, "VSMain", "vs_4_0",
+			compile_flags, 0, &vs, &vs_res,
 		)
 
 		if (vs_res != nil) {
@@ -318,18 +280,10 @@ main :: proc() {
 
 
 		hr = d3dc.Compile(
-			rawptr(data),
-			data_size,
-			nil,
-			nil,
-			nil,
-			"PSMain",
-			"ps_4_0",
-			compile_flags,
-			0,
-			&ps,
-			&ps_res,
+			rawptr(&data[0]), data_size, nil, nil, nil, "PSMain", "ps_4_0",
+			compile_flags, 0, &ps, &ps_res
 		)
+
 		check(hr, "Failed to compile pixel shader")
 
 		if (ps_res != nil) {
@@ -540,8 +494,8 @@ main :: proc() {
 			}
 		}
 
+		update()
 		render()
-
 	}
 }
 
@@ -665,12 +619,43 @@ get_wvp :: proc() -> dxm {
 
 	// it's an identity matrix because we are at origin looking at forward Z
 	view : matrix[4,4]f32
+
 	view = 1 // setting view as identity
 
-	fov :: 0.5 * TURNS_TO_RAD
-	proj := get_projection_matrix(fov, wx, wy, 0, 100)
+	view[0, 3] = -cam_pos.x
+	view[1, 3] = -cam_pos.y
+	view[2, 3] = -cam_pos.z
 
-	return view * proj
+	// translate it back
+
+	
+	fov :: 0.5 * TURNS_TO_RAD
+	proj := get_projection_matrix(fov, wx, wy, 0, 50)
+
+	// return view * proj
+	return view
+}
+
+update :: proc() {
+
+	sdl.PumpEvents()
+	keyboard := sdl.GetKeyboardStateAsSlice()
+
+	// controlling camera
+	cam_speed :: 0.03
+
+	if keyboard[sdl.Scancode.A] == 1{
+		cam_pos.x -= cam_speed
+	}
+	if keyboard[sdl.Scancode.D] == 1{
+		cam_pos.x += cam_speed
+	}
+	if keyboard[sdl.Scancode.W] == 1{
+		cam_pos.y += cam_speed
+	}
+	if keyboard[sdl.Scancode.S] == 1{
+		cam_pos.y -= cam_speed
+	}
 }
 
 render :: proc() {
@@ -691,6 +676,7 @@ render :: proc() {
 	// sending constant buffer data
 
 	wvp := get_wvp()
+
 
 	cbvdata_example := ConstantBufferData{
 		wvp = wvp,
