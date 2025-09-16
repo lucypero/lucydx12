@@ -30,6 +30,7 @@ import sdl "vendor:sdl2"
 import img "vendor:stb/image"
 import "core:c"
 import "core:math"
+import "core:math/linalg"
 
 NUM_RENDERTARGETS :: 2
 
@@ -346,7 +347,7 @@ main :: proc() {
 			SampleMask = 0xFFFFFFFF,
 			RasterizerState = {
 				FillMode = .SOLID,
-				CullMode = .BACK,
+				CullMode = .NONE,
 				FrontCounterClockwise = false,
 				DepthBias = 0,
 				DepthBiasClamp = 0,
@@ -579,10 +580,15 @@ init_dx :: proc() {
 			continue
 		}
 
-		if dx.CreateDevice((^dxgi.IUnknown)(adapter), ._12_0, dxgi.IDevice_UUID, nil) >= 0 {
+		hr = dx.CreateDevice((^dxgi.IUnknown)(adapter), ._12_0, dx.IDevice_UUID, nil)
+
+		if hr >= 0 {
 			break
 		} else {
-			fmt.println("Failed to create device")
+			fmt.printfln("Failed to create device, err: %X", hr) // -2147467262
+			// E_NOINTERFACE
+			// no such interface supported
+			return
 		}
 	}
 
@@ -601,43 +607,41 @@ init_dx :: proc() {
 }
 
 get_projection_matrix :: proc(fov_rad: f32, screenWidth: i32, screenHeight: i32, near: f32, far: f32) -> dxm {
-    f := 1.0 / math.tan_f32(fov_rad * 0.5)
-
-	a := math.tan_f32(fov_rad * 0.5)
+    f := math.tan_f32(fov_rad * 0.5)
 
     aspect := f32(screenWidth) / f32(screenHeight)
 
-	// TODO: formula might be different because this is a left handed system.
 
-    return dxm{
-        1 / (aspect * a), 0, 0, 0,
-		0.0, 1 / a, 0.0,  0.0,
-		0.0, 0.0, far / (far - near), (-near * far) / (far - near),
-		0.0, 0.0, 1, 0
+	return dxm {
+        aspect / f, 0.0, 0.0, 0.0,
+        0.0, 1 / f, 0.0, 0.0,
+        0.0, 0.0, far / (far - near), - (near * far) / (far - near),
+        0.0, 0.0, 1.0, 0.0,
     }
 }
 
 get_wvp :: proc() -> dxm {
 
-	// TODO: change view so we are away from origin. at z= -2 approx
 
-	// it's an identity matrix because we are at origin looking at forward Z
-	view : matrix[4,4]f32
+	// // it's an identity matrix because we are at origin looking at forward Z
+	// view : dxm
 
-	view = 1 // setting view as identity
+	// view = 1 // setting view as identity
 
-	view[0, 3] = -cam_pos.x
-	view[1, 3] = -cam_pos.y
-	view[2, 3] = -cam_pos.z
+	// view[0, 3] = -cam_pos.x
+	// view[1, 3] = -cam_pos.y
+	// view[2, 3] = -cam_pos.z
 
 	// translate it back
-
-	
 	fov :: 0.5 * TURNS_TO_RAD
-	proj := get_projection_matrix(fov, wx, wy, 0, 50)
+    aspect := f32(wx) / f32(wy)
+	// proj := get_projection_matrix(fov, wx, wy, 0, 50)
+	view := linalg.matrix4_look_at_f32(cam_pos, {0,0,0}, {0,1,0}, true)
+	proj := linalg.matrix4_perspective_f32(fov, aspect, 0.1, 50)
 
-	// return view * proj
-	return view
+	return view * proj
+	// return proj * view
+	// return view
 }
 
 update :: proc() {
@@ -646,7 +650,7 @@ update :: proc() {
 	keyboard := sdl.GetKeyboardStateAsSlice()
 
 	// controlling camera
-	cam_speed :: 0.03
+	cam_speed :: 20
 
 	if keyboard[sdl.Scancode.A] == 1{
 		cam_pos.x -= cam_speed

@@ -1,3 +1,5 @@
+#pragma pack_matrix(row_major)
+
 struct VSInput {
     float3 position : POSITION;
     float2 uvs : TEXCOORD;
@@ -17,7 +19,8 @@ cbuffer ConstantBuffer : register(b0) {
 
 PSInput VSMain(VSInput the_input) {
     PSInput result;
-    result.position = mul(wvp, float4(the_input.position, 1.0f));
+    // result.position = mul(wvp, float4(the_input.position, 1.0f));
+    result.position = mul(float4(the_input.position, 1.0f), wvp);
     result.uvs = the_input.uvs.xy;
     result.color = the_input.color;
     return result;
