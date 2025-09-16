@@ -95,6 +95,7 @@ start_time: time.Time
 
 main :: proc() {
 	// Init SDL and create window
+	// cam_pos.z = -2
 
 	if err := sdl.Init({.VIDEO}); err != 0 {
 		fmt.eprintln(err)
@@ -601,15 +602,18 @@ init_dx :: proc() {
 
 get_projection_matrix :: proc(fov_rad: f32, screenWidth: i32, screenHeight: i32, near: f32, far: f32) -> dxm {
     f := 1.0 / math.tan_f32(fov_rad * 0.5)
+
+	a := math.tan_f32(fov_rad * 0.5)
+
     aspect := f32(screenWidth) / f32(screenHeight)
 
 	// TODO: formula might be different because this is a left handed system.
 
     return dxm{
-        f / aspect, 0.0, 0.0,  0.0,
-		0.0, f, 0.0,  0.0,
-		0.0, 0.0, -far / (far - near), -1.0,
-		0.0, 0.0, -far * near / (far - near),  0.0
+        1 / (aspect * a), 0, 0, 0,
+		0.0, 1 / a, 0.0,  0.0,
+		0.0, 0.0, far / (far - near), (-near * far) / (far - near),
+		0.0, 0.0, 1, 0
     }
 }
 
@@ -655,6 +659,15 @@ update :: proc() {
 	}
 	if keyboard[sdl.Scancode.S] == 1{
 		cam_pos.y -= cam_speed
+	}
+
+
+	if keyboard[sdl.Scancode.H] == 1{
+		cam_pos.z -= cam_speed
+	}
+
+	if keyboard[sdl.Scancode.J] == 1{
+		cam_pos.z += cam_speed
 	}
 }
 
