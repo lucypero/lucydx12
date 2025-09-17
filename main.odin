@@ -96,7 +96,7 @@ start_time: time.Time
 
 main :: proc() {
 	// Init SDL and create window
-	// cam_pos.z = -2
+	cam_pos.z = -2
 
 	if err := sdl.Init({.VIDEO}); err != 0 {
 		fmt.eprintln(err)
@@ -622,26 +622,13 @@ get_projection_matrix :: proc(fov_rad: f32, screenWidth: i32, screenHeight: i32,
 
 get_wvp :: proc() -> dxm {
 
+	view := linalg.matrix4_look_at_f32(cam_pos, {0,0,0}, {0,1,0}, false)
 
-	// // it's an identity matrix because we are at origin looking at forward Z
-	// view : dxm
-
-	// view = 1 // setting view as identity
-
-	// view[0, 3] = -cam_pos.x
-	// view[1, 3] = -cam_pos.y
-	// view[2, 3] = -cam_pos.z
-
-	// translate it back
-	fov :: 0.5 * TURNS_TO_RAD
+	fov := linalg.to_radians(f32(90.0))
     aspect := f32(wx) / f32(wy)
-	// proj := get_projection_matrix(fov, wx, wy, 0, 50)
-	view := linalg.matrix4_look_at_f32(cam_pos, {0,0,0}, {0,1,0}, true)
-	proj := linalg.matrix4_perspective_f32(fov, aspect, 0.1, 50)
+	proj := linalg.matrix4_perspective_f32(fov, aspect, 0.1, 100, false)
 
-	return view * proj
-	// return proj * view
-	// return view
+	return proj * view
 }
 
 update :: proc() {
@@ -650,7 +637,7 @@ update :: proc() {
 	keyboard := sdl.GetKeyboardStateAsSlice()
 
 	// controlling camera
-	cam_speed :: 20
+	cam_speed :: 0.01
 
 	if keyboard[sdl.Scancode.A] == 1{
 		cam_pos.x -= cam_speed
