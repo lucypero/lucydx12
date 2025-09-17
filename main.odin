@@ -13,7 +13,7 @@
 // - https://gist.github.com/jakubtomsu/ecd83e61976d974c7730f9d7ad3e1fd0
 // - https://github.com/rdunnington/d3d12-hello-triangle/blob/master/main.c
 
-package d3d12_triangle
+package main
 
 import "core:odin/ast"
 import "core:fmt"
@@ -627,6 +627,10 @@ get_wvp :: proc() -> dxm {
 	fov := linalg.to_radians(f32(90.0))
     aspect := f32(wx) / f32(wy)
 	proj := linalg.matrix4_perspective_f32(fov, aspect, 0.1, 100, false)
+
+	// this function is supposedly more correct
+	// has correct depth values
+	// proj := matrix4_perspective_z0_f32(fov, aspect, 0.1, 100)
 
 	return proj * view
 }
