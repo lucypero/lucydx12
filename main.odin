@@ -37,8 +37,6 @@ NUM_RENDERTARGETS :: 2
 
 TURNS_TO_RAD :: math.PI * 2
 
-vertex_count :: 6
-
 // window dimensions
 wx := i32(640)
 wy := i32(480)
@@ -76,6 +74,7 @@ Context :: struct {
 	root_signature:      ^dx.IRootSignature,
 	constant_buffer:     ^dx.IResource,
 	vertex_buffer_view:  dx.VERTEX_BUFFER_VIEW,
+	index_buffer_view: dx.INDEX_BUFFER_VIEW,
 	// descriptor heap for the render target view
 	rtv_descriptor_heap: ^dx.IDescriptorHeap, 
 	frame_index:         u32,
@@ -90,7 +89,11 @@ Context :: struct {
 	texture : ^dx.IResource,
 
 	// descriptor heap for our cbv and srv (texture)
-	descriptor_heap_cbv_srv_uav: ^dx.IDescriptorHeap
+	descriptor_heap_cbv_srv_uav: ^dx.IDescriptorHeap,
+
+	// vertex count
+	vertex_count: u32,
+	index_count: u32,
 }
 
 check :: proc(res: dx.HRESULT, message: string) {
@@ -319,14 +322,14 @@ main :: proc() {
 				InputSlotClass = .PER_VERTEX_DATA,
 			},
 			{
-				SemanticName = "TEXCOORD",
-				Format = .R32G32_FLOAT,
+				SemanticName = "NORMAL",
+				Format = .R32G32B32_FLOAT,
 				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
 				InputSlotClass = .PER_VERTEX_DATA,
 			},
 			{
-				SemanticName = "COLOR",
-				Format = .R32G32B32A32_FLOAT,
+				SemanticName = "TEXCOORD",
+				Format = .R32G32_FLOAT,
 				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
 				InputSlotClass = .PER_VERTEX_DATA,
 			},
@@ -358,7 +361,7 @@ main :: proc() {
 			SampleMask = 0xFFFFFFFF,
 			RasterizerState = {
 				FillMode = .SOLID,
-				CullMode = .NONE,
+				CullMode = .BACK,
 				FrontCounterClockwise = false,
 				DepthBias = 0,
 				DepthBiasClamp = 0,
@@ -413,26 +416,14 @@ main :: proc() {
 	create_descriptor_heap_cbv_srv_uav()
 
 	vertex_buffer: ^dx.IResource
+	index_buffer: ^dx.IResource
 
 	{
-
 		// get vertex data from gltf file
-		do_gltf_stuff()
+		vertices, indices := do_gltf_stuff()
+		dx_context.vertex_count = u32(len(vertices))
 
 		// VERTEXDATA
-
-		// The position and color data for the triangle's vertices go together per-vertex
-		vertices := [?]f32 {
-			// pos              uv           color
-			-0.5, -0.5, 0.0,    0.0, 1.0,      1, 0, 0, 0,
-			 0.5,  0.5, 0.0,    1.0, 0.0,      0, 1, 0, 0,
-			 0.5, -0.5, 0.0,    1.0, 1.0,      0, 0, 1, 0,
-
-			-0.5, -0.5, 0.0,    0.0, 1.0,      1, 0, 0, 0,
-			-0.5,  0.5, 0.0,    0.0, 0.0,      0, 0, 1, 0,
-			 0.5,  0.5, 0.0,    1.0, 0.0,      0, 1, 0, 0,
-		}
-
 		heap_props := dx.HEAP_PROPERTIES {
 			Type = .UPLOAD,
 		}
@@ -468,16 +459,41 @@ main :: proc() {
 		read_range: dx.RANGE
 
 		hr = vertex_buffer->Map(0, &read_range, &gpu_data)
-		check(hr, "Failed creating verex buffer resource")
+		check(hr, "Failed creating vertex buffer resource")
 
 		mem.copy(gpu_data, &vertices[0], vertex_buffer_size)
 		vertex_buffer->Unmap(0, nil)
 
 		dx_context.vertex_buffer_view = dx.VERTEX_BUFFER_VIEW {
 			BufferLocation = vertex_buffer->GetGPUVirtualAddress(),
-			StrideInBytes  = u32(vertex_buffer_size / vertex_count),
+			StrideInBytes  = u32(vertex_buffer_size) / dx_context.vertex_count,
 			SizeInBytes    = u32(vertex_buffer_size),
 		}
+
+		// creating index buffer resource
+
+		index_buffer_size := len(indices) * size_of(indices[0])
+		dx_context.index_count = u32(len(indices))
+
+		resource_desc.Width = u64(index_buffer_size)
+
+		hr = device->CreateCommittedResource(
+			&heap_props, {}, &resource_desc, dx.RESOURCE_STATE_GENERIC_READ,
+			nil, dx.IResource_UUID, (^rawptr)(&index_buffer)
+		)
+		check(hr, "failed index buffer")
+
+		dx_context.index_buffer_view = dx.INDEX_BUFFER_VIEW {
+			BufferLocation = index_buffer->GetGPUVirtualAddress(),
+			SizeInBytes = u32(index_buffer_size),
+			Format = .R16_UINT
+		}
+
+		hr = index_buffer->Map(0, &dx.RANGE{}, &gpu_data)
+		check(hr, "failed mapping")
+
+		mem.copy(gpu_data, &indices[0], index_buffer_size)
+		index_buffer->Unmap(0, nil)
 	}
 
 	// This fence is used to wait for frames to finish
@@ -780,7 +796,9 @@ render :: proc() {
 	// draw call
 	cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
 	cmdlist->IASetVertexBuffers(0, 1, &dx_context.vertex_buffer_view)
-	cmdlist->DrawInstanced(vertex_count, 1, 0, 0)
+	cmdlist->IASetIndexBuffer(&dx_context.index_buffer_view)
+	// cmdlist->DrawInstanced(dx_context.vertex_count, 1, 0, 0)
+	cmdlist->DrawIndexedInstanced(dx_context.index_count, 1, 0, 0, 0)
 
 	to_present_barrier := to_render_target_barrier
 	to_present_barrier.Transition.StateBefore = {.RENDER_TARGET}
@@ -1120,7 +1138,7 @@ create_root_signature :: proc() {
 	serialized_desc->Release()
 }
 
-do_gltf_stuff :: proc() {
+do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u16) {
 
 	model_filepath :: "models/monke.glb"
 	model_filepath_c := strings.clone_to_cstring(model_filepath, context.temp_allocator)
@@ -1168,8 +1186,8 @@ do_gltf_stuff :: proc() {
 
 	// if attr_position.data == nil || primitive.indices == nil do return {}, {}
 
-	vertices := make([]VertexData, attr_position.data.count)
-	indices := make([]u16, primitive.indices.count)
+	vertices = make([]VertexData, attr_position.data.count)
+	indices = make([]u16, primitive.indices.count)
 
 	// mesh_mat := linalg.matrix4_from_quaternion_f32(rotation)
 	// mesh_mat *= linalg.matrix4_rotate_f32(math.to_radians_f32(180), {0, 1, 0})
@@ -1195,7 +1213,5 @@ do_gltf_stuff :: proc() {
 		indices[i] = u16(cgltf.accessor_read_index(primitive.indices, i))
 	}
 
-	// ok
-	ok_1 := true
-
+	return
 }
