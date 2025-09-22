@@ -31,6 +31,7 @@ import img "vendor:stb/image"
 import "core:c"
 import "core:math"
 import "core:math/linalg"
+import "vendor:cgltf"
 
 NUM_RENDERTARGETS :: 2
 
@@ -42,15 +43,25 @@ vertex_count :: 6
 wx := i32(640)
 wy := i32(480)
 
+v2 :: linalg.Vector2f32
+v3 :: linalg.Vector3f32
+v4 :: linalg.Vector4f32
+
 // constant buffer data
 ConstantBufferData :: struct #align (256) {
 	wvp: dxm,
 	time: f32,
 }
 
+VertexData :: struct {
+	pos: v3,
+	normal: v3,
+	uv: v2,
+}
+
 dxm :: matrix[4,4]f32
 
-cam_pos : [3]f32
+cam_pos : v3
 
 Context :: struct {
 	// core stuff
@@ -404,6 +415,9 @@ main :: proc() {
 	vertex_buffer: ^dx.IResource
 
 	{
+
+		// get vertex data from gltf file
+		do_gltf_stuff()
 
 		// VERTEXDATA
 
@@ -1104,4 +1118,84 @@ create_root_signature :: proc() {
 	)
 	check(hr, "Failed creating root signature")
 	serialized_desc->Release()
+}
+
+do_gltf_stuff :: proc() {
+
+	model_filepath :: "models/monke.glb"
+	model_filepath_c := strings.clone_to_cstring(model_filepath, context.temp_allocator)
+
+	cgltf_options : cgltf.options
+
+	data, ok := cgltf.parse_file(cgltf_options, model_filepath_c)
+	defer cgltf.free(data)
+
+
+	if ok != .success {
+		fmt.eprintln("could not read glb")
+	}
+
+	load_buffers_result := cgltf.load_buffers(cgltf_options, data, model_filepath_c)
+	if load_buffers_result != .success {
+		fmt.eprintln("Error loading buffers from gltf: {} - {}", model_filepath, load_buffers_result)
+	}
+
+	// extracting mesh
+
+	mesh := data.nodes[0].mesh
+	assert(len(mesh.primitives) == 1)
+	primitive := mesh.primitives[0]
+
+	attr_position: cgltf.attribute
+	attr_normal: cgltf.attribute
+	attr_texcoord: cgltf.attribute
+	
+	for attribute in primitive.attributes {
+		#partial switch attribute.type {
+		case .position:
+			attr_position = attribute
+		case .normal:
+			attr_normal = attribute
+		case .texcoord:
+			attr_texcoord = attribute
+		case:
+			fmt.eprintfln("Unkown gltf attribute: {}", attribute)
+		}
+	}
+
+	assert(attr_position.data.count == attr_normal.data.count)
+	assert(attr_position.data.count == attr_texcoord.data.count)
+
+	// if attr_position.data == nil || primitive.indices == nil do return {}, {}
+
+	vertices := make([]VertexData, attr_position.data.count)
+	indices := make([]u16, primitive.indices.count)
+
+	// mesh_mat := linalg.matrix4_from_quaternion_f32(rotation)
+	// mesh_mat *= linalg.matrix4_rotate_f32(math.to_radians_f32(180), {0, 1, 0})
+	// mesh_mat *= linalg.matrix4_translate_f32(translation)
+
+	for i in 0 ..< attr_position.data.count {
+		vertex: VertexData
+		ok: b32
+		ok = cgltf.accessor_read_float(attr_position.data, i, &vertex.pos[0], 3)
+		if !ok do fmt.eprintln("Error reading gltf position")
+		ok = cgltf.accessor_read_float(attr_normal.data, i, &vertex.normal[0], 3)
+		if !ok do fmt.eprintln("Error reading gltf normal")
+		ok = cgltf.accessor_read_float(attr_texcoord.data, i, &vertex.uv[0], 2)
+		if !ok do fmt.eprintln("Error reading gltf texcoord")
+
+		position := v4{vertex.pos.x, vertex.pos.y, vertex.pos.z, 1}
+		// vertex.pos = (mesh_mat * position).xyz
+		vertex.pos = (position).xyz
+		vertices[i] = vertex
+	}
+
+	for i in 0 ..< primitive.indices.count {
+		indices[i] = u16(cgltf.accessor_read_index(primitive.indices, i))
+	}
+
+	// ok
+	ok_1 := true
+
 }

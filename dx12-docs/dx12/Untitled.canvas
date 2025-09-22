@@ -1,0 +1,11 @@
+{
+	"nodes":[
+		{"id":"92ebe08a6b450134","x":-157,"y":-320,"width":250,"height":60,"type":"text","text":"asdadas\n"},
+		{"id":"53ce9769190b1d79","x":305,"y":-170,"width":250,"height":60,"type":"text","text":"asdasda"},
+		{"id":"0a397bc642a25a1a","x":-480,"y":-110,"width":300,"height":310,"type":"text","text":"# hello\n\ntest test \n\nhttps://www.reddit.com/\n"}
+	],
+	"edges":[
+		{"id":"16d1da49838cd254","fromNode":"0a397bc642a25a1a","fromSide":"top","toNode":"92ebe08a6b450134","toSide":"bottom","color":"3","label":"sadsad"},
+		{"id":"9701e113c65a0f62","fromNode":"92ebe08a6b450134","fromSide":"right","toNode":"53ce9769190b1d79","toSide":"left"}
+	]
+}
