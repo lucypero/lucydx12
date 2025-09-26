@@ -94,6 +94,10 @@ Context :: struct {
 	// vertex count
 	vertex_count: u32,
 	index_count: u32,
+
+	// depth buffer
+	depth_stencil_res: ^dx.IResource,
+	descriptor_heap_dsv: ^dx.IDescriptorHeap
 }
 
 check :: proc(res: dx.HRESULT, message: string) {
@@ -192,6 +196,8 @@ main :: proc() {
 		}
 	}
 
+	// creating depth buffer
+
 	// The command allocator is used to create the commandlist that is used to tell the GPU what to draw
 	hr =
 	device->CreateCommandAllocator(
@@ -238,6 +244,8 @@ main :: proc() {
 		// cbvdata_example := ConstantBufferData{0}
 		// mem.copy(dx_context.map_start, (rawptr)(&cbvdata_example), size_of(cbvdata_example))
 	}
+
+	create_depth_buffer()
 
 
 	/* 
@@ -372,7 +380,13 @@ main :: proc() {
 				ForcedSampleCount = 0,
 				ConservativeRaster = .OFF,
 			},
-			DepthStencilState = {DepthEnable = false, StencilEnable = false},
+			// enabling depth testing
+			DepthStencilState = {
+				DepthEnable = true,
+				StencilEnable = false,
+				DepthWriteMask = .ALL,
+				DepthFunc = .LESS,
+			},
 			InputLayout = {
 				pInputElementDescs = &vertex_format[0],
 				NumElements = u32(len(vertex_format)),
@@ -380,7 +394,7 @@ main :: proc() {
 			PrimitiveTopologyType = .TRIANGLE,
 			NumRenderTargets = 1,
 			RTVFormats = {0 = .R8G8B8A8_UNORM, 1 ..< 7 = .UNKNOWN},
-			DSVFormat = .UNKNOWN,
+			DSVFormat = .D32_FLOAT,
 			SampleDesc = {Count = 1, Quality = 0},
 		}
 
@@ -734,6 +748,8 @@ render :: proc() {
 	viewport := dx.VIEWPORT {
 		Width  = f32(wx),
 		Height = f32(wy),
+		MinDepth = 0,
+		MaxDepth = 1
 	}
 
 	scissor_rect := dx.RECT {
@@ -787,11 +803,18 @@ render :: proc() {
 		rtv_handle.ptr += uint(dx_context.frame_index * s)
 	}
 
-	cmdlist->OMSetRenderTargets(1, &rtv_handle, false, nil)
+	// setting depth buffer
+	dsv_handle: dx.CPU_DESCRIPTOR_HANDLE
+	dx_context.descriptor_heap_dsv->GetCPUDescriptorHandleForHeapStart(&dsv_handle)
+
+	cmdlist->OMSetRenderTargets(1, &rtv_handle, false, &dsv_handle)
 
 	// clear backbuffer
 	clearcolor := [?]f32{0.05, 0.05, 0.05, 1.0}
 	cmdlist->ClearRenderTargetView(rtv_handle, &clearcolor, 0, nil)
+
+	// clearing depth buffer
+	cmdlist->ClearDepthStencilView(dsv_handle, {.DEPTH, .STENCIL}, 1.0, 0, 0, nil)
 
 	// draw call
 	cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
@@ -866,8 +889,8 @@ create_texture :: proc() {
 	}
 	texture_desc := dx.RESOURCE_DESC {
 		Width = (u64)(texture_width),
-		Dimension = .TEXTURE2D,
 		Height = (u32)(texture_height),
+		Dimension = .TEXTURE2D,
 		Layout = .UNKNOWN,
 		Format = .R8G8B8A8_UNORM,
 		DepthOrArraySize = 1,
@@ -1214,4 +1237,74 @@ do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u16) {
 	}
 
 	return
+}
+
+create_depth_buffer :: proc() {
+	
+	c := &dx_context
+	
+	heap_properties := dx.HEAP_PROPERTIES {
+		Type = .DEFAULT,
+	}
+
+	depth_stencil_desc := dx.RESOURCE_DESC {
+		Dimension = .TEXTURE2D,
+		Width = u64(wx),
+		Height = u32(wy),
+		DepthOrArraySize = 1,
+		MipLevels = 1,
+		Format = .D32_FLOAT,
+		SampleDesc = {Count = 1},
+		Layout = .UNKNOWN,
+		Flags = {.ALLOW_DEPTH_STENCIL}
+	}
+
+	// define a clear value for the depth buffer
+	opt_clear := dx.CLEAR_VALUE {
+		Format = .D32_FLOAT,
+		DepthStencil = {
+			Depth = 1.0,
+			Stencil = 0
+		}
+	}
+
+	hr := c.device->CreateCommittedResource(
+		&heap_properties,
+		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
+		&depth_stencil_desc,
+		{.DEPTH_WRITE},
+		&opt_clear,
+		dx.IResource_UUID,
+		(^rawptr)(&c.depth_stencil_res)
+	)
+
+	check(hr, "failed creating depth resource")
+
+
+	// depth stencil view descriptor heap
+
+	// creating descriptor heap
+	heap_desc := dx.DESCRIPTOR_HEAP_DESC {
+		NumDescriptors = 1,
+		Type           = .DSV,
+		Flags          = {},
+	}
+
+	hr = c.device->CreateDescriptorHeap(&heap_desc, 
+		dx.IDescriptorHeap_UUID, (^rawptr)(&c.descriptor_heap_dsv))
+
+	check(hr, "could not create descriptor heap for DSV")
+
+	// creating depth stencil view
+
+	descriptor_handle: dx.CPU_DESCRIPTOR_HANDLE
+	c.descriptor_heap_dsv->GetCPUDescriptorHandleForHeapStart(&descriptor_handle)
+
+	dsv_desc := dx.DEPTH_STENCIL_VIEW_DESC {
+		ViewDimension = .TEXTURE2D,
+		Format = .D32_FLOAT,
+	}
+
+	c.device->CreateDepthStencilView(c.depth_stencil_res, &dsv_desc, descriptor_handle)
+
 }
