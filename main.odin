@@ -32,6 +32,15 @@ import "core:c"
 import "core:math"
 import "core:math/linalg"
 import "vendor:cgltf"
+import "core:container/small_array"
+import "base:runtime"
+
+// imgui
+import im "../odin-imgui"
+// imgui sdl2 implementation
+import "../odin-imgui/imgui_impl_sdl2"
+// imgui dx12 implementation
+import "../odin-imgui/imgui_impl_dx12"
 
 NUM_RENDERTARGETS :: 2
 
@@ -61,7 +70,67 @@ dxm :: matrix[4,4]f32
 
 cam_pos : v3
 
+DescriptorHeapAllocator :: struct {
+	heap : ^dx.IDescriptorHeap,
+	heap_type : dx.DESCRIPTOR_HEAP_TYPE,
+	heap_start_cpu: dx.CPU_DESCRIPTOR_HANDLE,
+	heap_start_gpu: dx.GPU_DESCRIPTOR_HANDLE,
+	heap_handle_increment: u32,
+	free_indices: small_array.Small_Array(10, u32),
+}
+
+descriptor_heap_allocator_create :: proc(heap: ^dx.IDescriptorHeap,
+									 heap_type: dx.DESCRIPTOR_HEAP_TYPE) -> (ha: DescriptorHeapAllocator) {
+
+	ha.heap = heap
+	ha.heap_type = heap_type
+
+	ha.heap->GetCPUDescriptorHandleForHeapStart(&ha.heap_start_cpu)
+	ha.heap->GetGPUDescriptorHandleForHeapStart(&ha.heap_start_gpu)
+
+	ha.heap_handle_increment = dx_context.device->GetDescriptorHandleIncrementSize(ha.heap_type)
+
+	desc : dx.DESCRIPTOR_HEAP_DESC
+	
+	ha.heap->GetDesc(&desc)
+
+	for n:= desc.NumDescriptors; n > 0; n-=1 {
+		small_array.push_back(&ha.free_indices, n - 1)
+	}
+
+	return ha
+}
+
+descriptor_heap_allocator_alloc :: proc(ha: ^DescriptorHeapAllocator) -> 
+		(cpu_desc_handle: dx.CPU_DESCRIPTOR_HANDLE, gpu_desc_handle: dx.GPU_DESCRIPTOR_HANDLE) {
+
+	n := small_array.pop_back(&ha.free_indices)
+
+	cpu_desc_handle.ptr = ha.heap_start_cpu.ptr + uint(n * ha.heap_handle_increment)
+	gpu_desc_handle.ptr = ha.heap_start_gpu.ptr + u64(n * ha.heap_handle_increment)
+
+	return
+}
+
+descriptor_heap_allocator_free :: proc(ha: ^DescriptorHeapAllocator, cpu_desc_handle: dx.CPU_DESCRIPTOR_HANDLE, gpu_desc_handle: dx.GPU_DESCRIPTOR_HANDLE) {
+
+	cpu_indx := u32(cpu_desc_handle.ptr - ha.heap_start_cpu.ptr) / ha.heap_handle_increment
+	gpu_indx := u32(gpu_desc_handle.ptr - ha.heap_start_gpu.ptr) / ha.heap_handle_increment
+
+	assert(cpu_indx == gpu_indx)
+
+	small_array.push_back(&ha.free_indices, cpu_indx)
+}
+
+
 Context :: struct {
+	// sdl stuff
+	window: ^sdl.Window,
+
+	// imgui stuff
+	imgui_descriptor_heap: ^dx.IDescriptorHeap,
+	imgui_allocator: DescriptorHeapAllocator,
+
 	// core stuff
 	device:              ^dx.IDevice,
 	factory:             ^dxgi.IFactory4,
@@ -116,13 +185,13 @@ main :: proc() {
 	// Init SDL and create window
 	cam_pos.z = -2
 
-	if err := sdl.Init({.VIDEO}); err != 0 {
+	if err := sdl.Init(sdl.INIT_EVERYTHING); err != 0 {
 		fmt.eprintln(err)
 		return
 	}
 
 	defer sdl.Quit()
-	window := sdl.CreateWindow(
+	dx_context.window = sdl.CreateWindow(
 		"lucydx12",
 		sdl.WINDOWPOS_UNDEFINED,
 		sdl.WINDOWPOS_UNDEFINED,
@@ -131,14 +200,18 @@ main :: proc() {
 		{.ALLOW_HIGHDPI, .SHOWN, .RESIZABLE},
 	)
 
-	if window == nil {
+	if dx_context.window == nil {
 		fmt.eprintln(sdl.GetError())
 		return
 	}
 
-	defer sdl.DestroyWindow(window)
+	defer sdl.DestroyWindow(dx_context.window)
 
 	init_dx()
+
+
+
+
 
 	device := dx_context.device
 
@@ -154,7 +227,7 @@ main :: proc() {
 	}
 
 	// Create the swapchain, it's the thing that contains render targets that we draw into. It has 2 render targets (NUM_RENDERTARGETS), giving us double buffering.
-	dx_context.swapchain = create_swapchain(dx_context.factory, dx_context.queue, window)
+	dx_context.swapchain = create_swapchain(dx_context.factory, dx_context.queue, dx_context.window)
 
 	dx_context.frame_index = dx_context.swapchain->GetCurrentBackBufferIndex()
 
@@ -431,6 +504,8 @@ main :: proc() {
 
 	vertex_buffer: ^dx.IResource
 	index_buffer: ^dx.IResource
+
+	imgui_init()
 
 	{
 		// get vertex data from gltf file
@@ -712,6 +787,8 @@ update :: proc() {
 
 render :: proc() {
 
+	imgui_update()
+
 	command_allocator := dx_context.command_allocator
 	pipeline := dx_context.pipeline
 	cmdlist := dx_context.cmdlist
@@ -828,6 +905,9 @@ render :: proc() {
 	to_present_barrier.Transition.StateAfter = dx.RESOURCE_STATE_PRESENT
 
 	cmdlist->ResourceBarrier(1, &to_present_barrier)
+
+	// add imgui draw commands to cmd list
+	imgui_update_after()
 
 	hr = cmdlist->Close()
 	check(hr, "Failed to close command list")
@@ -1307,4 +1387,132 @@ create_depth_buffer :: proc() {
 
 	c.device->CreateDepthStencilView(c.depth_stencil_res, &dsv_desc, descriptor_handle)
 
+}
+
+
+imgui_init :: proc() {
+
+	// need 
+	// sdl window
+	// 
+
+	// initting dear imgui
+	im.CHECKVERSION()
+	im.CreateContext()
+	io := im.GetIO()
+
+	io.ConfigFlags += {.NavEnableKeyboard, .NavEnableGamepad}
+	io.ConfigFlags += {.DockingEnable}
+	io.ConfigFlags += {.ViewportsEnable}
+
+	style := im.GetStyle()
+	style.WindowRounding = 0
+	style.Colors[im.Col.WindowBg].w = 1
+
+	im.StyleColorsDark()
+
+	imgui_impl_sdl2.InitForD3D(dx_context.window)
+
+
+
+// // Initialization data, for ImGui_ImplDX12_Init()
+// InitInfo :: struct {
+// 	Device:            ^d3d12.IDevice,
+// 	CommandQueue:      ^d3d12.ICommandQueue,
+// 	NumFramesInFlight: i32,
+// 	RTVFormat:         dxgi.FORMAT,          // RenderTarget format.
+// 	DSVFormat:         dxgi.FORMAT,          // DepthStencilView format.
+// 	UserData:          rawptr,
+
+// 	// Allocating SRV descriptors for textures is up to the application, so we provide callbacks.
+// 	// (current version of the backend will only allocate one descriptor, future versions will need to allocate more)
+// 	SrvDescriptorHeap:    ^d3d12.IDescriptorHeap,
+// 	SrvDescriptorAllocFn: proc "c" (info: ^InitInfo, out_cpu_desc_handle: ^d3d12.CPU_DESCRIPTOR_HANDLE, out_gpu_desc_handle: ^d3d12.GPU_DESCRIPTOR_HANDLE),
+// 	SrvDescriptorFreeFn:  proc "c" (info: ^InitInfo, cpu_desc_handle: d3d12.CPU_DESCRIPTOR_HANDLE, gpu_desc_handle: d3d12.GPU_DESCRIPTOR_HANDLE),
+// }
+
+	// create a shader resource view  heap (srv)
+
+	c := &dx_context
+
+
+	// creating descriptor heap
+
+	// if it goes above 3, we are dead
+	srv_descriptor_heap_desc := dx.DESCRIPTOR_HEAP_DESC {
+		NumDescriptors = 3,
+		Type           = .CBV_SRV_UAV,
+		Flags          = {.SHADER_VISIBLE},
+	}
+
+	hr := c.device->CreateDescriptorHeap(&srv_descriptor_heap_desc,
+		 dx.IDescriptorHeap_UUID, (^rawptr)(&dx_context.imgui_descriptor_heap))
+
+	check(hr, "could ont create imgui descriptor heap")
+
+	dx_context.imgui_allocator = descriptor_heap_allocator_create(dx_context.imgui_descriptor_heap, .CBV_SRV_UAV)
+
+	allocfn := proc "c" (info: ^imgui_impl_dx12.InitInfo, out_cpu_desc_handle: ^dx.CPU_DESCRIPTOR_HANDLE, out_gpu_desc_handle: ^dx.GPU_DESCRIPTOR_HANDLE) {
+		context = runtime.default_context()
+		cpu, gpu := descriptor_heap_allocator_alloc(&dx_context.imgui_allocator)
+		out_cpu_desc_handle.ptr = cpu.ptr
+		out_gpu_desc_handle.ptr = gpu.ptr
+	}
+
+	freefn := proc "c" (info: ^imgui_impl_dx12.InitInfo, cpu_desc_handle: dx.CPU_DESCRIPTOR_HANDLE, gpu_desc_handle: dx.GPU_DESCRIPTOR_HANDLE) {
+		context = runtime.default_context()
+		descriptor_heap_allocator_free(&dx_context.imgui_allocator, cpu_desc_handle, gpu_desc_handle)
+	}
+
+
+	dx12_init := imgui_impl_dx12.InitInfo {
+		Device = dx_context.device,
+		CommandQueue = dx_context.queue,
+		// not sure what this is
+		NumFramesInFlight = 2,
+		RTVFormat = .R8G8B8A8_UNORM,
+		DSVFormat = .D32_FLOAT,
+		SrvDescriptorHeap = dx_context.imgui_descriptor_heap,
+		SrvDescriptorAllocFn = allocfn,
+		SrvDescriptorFreeFn = freefn,
+	}
+
+	imgui_impl_dx12.Init(&dx12_init)
+}
+
+imgui_destoy :: proc() {
+	im.DestroyContext()
+	imgui_impl_sdl2.Shutdown() // here
+	imgui_impl_dx12.Shutdown()
+}
+
+
+imgui_update :: proc() {
+	imgui_impl_dx12.NewFrame()
+	imgui_impl_sdl2.NewFrame()
+	im.NewFrame()
+
+	im.ShowDemoWindow()
+
+	// im.End()
+
+	im.Begin("hello")
+	im.Text("hello")
+	im.End()
+
+	im.Render()
+}
+
+imgui_update_after :: proc() {
+	// call this right before swapchain present
+
+	// need graphics command list
+	imgui_impl_dx12.RenderDrawData(im.GetDrawData(), dx_context.cmdlist)
+
+	io := im.GetIO()
+
+	if .ViewportsEnable in io.ConfigFlags {
+		im.UpdatePlatformWindows()
+		im.RenderPlatformWindowsDefault()
+	}
 }
