@@ -246,6 +246,7 @@ main :: proc() {
 			(^rawptr)(&dx_context.rtv_descriptor_heap),
 		)
 		check(hr, "Failed creating descriptor heap")
+		dx_context.rtv_descriptor_heap->SetName("lucy's RTV descriptor heap")
 	}
 
 	// Fetch the two render targets from the swapchain
@@ -900,14 +901,15 @@ render :: proc() {
 	// cmdlist->DrawInstanced(dx_context.vertex_count, 1, 0, 0)
 	cmdlist->DrawIndexedInstanced(dx_context.index_count, 1, 0, 0, 0)
 
+	// add imgui draw commands to cmd list
+	imgui_update_after()
+
 	to_present_barrier := to_render_target_barrier
 	to_present_barrier.Transition.StateBefore = {.RENDER_TARGET}
 	to_present_barrier.Transition.StateAfter = dx.RESOURCE_STATE_PRESENT
 
 	cmdlist->ResourceBarrier(1, &to_present_barrier)
 
-	// add imgui draw commands to cmd list
-	imgui_update_after()
 
 	hr = cmdlist->Close()
 	check(hr, "Failed to close command list")
@@ -1137,6 +1139,9 @@ create_descriptor_heap_cbv_srv_uav :: proc() {
 
 	hr := c.device->CreateDescriptorHeap(&cbv_heap_desc, dx.IDescriptorHeap_UUID, (^rawptr)(&c.descriptor_heap_cbv_srv_uav))
 	check(hr, "failed creating descriptor heap")
+
+	c.descriptor_heap_cbv_srv_uav->SetName("lucy's cbv srv uav descriptor heap")
+
 
 	// creating SRV (my texture)
 
@@ -1373,6 +1378,8 @@ create_depth_buffer :: proc() {
 	hr = c.device->CreateDescriptorHeap(&heap_desc, 
 		dx.IDescriptorHeap_UUID, (^rawptr)(&c.descriptor_heap_dsv))
 
+	dx_context.rtv_descriptor_heap->SetName("lucy's DSV (depth-stencil-view) descriptor heap")
+
 	check(hr, "could not create descriptor heap for DSV")
 
 	// creating depth stencil view
@@ -1448,6 +1455,8 @@ imgui_init :: proc() {
 	hr := c.device->CreateDescriptorHeap(&srv_descriptor_heap_desc,
 		 dx.IDescriptorHeap_UUID, (^rawptr)(&dx_context.imgui_descriptor_heap))
 
+	dx_context.imgui_descriptor_heap->SetName("imgui's cbv srv uav descriptor heap")
+
 	check(hr, "could ont create imgui descriptor heap")
 
 	dx_context.imgui_allocator = descriptor_heap_allocator_create(dx_context.imgui_descriptor_heap, .CBV_SRV_UAV)
@@ -1505,6 +1514,11 @@ imgui_update :: proc() {
 
 imgui_update_after :: proc() {
 	// call this right before swapchain present
+
+	// setting imgui's descriptor heap 
+	// if i don't do this, it errors out. seems like RenderDrawData doesn't set it
+	//  by itself
+	dx_context.cmdlist->SetDescriptorHeaps(1, &dx_context.imgui_descriptor_heap)
 
 	// need graphics command list
 	imgui_impl_dx12.RenderDrawData(im.GetDrawData(), dx_context.cmdlist)
