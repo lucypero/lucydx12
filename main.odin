@@ -610,9 +610,16 @@ main :: proc() {
 
 	main_loop: for {
 		for e: sdl.Event; sdl.PollEvent(&e); {
+
+			imgui_impl_sdl2.ProcessEvent(&e)
+
 			#partial switch e.type {
 			case .QUIT:
 				break main_loop
+			case .WINDOWEVENT:
+				if e.window.event == .CLOSE{
+					break main_loop
+				}
 			}
 		}
 
@@ -1507,6 +1514,9 @@ imgui_update :: proc() {
 
 	im.Begin("hello")
 	im.Text("hello")
+	if im.Button("click me") {
+		fmt.println("clicked!")
+	}
 	im.End()
 
 	im.Render()
