@@ -851,12 +851,14 @@ render :: proc() {
 	cmdlist->SetDescriptorHeaps(1, &dx_context.descriptor_heap_cbv_srv_uav)
 
 	// setting descriptor tables for our texture
-	gpu_descriptor_handle : dx.GPU_DESCRIPTOR_HANDLE
-	dx_context.descriptor_heap_cbv_srv_uav->GetGPUDescriptorHandleForHeapStart(&gpu_descriptor_handle)
-	increment_size := dx_context.device->GetDescriptorHandleIncrementSize(.CBV_SRV_UAV)
-	gpu_descriptor_handle.ptr += 1 * (u64)(increment_size)
-
-	cmdlist->SetGraphicsRootDescriptorTable(1, gpu_descriptor_handle)
+	{
+		// setting the graphics root descriptor table
+		// in the root signature, so that it points to
+		// our SRV descriptor
+		cmdlist->SetGraphicsRootDescriptorTable(1, 
+			get_descriptor_heap_gpu_address(dx_context.descriptor_heap_cbv_srv_uav, 1)
+		)
+	}
 
 	cmdlist->SetGraphicsRootConstantBufferView(
 		0,
@@ -1150,7 +1152,7 @@ create_descriptor_heap_cbv_srv_uav :: proc() {
 	c.descriptor_heap_cbv_srv_uav->SetName("lucy's cbv srv uav descriptor heap")
 
 
-	// creating SRV (my texture)
+	// creating SRV (my texture) (AT INDEX 1)
 
 	cpu_desc_handle_srv: dx.CPU_DESCRIPTOR_HANDLE
 	c.descriptor_heap_cbv_srv_uav->GetCPUDescriptorHandleForHeapStart(&cpu_desc_handle_srv)
@@ -1163,7 +1165,7 @@ create_descriptor_heap_cbv_srv_uav :: proc() {
 
 	// CreateShaderResourceView:         proc "system" (this: ^IDevice, pResource: ^IResource, pDesc: ^SHADER_RESOURCE_VIEW_DESC, DestDescriptor: CPU_DESCRIPTOR_HANDLE),
 
-	// creating cbv for my test constant buffer
+	// creating cbv for my test constant buffer (AT INDEX 0)
 	
 	cbv_desc := dx.CONSTANT_BUFFER_VIEW_DESC {
 		BufferLocation = dx_context.constant_buffer->GetGPUVirtualAddress(),
@@ -1539,4 +1541,17 @@ imgui_update_after :: proc() {
 		im.UpdatePlatformWindows()
 		im.RenderPlatformWindowsDefault()
 	}
+}
+
+
+// helpers
+
+get_descriptor_heap_gpu_address :: proc(heap: ^dx.IDescriptorHeap, offset: u32 = 0) -> 
+		(gpu_descriptor_handle : dx.GPU_DESCRIPTOR_HANDLE){
+	heap->GetGPUDescriptorHandleForHeapStart(&gpu_descriptor_handle)
+	desc : dx.DESCRIPTOR_HEAP_DESC
+	heap->GetDesc(&desc)
+	increment := dx_context.device->GetDescriptorHandleIncrementSize(desc.Type)
+	gpu_descriptor_handle.ptr += u64(offset * increment)
+	return
 }

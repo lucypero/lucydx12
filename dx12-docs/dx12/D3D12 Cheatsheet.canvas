@@ -1,0 +1,24 @@
+{
+	"nodes":[
+		{"id":"8b75ee97b4861658","type":"text","text":"# Descriptor Heap\n\n\n- They store multiple descriptors. In one heap, only descriptors of the specified type can go on a heap. Types below.\n\n- Types: RTV, DSV, CBV_SRV_UAV, SAMPLER\n- Root signatures can also store descriptors, without having to go through a descriptor heap.","x":0,"y":-600,"width":360,"height":480},
+		{"id":"41ac54b13c2bcef0","type":"text","text":"# Descriptor Handles\n\n- There's CPU and GPU handles\n- They are basically pointers\n- They are universal so you can reference descriptor across different descriptor heaps.\n- CPU handles are for immediate use\n- GPU handles are not for immediate use. They identify locations from a command list.","x":-960,"y":-580,"width":250,"height":543},
+		{"id":"ce36f9881a87e33f","type":"text","text":"# Descriptor\n\n- A relatively small block of data that fully describes an object (Resource) to the GPU\n- Types: RTV, DSV, SRV, UAVs, CBVs, Samplers.\n- You can quickly create correct descriptors out of a resource by passing `nil` for the `pDesc` parameter on functions like `CreateShaderResourceView`\n\n\n\n[Docs](https://learn.microsoft.com/en-us/windows/win32/direct3d12/descriptors-overview)\n","x":-460,"y":-640,"width":250,"height":620},
+		{"id":"0acca6afe4bbec48","type":"text","text":"SRV","x":-1110,"y":-1300,"width":250,"height":60},
+		{"id":"8164b19ce8a28158","type":"text","text":"UAV","x":-1640,"y":-1300,"width":250,"height":60},
+		{"id":"f66d65a08c1fbe8b","x":400,"y":-1090,"width":542,"height":332,"type":"file","file":"descriptor-table.png"},
+		{"id":"88a31c4c0d4ec91a","type":"text","text":"# Descriptor Table\n\n- Type of Root parameter\n- Described with descriptor ranges\n- Each descriptor table stores descriptors of one or more types—SRVs, UAVs, CBVs, and samplers.\n-  Simply an offset and length into a descriptor heap.\n- It's basically a slice that points somewhere in a descriptor heap.","x":-180,"y":-1168,"width":290,"height":410},
+		{"id":"cda04f7b719bfd3e","type":"text","text":"# Descriptor Range\n\n-  Used to describe descriptor tables \n- You set the base shader register here (example: t1 for a SRV)","x":-680,"y":-1100,"width":280,"height":363},
+		{"id":"74b7b47f45a118ac","x":180,"y":-1740,"width":470,"height":480,"type":"text","text":"# Root Signature\n\n\n- Links command lists to the resources the shaders require. The graphics command list has both a graphics and compute root signature. \n- A compute command list will simply have one compute root signature. These root signatures are independent of each other.\n- A **root signature** is similar to an API function signature, it determines the types of data the shaders should expect, but does not define the actual memory or data.\n- Applications can put descriptors directly in the root signature to avoid having to go through a descriptor heap.\n\n\n[Docs](https://learn.microsoft.com/en-us/windows/win32/direct3d12/root-signatures-overview)"},
+		{"id":"8243514699a5598a","x":-480,"y":-1740,"width":365,"height":420,"type":"text","text":"# Root Parameter\n\n- It's one entry in the root signature.\n- The root signature can contain three types of parameters:\n\t- root constants (constants inlined in the root arguments)\n\t- root descriptors (descriptors inlined in the root arguments). This can be a CBV, but not a SRV\n\t- descriptor tables (pointers to a range of descriptors in the descriptor heap)."}
+	],
+	"edges":[
+		{"id":"acbb83fc8945f268","fromNode":"8b75ee97b4861658","fromSide":"left","toNode":"ce36f9881a87e33f","toSide":"right"},
+		{"id":"882740c14f7c533f","fromNode":"ce36f9881a87e33f","fromSide":"left","toNode":"41ac54b13c2bcef0","toSide":"right"},
+		{"id":"af1279753708029c","fromNode":"88a31c4c0d4ec91a","fromSide":"right","toNode":"f66d65a08c1fbe8b","toSide":"left"},
+		{"id":"e6d96d01426567af","fromNode":"8b75ee97b4861658","fromSide":"top","toNode":"88a31c4c0d4ec91a","toSide":"bottom"},
+		{"id":"c6229de7f4ec9215","fromNode":"cda04f7b719bfd3e","fromSide":"right","toNode":"88a31c4c0d4ec91a","toSide":"left"},
+		{"id":"e99ae5ca188a7520","fromNode":"88a31c4c0d4ec91a","fromSide":"top","toNode":"8243514699a5598a","toSide":"bottom"},
+		{"id":"4143234c66a03546","fromNode":"88a31c4c0d4ec91a","fromSide":"top","toNode":"74b7b47f45a118ac","toSide":"left"},
+		{"id":"d0d93ae490e1666f","fromNode":"8243514699a5598a","fromSide":"right","toNode":"74b7b47f45a118ac","toSide":"left"}
+	]
+}
