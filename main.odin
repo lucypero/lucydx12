@@ -47,8 +47,8 @@ NUM_RENDERTARGETS :: 2
 TURNS_TO_RAD :: math.PI * 2
 
 // window dimensions
-wx := i32(640)
-wy := i32(480)
+wx := i32(2000)
+wy := i32(1000)
 
 v2 :: linalg.Vector2f32
 v3 :: linalg.Vector3f32
@@ -67,61 +67,6 @@ VertexData :: struct {
 }
 
 dxm :: matrix[4,4]f32
-
-cam_pos : v3
-
-DescriptorHeapAllocator :: struct {
-	heap : ^dx.IDescriptorHeap,
-	heap_type : dx.DESCRIPTOR_HEAP_TYPE,
-	heap_start_cpu: dx.CPU_DESCRIPTOR_HANDLE,
-	heap_start_gpu: dx.GPU_DESCRIPTOR_HANDLE,
-	heap_handle_increment: u32,
-	free_indices: small_array.Small_Array(10, u32),
-}
-
-descriptor_heap_allocator_create :: proc(heap: ^dx.IDescriptorHeap,
-									 heap_type: dx.DESCRIPTOR_HEAP_TYPE) -> (ha: DescriptorHeapAllocator) {
-
-	ha.heap = heap
-	ha.heap_type = heap_type
-
-	ha.heap->GetCPUDescriptorHandleForHeapStart(&ha.heap_start_cpu)
-	ha.heap->GetGPUDescriptorHandleForHeapStart(&ha.heap_start_gpu)
-
-	ha.heap_handle_increment = dx_context.device->GetDescriptorHandleIncrementSize(ha.heap_type)
-
-	desc : dx.DESCRIPTOR_HEAP_DESC
-	
-	ha.heap->GetDesc(&desc)
-
-	for n:= desc.NumDescriptors; n > 0; n-=1 {
-		small_array.push_back(&ha.free_indices, n - 1)
-	}
-
-	return ha
-}
-
-descriptor_heap_allocator_alloc :: proc(ha: ^DescriptorHeapAllocator) -> 
-		(cpu_desc_handle: dx.CPU_DESCRIPTOR_HANDLE, gpu_desc_handle: dx.GPU_DESCRIPTOR_HANDLE) {
-
-	n := small_array.pop_back(&ha.free_indices)
-
-	cpu_desc_handle.ptr = ha.heap_start_cpu.ptr + uint(n * ha.heap_handle_increment)
-	gpu_desc_handle.ptr = ha.heap_start_gpu.ptr + u64(n * ha.heap_handle_increment)
-
-	return
-}
-
-descriptor_heap_allocator_free :: proc(ha: ^DescriptorHeapAllocator, cpu_desc_handle: dx.CPU_DESCRIPTOR_HANDLE, gpu_desc_handle: dx.GPU_DESCRIPTOR_HANDLE) {
-
-	cpu_indx := u32(cpu_desc_handle.ptr - ha.heap_start_cpu.ptr) / ha.heap_handle_increment
-	gpu_indx := u32(gpu_desc_handle.ptr - ha.heap_start_gpu.ptr) / ha.heap_handle_increment
-
-	assert(cpu_indx == gpu_indx)
-
-	small_array.push_back(&ha.free_indices, cpu_indx)
-}
-
 
 Context :: struct {
 	// sdl stuff
@@ -166,7 +111,18 @@ Context :: struct {
 
 	// depth buffer
 	depth_stencil_res: ^dx.IResource,
-	descriptor_heap_dsv: ^dx.IDescriptorHeap
+	descriptor_heap_dsv: ^dx.IDescriptorHeap,
+
+	// app data
+
+	cam_angle: f32,
+	cam_distance: f32,
+}
+
+// initializes app data in Context struct
+context_init :: proc(con: ^Context) {
+	con.cam_angle = 0.125
+	con.cam_distance = 2.4
 }
 
 check :: proc(res: dx.HRESULT, message: string) {
@@ -181,10 +137,9 @@ check :: proc(res: dx.HRESULT, message: string) {
 dx_context: Context
 start_time: time.Time
 
+
 main :: proc() {
 	// Init SDL and create window
-	cam_pos.z = -2
-
 	if err := sdl.Init(sdl.INIT_EVERYTHING); err != 0 {
 		fmt.eprintln(err)
 		return
@@ -208,10 +163,7 @@ main :: proc() {
 	defer sdl.DestroyWindow(dx_context.window)
 
 	init_dx()
-
-
-
-
+	context_init(&dx_context)
 
 	device := dx_context.device
 
@@ -226,7 +178,8 @@ main :: proc() {
 		check(hr, "Failed creating command queue")
 	}
 
-	// Create the swapchain, it's the thing that contains render targets that we draw into. It has 2 render targets (NUM_RENDERTARGETS), giving us double buffering.
+	// Create the swapchain, it's the thing that contains render targets that we draw into. 
+	//  It has 2 render targets (NUM_RENDERTARGETS), giving us double buffering.
 	dx_context.swapchain = create_swapchain(dx_context.factory, dx_context.queue, dx_context.window)
 
 	dx_context.frame_index = dx_context.swapchain->GetCurrentBackBufferIndex()
@@ -749,6 +702,16 @@ get_projection_matrix :: proc(fov_rad: f32, screenWidth: i32, screenHeight: i32,
 
 get_wvp :: proc() -> dxm {
 
+	cam_pos : v3
+
+	cam_pos.z = -dx_context.cam_distance
+
+	// rotate on Y axis
+
+	rot_mat := linalg.matrix3_rotate_f32(dx_context.cam_angle * TURNS_TO_RAD, {0,1,0})
+	cam_pos = rot_mat * cam_pos
+
+
 	view := linalg.matrix4_look_at_f32(cam_pos, {0,0,0}, {0,1,0}, false)
 
 	fov := linalg.to_radians(f32(90.0))
@@ -768,29 +731,29 @@ update :: proc() {
 	keyboard := sdl.GetKeyboardStateAsSlice()
 
 	// controlling camera
-	cam_speed :: 0.01
+	// cam_speed :: 0.01
 
-	if keyboard[sdl.Scancode.A] == 1{
-		cam_pos.x -= cam_speed
-	}
-	if keyboard[sdl.Scancode.D] == 1{
-		cam_pos.x += cam_speed
-	}
-	if keyboard[sdl.Scancode.W] == 1{
-		cam_pos.y += cam_speed
-	}
-	if keyboard[sdl.Scancode.S] == 1{
-		cam_pos.y -= cam_speed
-	}
+	// if keyboard[sdl.Scancode.A] == 1{
+	// 	cam_pos.x -= cam_speed
+	// }
+	// if keyboard[sdl.Scancode.D] == 1{
+	// 	cam_pos.x += cam_speed
+	// }
+	// if keyboard[sdl.Scancode.W] == 1{
+	// 	cam_pos.y += cam_speed
+	// }
+	// if keyboard[sdl.Scancode.S] == 1{
+	// 	cam_pos.y -= cam_speed
+	// }
 
 
-	if keyboard[sdl.Scancode.H] == 1{
-		cam_pos.z -= cam_speed
-	}
+	// if keyboard[sdl.Scancode.H] == 1{
+	// 	cam_pos.z -= cam_speed
+	// }
 
-	if keyboard[sdl.Scancode.J] == 1{
-		cam_pos.z += cam_speed
-	}
+	// if keyboard[sdl.Scancode.J] == 1{
+	// 	cam_pos.z += cam_speed
+	// }
 }
 
 render :: proc() {
@@ -850,7 +813,13 @@ render :: proc() {
 	// setting descriptor heap for our cbv srv uav's
 	cmdlist->SetDescriptorHeaps(1, &dx_context.descriptor_heap_cbv_srv_uav)
 
-	// setting descriptor tables for our texture
+	// setting the root cbv that we set up in the root signature. root parameter 0
+	cmdlist->SetGraphicsRootConstantBufferView(
+		0,
+		dx_context.constant_buffer->GetGPUVirtualAddress(),
+	)
+
+	// setting descriptor tables for our texture. root parameter 1
 	{
 		// setting the graphics root descriptor table
 		// in the root signature, so that it points to
@@ -859,11 +828,6 @@ render :: proc() {
 			get_descriptor_heap_gpu_address(dx_context.descriptor_heap_cbv_srv_uav, 1)
 		)
 	}
-
-	cmdlist->SetGraphicsRootConstantBufferView(
-		0,
-		dx_context.constant_buffer->GetGPUVirtualAddress(),
-	)
 
 	cmdlist->RSSetViewports(1, &viewport)
 	cmdlist->RSSetScissorRects(1, &scissor_rect)
@@ -881,44 +845,41 @@ render :: proc() {
 	}
 
 	cmdlist->ResourceBarrier(1, &to_render_target_barrier)
+	// now that the RTVs are set to Render target, you can draw.
 
-	rtv_handle: dx.CPU_DESCRIPTOR_HANDLE
-	dx_context.rtv_descriptor_heap->GetCPUDescriptorHandleForHeapStart(&rtv_handle)
 
-	if (dx_context.frame_index > 0) {
-		s := dx_context.device->GetDescriptorHandleIncrementSize(.RTV)
-		rtv_handle.ptr += uint(dx_context.frame_index * s)
+	// Setting render targets. Clearing DSV and RTV.
+	{
+		rtv_handle := get_descriptor_heap_cpu_address(dx_context.rtv_descriptor_heap, dx_context.frame_index)
+		dsv_handle := get_descriptor_heap_cpu_address(dx_context.descriptor_heap_dsv, 0)
+
+		// setting depth buffer
+		cmdlist->OMSetRenderTargets(1, &rtv_handle, false, &dsv_handle)
+
+		// clear backbuffer
+		clearcolor := [?]f32{0.05, 0.05, 0.05, 1.0}
+		cmdlist->ClearRenderTargetView(rtv_handle, &clearcolor, 0, nil)
+
+		// clearing depth buffer
+		cmdlist->ClearDepthStencilView(dsv_handle, {.DEPTH, .STENCIL}, 1.0, 0, 0, nil)
 	}
-
-	// setting depth buffer
-	dsv_handle: dx.CPU_DESCRIPTOR_HANDLE
-	dx_context.descriptor_heap_dsv->GetCPUDescriptorHandleForHeapStart(&dsv_handle)
-
-	cmdlist->OMSetRenderTargets(1, &rtv_handle, false, &dsv_handle)
-
-	// clear backbuffer
-	clearcolor := [?]f32{0.05, 0.05, 0.05, 1.0}
-	cmdlist->ClearRenderTargetView(rtv_handle, &clearcolor, 0, nil)
-
-	// clearing depth buffer
-	cmdlist->ClearDepthStencilView(dsv_handle, {.DEPTH, .STENCIL}, 1.0, 0, 0, nil)
 
 	// draw call
 	cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
 	cmdlist->IASetVertexBuffers(0, 1, &dx_context.vertex_buffer_view)
 	cmdlist->IASetIndexBuffer(&dx_context.index_buffer_view)
-	// cmdlist->DrawInstanced(dx_context.vertex_count, 1, 0, 0)
 	cmdlist->DrawIndexedInstanced(dx_context.index_count, 1, 0, 0, 0)
 
 	// add imgui draw commands to cmd list
 	imgui_update_after()
+
+	// Cannot draw after this point because we transition the render target to "Present" state
 
 	to_present_barrier := to_render_target_barrier
 	to_present_barrier.Transition.StateBefore = {.RENDER_TARGET}
 	to_present_barrier.Transition.StateAfter = dx.RESOURCE_STATE_PRESENT
 
 	cmdlist->ResourceBarrier(1, &to_present_barrier)
-
 
 	hr = cmdlist->Close()
 	check(hr, "Failed to close command list")
@@ -1146,36 +1107,24 @@ create_descriptor_heap_cbv_srv_uav :: proc() {
 		Flags          = {.SHADER_VISIBLE},
 	}
 
-	hr := c.device->CreateDescriptorHeap(&cbv_heap_desc, dx.IDescriptorHeap_UUID, (^rawptr)(&c.descriptor_heap_cbv_srv_uav))
+	hr := c.device->CreateDescriptorHeap(&cbv_heap_desc, dx.IDescriptorHeap_UUID,
+		 (^rawptr)(&c.descriptor_heap_cbv_srv_uav))
 	check(hr, "failed creating descriptor heap")
 
 	c.descriptor_heap_cbv_srv_uav->SetName("lucy's cbv srv uav descriptor heap")
 
-
-	// creating SRV (my texture) (AT INDEX 1)
-
-	cpu_desc_handle_srv: dx.CPU_DESCRIPTOR_HANDLE
-	c.descriptor_heap_cbv_srv_uav->GetCPUDescriptorHandleForHeapStart(&cpu_desc_handle_srv)
-	increment_size := c.device->GetDescriptorHandleIncrementSize(.CBV_SRV_UAV)
-	// advancing pointer
-	cpu_desc_handle_srv.ptr += 1 * (uint)(increment_size)
-	// ptr is a uint
-
-	c.device->CreateShaderResourceView(c.texture, nil, cpu_desc_handle_srv)
-
-	// CreateShaderResourceView:         proc "system" (this: ^IDevice, pResource: ^IResource, pDesc: ^SHADER_RESOURCE_VIEW_DESC, DestDescriptor: CPU_DESCRIPTOR_HANDLE),
-
-	// creating cbv for my test constant buffer (AT INDEX 0)
-	
+	// creating CBV for my test constant buffer (AT INDEX 0)
 	cbv_desc := dx.CONSTANT_BUFFER_VIEW_DESC {
 		BufferLocation = dx_context.constant_buffer->GetGPUVirtualAddress(),
 		SizeInBytes    = size_of(ConstantBufferData),
 	}
 
-	cpu_desc_handle_cbv: dx.CPU_DESCRIPTOR_HANDLE
-	c.descriptor_heap_cbv_srv_uav->GetCPUDescriptorHandleForHeapStart(&cpu_desc_handle_cbv)
-	c.device->CreateConstantBufferView(&cbv_desc, cpu_desc_handle_cbv)
+	c.device->CreateConstantBufferView(&cbv_desc, 
+		get_descriptor_heap_cpu_address(c.descriptor_heap_cbv_srv_uav, 0))
 
+	// creating SRV (my texture) (AT INDEX 1)
+	c.device->CreateShaderResourceView(c.texture, nil, 
+		get_descriptor_heap_cpu_address(c.descriptor_heap_cbv_srv_uav, 1))
 }
 
 create_root_signature :: proc() {
@@ -1519,6 +1468,10 @@ imgui_update :: proc() {
 	if im.Button("click me") {
 		fmt.println("clicked!")
 	}
+
+	im.SliderFloat("camera angle", &dx_context.cam_angle, 0, 1)
+	im.SliderFloat("camera distance", &dx_context.cam_distance, 0.5, 20)
+
 	im.End()
 
 	im.Render()
@@ -1553,5 +1506,16 @@ get_descriptor_heap_gpu_address :: proc(heap: ^dx.IDescriptorHeap, offset: u32 =
 	heap->GetDesc(&desc)
 	increment := dx_context.device->GetDescriptorHandleIncrementSize(desc.Type)
 	gpu_descriptor_handle.ptr += u64(offset * increment)
+	return
+}
+
+
+get_descriptor_heap_cpu_address :: proc(heap: ^dx.IDescriptorHeap, offset: u32 = 0) -> 
+		(cpu_descriptor_handle : dx.CPU_DESCRIPTOR_HANDLE){
+	heap->GetCPUDescriptorHandleForHeapStart(&cpu_descriptor_handle)
+	desc : dx.DESCRIPTOR_HEAP_DESC
+	heap->GetDesc(&desc)
+	increment := dx_context.device->GetDescriptorHandleIncrementSize(desc.Type)
+	cpu_descriptor_handle.ptr += uint(offset * increment)
 	return
 }
