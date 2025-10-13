@@ -2,3 +2,4 @@
 *.pdb
 models/
 .obsidian/
+imgui.ini
