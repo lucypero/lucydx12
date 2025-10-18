@@ -57,6 +57,8 @@ v4 :: linalg.Vector4f32
 // constant buffer data
 ConstantBufferData :: struct #align (256) {
 	wvp: dxm,
+	light_pos: v3,
+	light_int: f32,
 	time: f32,
 }
 
@@ -123,6 +125,7 @@ Context :: struct {
 context_init :: proc(con: ^Context) {
 	con.cam_angle = 0.125
 	con.cam_distance = 2.4
+	light_pos = v3{0,0,-1}
 }
 
 check :: proc(res: dx.HRESULT, message: string) {
@@ -136,6 +139,8 @@ check :: proc(res: dx.HRESULT, message: string) {
 
 dx_context: Context
 start_time: time.Time
+light_pos: v3
+light_int: f32
 
 
 main :: proc() {
@@ -777,9 +782,17 @@ render :: proc() {
 
 	wvp := get_wvp()
 
+// ConstantBufferData :: struct #align (256) {
+// 	wvp: dxm,
+// 	light_pos: v3,
+// 	light_int: f32,
+// 	time: f32,
+// }
 
 	cbvdata_example := ConstantBufferData{
 		wvp = wvp,
+		light_pos = light_pos,
+		light_int = light_int,
 		time = float_val
 	}
 
@@ -1471,6 +1484,9 @@ imgui_update :: proc() {
 
 	im.SliderFloat("camera angle", &dx_context.cam_angle, 0, 1)
 	im.SliderFloat("camera distance", &dx_context.cam_distance, 0.5, 20)
+
+	im.DragFloat3("light pos", &light_pos, 0.1, -5, 5)
+	im.DragFloat("light intensity", &light_int, 0.1, 0, 20)
 
 	im.End()
 
