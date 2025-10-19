@@ -41,6 +41,15 @@ v4 :: linalg.Vector4f32
 
 dxm :: matrix[4,4]f32
 
+dx_context: Context
+start_time: time.Time
+light_pos: v3
+light_int: f32
+light_speed: f32
+place_texture: bool
+the_time_sec: f32
+
+
 // constant buffer data
 ConstantBufferData :: struct #align (256) {
 	wvp: dxm,
@@ -48,16 +57,17 @@ ConstantBufferData :: struct #align (256) {
 	light_int: f32,
 	view_pos: v3,
 	time: f32,
+	place_texture: b32
 }
 
 cb_update :: proc () {
 
 	// ticking cbv time value
 	thetime := time.diff(start_time, time.now())
-	float_val := f32(thetime) / f32(time.Second)
-	if float_val > 1 {
-		start_time = time.now()
-	}
+	the_time_sec = f32(thetime) / f32(time.Second)
+	// if the_time_sec > 1 {
+	// 	start_time = time.now()
+	// }
 
 	// sending constant buffer data
 	cam_pos := get_cam_pos()
@@ -67,7 +77,8 @@ cb_update :: proc () {
 		light_pos = light_pos,
 		light_int = light_int,
 		view_pos = cam_pos,
-		time = float_val
+		time = the_time_sec,
+		place_texture = b32(place_texture)
 	}
 
 	// sending data to the cpu mapped memory that the gpu can read
@@ -137,6 +148,7 @@ context_init :: proc(con: ^Context) {
 	con.cam_distance = 2.320
 	light_pos = v3{4.1,3.5,4.5}
 	light_int = 1
+	light_speed = 0.002
 }
 
 check :: proc(res: dx.HRESULT, message: string) {
@@ -147,11 +159,6 @@ check :: proc(res: dx.HRESULT, message: string) {
 	fmt.printf("%v. Error code: %0x\n", message, u32(res))
 	os.exit(-1)
 }
-
-dx_context: Context
-start_time: time.Time
-light_pos: v3
-light_int: f32
 
 
 main :: proc() {
@@ -767,6 +774,16 @@ update :: proc() {
 	// if keyboard[sdl.Scancode.J] == 1{
 	// 	cam_pos.z += cam_speed
 	// }
+
+	// rotate light
+
+	// fmt.println(the_time_sec)
+
+	// rot_mat := linalg.matrix3_rotate_f32(the_time_sec * light_speed, {0,1,0})
+	// light_pos = rot_mat * light_pos
+
+	light_pos.x = linalg.sin(the_time_sec * light_speed) * 2
+	light_pos.z = linalg.cos(the_time_sec * light_speed) * 2
 }
 
 render :: proc() {
@@ -1204,7 +1221,7 @@ create_root_signature :: proc() {
 
 do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u16) {
 
-	model_filepath :: "models/monke.glb"
+	model_filepath :: "models/teapot.glb"
 	model_filepath_c := strings.clone_to_cstring(model_filepath, context.temp_allocator)
 
 	cgltf_options : cgltf.options
@@ -1460,17 +1477,17 @@ imgui_update :: proc() {
 
 	// im.End()
 
-	im.Begin("hello")
-	im.Text("hello")
-	if im.Button("click me") {
-		fmt.println("clicked!")
-	}
+	im.Begin("lucydx12")
 
 	im.SliderFloat("camera angle", &dx_context.cam_angle, 0, 1)
 	im.SliderFloat("camera distance", &dx_context.cam_distance, 0.5, 20)
 
 	im.DragFloat3("light pos", &light_pos, 0.1, -5, 5)
 	im.DragFloat("light intensity", &light_int, 0.1, 0, 20)
+	im.DragFloat("light speed", &light_speed, 0.0001, 0, 20)
+
+
+	im.Checkbox("place texture", &place_texture)
 
 	im.End()
 

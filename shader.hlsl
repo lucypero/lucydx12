@@ -18,7 +18,8 @@ cbuffer ConstantBuffer : register(b0) {
     float3 light_pos;
     float light_int;
     float3 view_pos;
-    float someValue;
+    float time;
+    bool place_texture;
 };
 
 PSInput VSMain(VSInput the_input) {
@@ -34,7 +35,12 @@ Texture2D<float4> myTexture : register(t1);
 SamplerState mySampler : register(s0);
 
 float4 PSMain(PSInput input) : SV_TARGET {
-    float4 pixelColor = myTexture.Sample(mySampler, input.uvs);
+
+    float4 pixelColor = float4(1.0, 1.0, 1.0, 1.0);
+
+    if(place_texture) {
+        pixelColor = myTexture.Sample(mySampler, input.uvs);
+    }
 
     float3 norm = normalize(input.frag_normal);
     float3 light_dir = normalize(light_pos - input.frag_pos_world);
@@ -51,11 +57,12 @@ float4 PSMain(PSInput input) : SV_TARGET {
     float specularStrength = 0.5;
 
     float3 viewDir = normalize(view_pos - input.frag_pos_world);
-    float3 reflectDir = reflect(-light_dir, norm);  
+    float3 reflectDir = reflect(light_dir, norm);  
 
-    float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
-    float3 specular = specularStrength * spec;   // * light color (we don't have that yet)
+    float3 spec_color = float3(1,1,1);
 
+    float spec = pow(max(dot(viewDir, reflectDir), 0.0), 128);
+    float3 specular = specularStrength * spec * spec_color;
 
     float3 result = (ambient + diffuse + specular) * pixelColor.xyz;
     return float4(result, 1.0);
