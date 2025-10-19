@@ -1,18 +1,3 @@
-// D3D12 single-function triangle sample.
-//
-// Usage:
-// - copy SDL2.dll from Odin/vendor/sdl2 to your project directory
-// - odin run .
-//
-// Contributors:
-// - Karl Zylinski <karl@zylinski.se> (version 1, version 3)
-// - Jakub Tomšů (version 2)
-//
-// Based on:
-// - https://gist.github.com/karl-zylinski/e1d1d0925ac5db0f12e4837435c5bbfb
-// - https://gist.github.com/jakubtomsu/ecd83e61976d974c7730f9d7ad3e1fd0
-// - https://github.com/rdunnington/d3d12-hello-triangle/blob/master/main.c
-
 package main
 
 import "core:odin/ast"
@@ -54,12 +39,39 @@ v2 :: linalg.Vector2f32
 v3 :: linalg.Vector3f32
 v4 :: linalg.Vector4f32
 
+dxm :: matrix[4,4]f32
+
 // constant buffer data
 ConstantBufferData :: struct #align (256) {
 	wvp: dxm,
 	light_pos: v3,
 	light_int: f32,
+	view_pos: v3,
 	time: f32,
+}
+
+cb_update :: proc () {
+
+	// ticking cbv time value
+	thetime := time.diff(start_time, time.now())
+	float_val := f32(thetime) / f32(time.Second)
+	if float_val > 1 {
+		start_time = time.now()
+	}
+
+	// sending constant buffer data
+	cam_pos := get_cam_pos()
+
+	cbv_data := ConstantBufferData{
+		wvp = get_wvp(cam_pos),
+		light_pos = light_pos,
+		light_int = light_int,
+		view_pos = cam_pos,
+		time = float_val
+	}
+
+	// sending data to the cpu mapped memory that the gpu can read
+	mem.copy(dx_context.constant_buffer_map, (rawptr)(&cbv_data), size_of(cbv_data))
 }
 
 VertexData :: struct {
@@ -67,8 +79,6 @@ VertexData :: struct {
 	normal: v3,
 	uv: v2,
 }
-
-dxm :: matrix[4,4]f32
 
 Context :: struct {
 	// sdl stuff
@@ -86,7 +96,7 @@ Context :: struct {
 	command_allocator:   ^dx.ICommandAllocator,
 	pipeline:            ^dx.IPipelineState,
 	cmdlist:             ^dx.IGraphicsCommandList,
-	map_start:           rawptr, //maps to our test constant buffer
+	constant_buffer_map: rawptr, //maps to our test constant buffer
 	root_signature:      ^dx.IRootSignature,
 	constant_buffer:     ^dx.IResource,
 	vertex_buffer_view:  dx.VERTEX_BUFFER_VIEW,
@@ -123,9 +133,10 @@ Context :: struct {
 
 // initializes app data in Context struct
 context_init :: proc(con: ^Context) {
-	con.cam_angle = 0.125
-	con.cam_distance = 2.4
-	light_pos = v3{0,0,-1}
+	con.cam_angle = 0.080
+	con.cam_distance = 2.320
+	light_pos = v3{4.1,3.5,4.5}
+	light_int = 1
 }
 
 check :: proc(res: dx.HRESULT, message: string) {
@@ -270,11 +281,7 @@ main :: proc() {
 		check(hr, "failed creating constant buffer")
 
 		// empty range means the cpu won't read from it
-		dx_context.constant_buffer->Map(0, &dx.RANGE{}, &dx_context.map_start)
-
-		// // giving the constant buffer some data
-		// cbvdata_example := ConstantBufferData{0}
-		// mem.copy(dx_context.map_start, (rawptr)(&cbvdata_example), size_of(cbvdata_example))
+		dx_context.constant_buffer->Map(0, &dx.RANGE{}, &dx_context.constant_buffer_map)
 	}
 
 	create_depth_buffer()
@@ -705,8 +712,7 @@ get_projection_matrix :: proc(fov_rad: f32, screenWidth: i32, screenHeight: i32,
     }
 }
 
-get_wvp :: proc() -> dxm {
-
+get_cam_pos :: proc() -> v3 {
 	cam_pos : v3
 
 	cam_pos.z = -dx_context.cam_distance
@@ -714,8 +720,10 @@ get_wvp :: proc() -> dxm {
 	// rotate on Y axis
 
 	rot_mat := linalg.matrix3_rotate_f32(dx_context.cam_angle * TURNS_TO_RAD, {0,1,0})
-	cam_pos = rot_mat * cam_pos
+	return rot_mat * cam_pos
+}
 
+get_wvp :: proc(cam_pos: v3) -> dxm {
 
 	view := linalg.matrix4_look_at_f32(cam_pos, {0,0,0}, {0,1,0}, false)
 
@@ -771,32 +779,9 @@ render :: proc() {
 
 
 	hr: dx.HRESULT
-	// ticking cbv value
-	thetime := time.diff(start_time, time.now())
-	float_val := f32(thetime) / f32(time.Second)
-	if float_val > 1 {
-		start_time = time.now()
-	}
 
-	// sending constant buffer data
+	cb_update()
 
-	wvp := get_wvp()
-
-// ConstantBufferData :: struct #align (256) {
-// 	wvp: dxm,
-// 	light_pos: v3,
-// 	light_int: f32,
-// 	time: f32,
-// }
-
-	cbvdata_example := ConstantBufferData{
-		wvp = wvp,
-		light_pos = light_pos,
-		light_int = light_int,
-		time = float_val
-	}
-
-	mem.copy(dx_context.map_start, (rawptr)(&cbvdata_example), size_of(cbvdata_example))
 	// case .WINDOWEVENT:
 	// This is equivalent to WM_PAINT in win32 API
 	// if e.window.event == .EXPOSED {
@@ -1465,7 +1450,6 @@ imgui_destoy :: proc() {
 	imgui_impl_sdl2.Shutdown() // here
 	imgui_impl_dx12.Shutdown()
 }
-
 
 imgui_update :: proc() {
 	imgui_impl_dx12.NewFrame()
