@@ -49,7 +49,6 @@ light_speed: f32
 place_texture: bool
 the_time_sec: f32
 
-
 // constant buffer data
 ConstantBufferData :: struct #align (256) {
 	wvp: dxm,
@@ -58,6 +57,11 @@ ConstantBufferData :: struct #align (256) {
 	view_pos: v3,
 	time: f32,
 	place_texture: b32
+}
+
+// struct that holds instance data, for an instance rendering example
+InstanceData :: struct #align (256) {
+	world_mat : dxm
 }
 
 cb_update :: proc () {
@@ -89,6 +93,16 @@ VertexData :: struct {
 	pos: v3,
 	normal: v3,
 	uv: v2,
+}
+
+// Data associated with a vertex buffer
+// this could be an instance buffer too. it's the same to dx12.
+VertexBuffer :: struct {
+	buffer: ^dx.IResource,
+	vbv: dx.VERTEX_BUFFER_VIEW,
+	vertex_count: u32, // vertex count or instance count
+	buffer_size: u32,
+	buffer_stride: u32,
 }
 
 Context :: struct {
@@ -135,6 +149,9 @@ Context :: struct {
 	// depth buffer
 	depth_stencil_res: ^dx.IResource,
 	descriptor_heap_dsv: ^dx.IDescriptorHeap,
+
+	// instance buffer
+	instance_buffer: VertexBuffer,
 
 	// app data
 
@@ -304,6 +321,7 @@ main :: proc() {
 
 	create_root_signature()
 
+	dx_context.instance_buffer = create_instance_buffer_example()
 
 	// The pipeline contains the shaders etc to use
 
@@ -480,12 +498,18 @@ main :: proc() {
 
 	imgui_init()
 
+	// creating and filling vertex and index buffers
 	{
 		// get vertex data from gltf file
 		vertices, indices := do_gltf_stuff()
 		dx_context.vertex_count = u32(len(vertices))
 
 		// VERTEXDATA
+		// vertex data and index data is in an upload heap.
+		// This isn't optimal for geometry that doesn't change much.
+		// If we want to make this fast, the vertex data needs to be in
+		// a DEFAULT heap (vram). you transfer the data from an upload heap
+		// to the default heap. but it's more complicated.
 		heap_props := dx.HEAP_PROPERTIES {
 			Type = .UPLOAD,
 		}
@@ -750,38 +774,6 @@ update :: proc() {
 	sdl.PumpEvents()
 	keyboard := sdl.GetKeyboardStateAsSlice()
 
-	// controlling camera
-	// cam_speed :: 0.01
-
-	// if keyboard[sdl.Scancode.A] == 1{
-	// 	cam_pos.x -= cam_speed
-	// }
-	// if keyboard[sdl.Scancode.D] == 1{
-	// 	cam_pos.x += cam_speed
-	// }
-	// if keyboard[sdl.Scancode.W] == 1{
-	// 	cam_pos.y += cam_speed
-	// }
-	// if keyboard[sdl.Scancode.S] == 1{
-	// 	cam_pos.y -= cam_speed
-	// }
-
-
-	// if keyboard[sdl.Scancode.H] == 1{
-	// 	cam_pos.z -= cam_speed
-	// }
-
-	// if keyboard[sdl.Scancode.J] == 1{
-	// 	cam_pos.z += cam_speed
-	// }
-
-	// rotate light
-
-	// fmt.println(the_time_sec)
-
-	// rot_mat := linalg.matrix3_rotate_f32(the_time_sec * light_speed, {0,1,0})
-	// light_pos = rot_mat * light_pos
-
 	light_pos.x = linalg.sin(the_time_sec * light_speed) * 2
 	light_pos.z = linalg.cos(the_time_sec * light_speed) * 2
 }
@@ -1030,7 +1022,6 @@ create_texture :: proc() {
 				  int(texture_width * channels))
 	}
 
-
 	// here you send the gpu command to copy the data to the texture resource.
 
 	copy_location_src := dx.TEXTURE_COPY_LOCATION {
@@ -1103,11 +1094,36 @@ create_texture :: proc() {
 
 	// here, the gpu is done! now release upload resource then change texture type to generic read
 	texture_upload->Release()
+}
 
+// creates instance buffer and fills it with some data
+create_instance_buffer_example :: proc() -> VertexBuffer {
 
-	// creating SRV
+	// first: we create the data
 
+	instance_data := make([]InstanceData, 20, context.temp_allocator)
 
+	step : f32 = 3
+
+	for &instance, i in instance_data {
+		// fill it with random stuff
+		x_pos := f32(i) * 3
+		instance = InstanceData {
+			world_mat = get_world_mat({x_pos, 0, 0}, {1, 1, 1})
+		}
+	}
+
+	// second: we create the DX buffer, passing the size we want. and stride
+	//   it needs to return the vertex buffer view
+
+	instance_data_size := len(instance_data) * size_of(instance_data[0])
+
+	vb := create_vertex_buffer(size_of(instance_data[0]), u32(instance_data_size))
+
+	// third: we copy the data to the buffer (map and unmap)									
+	copy_to_buffer(vb.buffer, &instance_data[0], instance_data_size)
+
+	return vb
 }
 
 // creates the descriptor heap that will hold all our cbv's srv's and uav's
@@ -1535,4 +1551,79 @@ get_descriptor_heap_cpu_address :: proc(heap: ^dx.IDescriptorHeap, offset: u32 =
 	increment := dx_context.device->GetDescriptorHandleIncrementSize(desc.Type)
 	cpu_descriptor_handle.ptr += uint(offset * increment)
 	return
+}
+
+
+// gives you a transformation matrix given a position and scale
+get_world_mat :: proc(pos, scale: v3) -> dxm {
+
+
+	translation_mat := linalg.matrix4_translate_f32(pos)
+	scale_mat := linalg.matrix4_scale_f32(scale)
+
+
+	// TODO: rotation mat.
+
+
+	return translation_mat * scale_mat
+}
+
+// returns a vertex buffer view
+create_vertex_buffer :: proc(stride_in_bytes, size_in_bytes: u32) -> VertexBuffer {
+
+	vb : ^dx.IResource
+
+	// For now we'll just store stuff in an upload heap.
+	// it's not optimal for most things but it's more practical for me
+	heap_props := dx.HEAP_PROPERTIES {
+		Type = .UPLOAD,
+	}
+
+	resource_desc := dx.RESOURCE_DESC {
+		Dimension = .BUFFER,
+		Alignment = 0,
+		Width = u64(size_in_bytes),
+		Height = 1,
+		DepthOrArraySize = 1,
+		MipLevels = 1,
+		Format = .UNKNOWN,
+		SampleDesc = {Count = 1, Quality = 0},
+		Layout = .ROW_MAJOR,
+		Flags = {},
+	}
+
+	hr :=
+	dx_context.device->CreateCommittedResource(
+		&heap_props,
+		{},
+		&resource_desc,
+		dx.RESOURCE_STATE_GENERIC_READ,
+		nil,
+		dx.IResource_UUID,
+		(^rawptr)(&vb),
+	)
+	check(hr, "Failed creating vertex buffer")
+
+	vbv := dx.VERTEX_BUFFER_VIEW {
+		BufferLocation = vb->GetGPUVirtualAddress(),
+		StrideInBytes  = stride_in_bytes,
+		SizeInBytes    = size_in_bytes
+	}
+
+	return VertexBuffer {
+		buffer = vb,
+		vbv = vbv,
+		vertex_count = size_in_bytes / stride_in_bytes,
+		buffer_size = size_in_bytes,
+		buffer_stride = stride_in_bytes
+	}
+}
+
+// copies data to a dx resource. then umaps the memory
+copy_to_buffer :: proc(buffer: ^dx.IResource, src: rawptr, len:int) {
+	gpu_data: rawptr
+	hr := buffer->Map(0, &dx.RANGE{}, &gpu_data)
+	check(hr, "Failed creating vertex buffer resource")
+	mem.copy(gpu_data, src, len)
+	buffer->Unmap(0, nil)
 }
