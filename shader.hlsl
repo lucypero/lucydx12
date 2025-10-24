@@ -4,6 +4,11 @@ struct VSInput {
     float3 position : POSITION;
     float3 normal : NORMAL;
     float2 uvs : TEXCOORD;
+    // instance data
+    float4 worldM0  : WORLDMATRIX0; // Per-instance data (Slot 1)
+    float4 worldM1  : WORLDMATRIX1;
+    float4 worldM2  : WORLDMATRIX2;
+    float4 worldM3  : WORLDMATRIX3;
 };
 
 struct PSInput {
@@ -24,10 +29,13 @@ cbuffer ConstantBuffer : register(b0) {
 
 PSInput VSMain(VSInput the_input) {
     PSInput result;
-    result.position = mul(float4(the_input.position, 1.0f), wvp);
+
+    float4x4 world_matrix = float4x4(the_input.worldM0, the_input.worldM1, the_input.worldM2, the_input.worldM3);
+    result.position = mul(float4(the_input.position, 1.0f), wvp * world_matrix);
     result.frag_pos_world = float3(the_input.position);
     result.frag_normal = the_input.normal;
     result.uvs = the_input.uvs.xy;
+
     return result;
 }
 
