@@ -385,7 +385,19 @@ main :: proc() {
 
 		// INPUTLAYOUT
 
+
+// INPUT_ELEMENT_DESC :: struct {
+// 	SemanticName:         cstring,
+// 	SemanticIndex:        u32,
+// 	Format:               dxgi.FORMAT,
+// 	InputSlot:            u32,
+// 	AlignedByteOffset:    u32,
+// 	InputSlotClass:       INPUT_CLASSIFICATION,
+// 	InstanceDataStepRate: u32,
+// }
+
 		// This layout matches the vertices data defined further down
+		// this has to include the instance data!!
 		vertex_format: []dx.INPUT_ELEMENT_DESC = {
 			{
 				SemanticName = "POSITION",
@@ -404,6 +416,43 @@ main :: proc() {
 				Format = .R32G32_FLOAT,
 				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
 				InputSlotClass = .PER_VERTEX_DATA,
+			},
+			// per-instance data
+			{
+				SemanticName = "WORLDMATRIX",
+				SemanticIndex = 0,
+				Format = .R32G32B32A32_FLOAT,
+				InputSlot = 1,
+				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+				InputSlotClass = .PER_INSTANCE_DATA,
+				InstanceDataStepRate = 1
+			},
+			{
+				SemanticName = "WORLDMATRIX",
+				SemanticIndex = 1,
+				Format = .R32G32B32A32_FLOAT,
+				InputSlot = 1,
+				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+				InputSlotClass = .PER_INSTANCE_DATA,
+				InstanceDataStepRate = 1
+			},
+			{
+				SemanticName = "WORLDMATRIX",
+				SemanticIndex = 2,
+				Format = .R32G32B32A32_FLOAT,
+				InputSlot = 1,
+				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+				InputSlotClass = .PER_INSTANCE_DATA,
+				InstanceDataStepRate = 1
+			},
+			{
+				SemanticName = "WORLDMATRIX",
+				SemanticIndex = 3,
+				Format = .R32G32B32A32_FLOAT,
+				InputSlot = 1,
+				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+				InputSlotClass = .PER_INSTANCE_DATA,
+				InstanceDataStepRate = 1
 			},
 		}
 
@@ -873,9 +922,17 @@ render :: proc() {
 
 	// draw call
 	cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
-	cmdlist->IASetVertexBuffers(0, 1, &dx_context.vertex_buffer_view)
+
+	// binding vertex buffer view and instance buffer view
+	vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW {
+		dx_context.vertex_buffer_view,
+		dx_context.instance_buffer.vbv,
+	}
+
+	cmdlist->IASetVertexBuffers(0, len(vertex_buffers_views), &vertex_buffers_views[0])
 	cmdlist->IASetIndexBuffer(&dx_context.index_buffer_view)
-	cmdlist->DrawIndexedInstanced(dx_context.index_count, 1, 0, 0, 0)
+	cmdlist->DrawIndexedInstanced(dx_context.index_count, 
+					dx_context.instance_buffer.vertex_count, 0, 0, 0)
 
 	// add imgui draw commands to cmd list
 	imgui_update_after()
