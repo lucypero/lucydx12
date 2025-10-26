@@ -1,4 +1,4 @@
-#pragma pack_matrix(row_major)
+#pragma pack_matrix(column_major)
 
 struct VSInput {
     float3 position : POSITION;
@@ -19,7 +19,8 @@ struct PSInput {
 };
 
 cbuffer ConstantBuffer : register(b0) {
-    float4x4 wvp;
+    float4x4 view;
+    float4x4 projection;
     float3 light_pos;
     float light_int;
     float3 view_pos;
@@ -31,11 +32,21 @@ PSInput VSMain(VSInput the_input) {
     PSInput result;
 
     float4x4 world_matrix = float4x4(the_input.worldM0, the_input.worldM1, the_input.worldM2, the_input.worldM3);
-    result.position = mul(float4(the_input.position, 1.0f), wvp * world_matrix);
-    result.frag_pos_world = float3(the_input.position);
+    world_matrix = transpose(world_matrix);
+
+    float4 pos = float4(the_input.position, 1.0f);
+
+    float4 world_position = mul(world_matrix, pos);
+    // float4x4 world_position = mul(wvp, world_matrix);
+
+    float4 view_position = mul(view, world_position);
+
+    // result.position = mul(pos, world_position);
+    result.position = mul(projection, view_position);
+
+    result.frag_pos_world = world_position.xyz;
     result.frag_normal = the_input.normal;
     result.uvs = the_input.uvs.xy;
-
     return result;
 }
 
@@ -75,6 +86,5 @@ float4 PSMain(PSInput input) : SV_TARGET {
     float3 result = (ambient + diffuse + specular) * pixelColor.xyz;
     return float4(result, 1.0);
 
-    // return pixelColor * float4(diffuse, 1.0f) + pixelColor * ambient;
     // return float4(1,0,0,1);
 }
