@@ -51,7 +51,8 @@ the_time_sec: f32
 
 // constant buffer data
 ConstantBufferData :: struct #align (256) {
-	wvp: dxm,
+	view: dxm,
+	projection: dxm,
 	light_pos: v3,
 	light_int: f32,
 	view_pos: v3,
@@ -75,9 +76,11 @@ cb_update :: proc () {
 
 	// sending constant buffer data
 	cam_pos := get_cam_pos()
+	view, projection := get_view_projection(cam_pos)
 
 	cbv_data := ConstantBufferData{
-		wvp = get_wvp(cam_pos),
+		view = view,
+		projection = projection,
 		light_pos = light_pos,
 		light_int = light_int,
 		view_pos = cam_pos,
@@ -803,7 +806,7 @@ get_cam_pos :: proc() -> v3 {
 	return rot_mat * cam_pos
 }
 
-get_wvp :: proc(cam_pos: v3) -> dxm {
+get_view_projection :: proc(cam_pos: v3) -> (dxm, dxm) {
 
 	view := linalg.matrix4_look_at_f32(cam_pos, {0,0,0}, {0,1,0}, false)
 
@@ -815,7 +818,8 @@ get_wvp :: proc(cam_pos: v3) -> dxm {
 	// has correct depth values
 	// proj := matrix4_perspective_z0_f32(fov, aspect, 0.1, 100)
 
-	return proj * view
+	return view, proj
+	// return view * proj
 }
 
 update :: proc() {
@@ -1164,9 +1168,11 @@ create_instance_buffer_example :: proc() -> VertexBuffer {
 
 	for &instance, i in instance_data {
 		// fill it with random stuff
-		x_pos := f32(i) * 3
+		x_pos := f32(i) * 2
+		scale := 1 + x_pos * 0.1
+		// x_pos = 0 
 		instance = InstanceData {
-			world_mat = get_world_mat({x_pos, 0, 0}, {1, 1, 1})
+			world_mat = get_world_mat({x_pos, 0, 0}, {scale, scale, scale})
 		}
 	}
 
@@ -1623,6 +1629,7 @@ get_world_mat :: proc(pos, scale: v3) -> dxm {
 
 
 	return translation_mat * scale_mat
+	// return scale_mat * translation_mat
 }
 
 // returns a vertex buffer view
