@@ -9,6 +9,7 @@ struct VSInput {
     float4 worldM1  : WORLDMATRIX1;
     float4 worldM2  : WORLDMATRIX2;
     float4 worldM3  : WORLDMATRIX3;
+    float3 color : COLOR;
 };
 
 struct PSInput {
@@ -16,6 +17,7 @@ struct PSInput {
     float3 frag_pos_world: POSITION;
     float3 frag_normal: NORMAL;
     float2 uvs : TEXCOORD0;
+    float3 color: COLOR;
 };
 
 cbuffer ConstantBuffer : register(b0) {
@@ -47,6 +49,7 @@ PSInput VSMain(VSInput the_input) {
     result.frag_pos_world = world_position.xyz;
     result.frag_normal = the_input.normal;
     result.uvs = the_input.uvs.xy;
+    result.color = the_input.color;
     return result;
 }
 
@@ -55,7 +58,7 @@ SamplerState mySampler : register(s0);
 
 float4 PSMain(PSInput input) : SV_TARGET {
 
-    float4 pixelColor = float4(1.0, 1.0, 1.0, 1.0);
+    float4 pixelColor = float4(input.color, 1.0);
 
     if(place_texture) {
         pixelColor = myTexture.Sample(mySampler, input.uvs);

@@ -19,6 +19,7 @@ import "core:math/linalg"
 import "vendor:cgltf"
 import "core:container/small_array"
 import "base:runtime"
+import "core:math/rand"
 
 // imgui
 import im "../odin-imgui"
@@ -62,7 +63,8 @@ ConstantBufferData :: struct #align (256) {
 
 // struct that holds instance data, for an instance rendering example
 InstanceData :: struct #align (256) {
-	world_mat : dxm
+	world_mat : dxm,
+	color: v3,
 }
 
 cb_update :: proc () {
@@ -457,6 +459,15 @@ main :: proc() {
 				InputSlotClass = .PER_INSTANCE_DATA,
 				InstanceDataStepRate = 1
 			},
+			{
+				SemanticName = "COLOR",
+				SemanticIndex = 0,
+				Format = .R32G32B32_FLOAT,
+				InputSlot = 1,
+				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+				InputSlotClass = .PER_INSTANCE_DATA,
+				InstanceDataStepRate = 1
+			},
 		}
 
 		default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
@@ -673,6 +684,7 @@ main :: proc() {
 
 		update()
 		render()
+		free_all(context.temp_allocator)
 	}
 }
 
@@ -1157,24 +1169,45 @@ create_texture :: proc() {
 	texture_upload->Release()
 }
 
+gen_teapot_instance_data :: proc() -> []InstanceData {
+
+	teapot_count := 500
+
+	instance_data := make([]InstanceData, teapot_count, context.temp_allocator)
+
+	for &instance, i in instance_data {
+		// fill it with random stuff
+		x_pos := rand.float32_range(-20, 20)
+		y_pos := rand.float32_range(-20, 20)
+		z_pos := rand.float32_range(-20, 20)
+
+		scale := rand.float32_range(0.5, 5)
+
+		rot_fac :: 1
+
+		rot_val := rand.float32_range(0, math.TAU)
+		rot_vec := v3{rand.float32_range(-rot_fac, rot_fac), 
+						rand.float32_range(-rot_fac, rot_fac), rand.float32_range(-rot_fac, rot_fac)}
+
+		rot_vec = linalg.vector_normalize(rot_vec)
+
+		col_vec := v3{rand.float32_range(0.5, 1), rand.float32_range(0.5, 1), rand.float32_range(0.5, 1)}
+
+		// x_pos = 0 
+		instance = InstanceData {
+			world_mat = get_world_mat({x_pos, y_pos, z_pos}, {scale, scale, scale}, rot_val, rot_vec),
+			color = col_vec,
+		}
+	}
+
+	return instance_data
+}
+
 // creates instance buffer and fills it with some data
 create_instance_buffer_example :: proc() -> VertexBuffer {
 
 	// first: we create the data
-
-	instance_data := make([]InstanceData, 20, context.temp_allocator)
-
-	step : f32 = 3
-
-	for &instance, i in instance_data {
-		// fill it with random stuff
-		x_pos := f32(i) * 2
-		scale := 1 + x_pos * 0.1
-		// x_pos = 0 
-		instance = InstanceData {
-			world_mat = get_world_mat({x_pos, 0, 0}, {scale, scale, scale})
-		}
-	}
+	instance_data := gen_teapot_instance_data()
 
 	// second: we create the DX buffer, passing the size we want. and stride
 	//   it needs to return the vertex buffer view
@@ -1187,6 +1220,15 @@ create_instance_buffer_example :: proc() -> VertexBuffer {
 	copy_to_buffer(vb.buffer, &instance_data[0], instance_data_size)
 
 	return vb
+}
+
+reroll_teapots :: proc() {
+
+	instance_data := gen_teapot_instance_data()
+
+	instance_data_size := len(instance_data) * size_of(instance_data[0])
+
+	copy_to_buffer(dx_context.instance_buffer.buffer, &instance_data[0], instance_data_size)
 }
 
 // creates the descriptor heap that will hold all our cbv's srv's and uav's
@@ -1552,8 +1594,6 @@ imgui_update :: proc() {
 	imgui_impl_sdl2.NewFrame()
 	im.NewFrame()
 
-	im.ShowDemoWindow()
-
 	// im.End()
 
 	im.Begin("lucydx12")
@@ -1567,6 +1607,9 @@ imgui_update :: proc() {
 
 
 	im.Checkbox("place texture", &place_texture)
+	if im.Button("Re-roll teapots") {
+		reroll_teapots()
+	}
 
 	im.End()
 
@@ -1617,18 +1660,19 @@ get_descriptor_heap_cpu_address :: proc(heap: ^dx.IDescriptorHeap, offset: u32 =
 }
 
 
-// gives you a transformation matrix given a position and scale
-get_world_mat :: proc(pos, scale: v3) -> dxm {
+// gives you a transformation matrix given a position and scale and rot
+get_world_mat :: proc(pos, scale: v3, rot_rads : f32, rot_vec: v3) -> dxm {
 
 
 	translation_mat := linalg.matrix4_translate_f32(pos)
 	scale_mat := linalg.matrix4_scale_f32(scale)
 
+	rot_mat := linalg.matrix4_rotate_f32(rot_rads, rot_vec)
 
 	// TODO: rotation mat.
 
 
-	return translation_mat * scale_mat
+	return translation_mat * scale_mat * rot_mat
 	// return scale_mat * translation_mat
 }
 
