@@ -1171,15 +1171,18 @@ create_texture :: proc() {
 
 gen_teapot_instance_data :: proc() -> []InstanceData {
 
-	teapot_count := 500
+	teapot_count := 50
 
 	instance_data := make([]InstanceData, teapot_count, context.temp_allocator)
 
 	for &instance, i in instance_data {
+
+		spread :: 10
+
 		// fill it with random stuff
-		x_pos := rand.float32_range(-20, 20)
-		y_pos := rand.float32_range(-20, 20)
-		z_pos := rand.float32_range(-20, 20)
+		x_pos := rand.float32_range(-spread, spread)
+		y_pos := rand.float32_range(-spread, spread)
+		z_pos := rand.float32_range(-spread, spread)
 
 		scale := rand.float32_range(0.5, 5)
 
