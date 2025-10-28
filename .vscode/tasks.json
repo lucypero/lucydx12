@@ -30,6 +30,16 @@
                 "kind": "build",
                 "isDefault": true
             }
+        },
+        {
+            "label": "run opt",
+            "type": "shell",
+            "command": "odin run . -o:speed -out:lucydx12.exe",
+            "problemMatcher": "$msCompile",
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
         }
     ]
 }
