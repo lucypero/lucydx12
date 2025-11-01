@@ -244,7 +244,7 @@ main :: proc() {
 			(^rawptr)(&dx_context.rtv_descriptor_heap),
 		)
 		check(hr, "Failed creating descriptor heap")
-		dx_context.rtv_descriptor_heap->SetName("lucy's RTV descriptor heap")
+		dx_context.rtv_descriptor_heap->SetName("lucy's swapchain RTV descriptor heap")
 	}
 
 	// Fetch the two render targets from the swapchain
@@ -278,6 +278,9 @@ main :: proc() {
 		(^rawptr)(&dx_context.command_allocator),
 	)
 	check(hr, "Failed creating command allocator")
+
+	// Creating G-Buffer textures and RTV's
+	create_gbuffer()
 
 
 	// constant buffer
@@ -552,7 +555,7 @@ main :: proc() {
 	check(hr, "Failed to close command list")
 
 	// texture test
-	create_texture()
+	create_sample_texture()
 
 	create_descriptor_heap_cbv_srv_uav()
 
@@ -682,7 +685,12 @@ main :: proc() {
 			}
 		}
 
+		imgui_impl_dx12.NewFrame()
+		imgui_impl_sdl2.NewFrame()
+		im.NewFrame()
 		update()
+		im.End()
+		im.Render()
 		render()
 		free_all(context.temp_allocator)
 	}
@@ -841,11 +849,28 @@ update :: proc() {
 
 	light_pos.x = linalg.sin(the_time_sec * light_speed) * 2
 	light_pos.z = linalg.cos(the_time_sec * light_speed) * 2
+
+	
+	// im.End()
+
+	im.Begin("lucydx12")
+
+	im.SliderFloat("camera angle", &dx_context.cam_angle, 0, 1)
+	im.SliderFloat("camera distance", &dx_context.cam_distance, 0.5, 20)
+
+	im.DragFloat3("light pos", &light_pos, 0.1, -5, 5)
+	im.DragFloat("light intensity", &light_int, 0.1, 0, 20)
+	im.DragFloat("light speed", &light_speed, 0.0001, 0, 20)
+
+
+	im.Checkbox("place texture", &place_texture)
+	if im.Button("Re-roll teapots") {
+		reroll_teapots()
+	}
 }
 
 render :: proc() {
 
-	imgui_update()
 
 	command_allocator := dx_context.command_allocator
 	pipeline := dx_context.pipeline
@@ -998,7 +1023,7 @@ render :: proc() {
 }
 
 // creating resource and uploading it to the gpu
-create_texture :: proc() {
+create_sample_texture :: proc() {
 
 	ct := &dx_context
 
@@ -1592,35 +1617,8 @@ imgui_destoy :: proc() {
 	imgui_impl_dx12.Shutdown()
 }
 
-imgui_update :: proc() {
-	imgui_impl_dx12.NewFrame()
-	imgui_impl_sdl2.NewFrame()
-	im.NewFrame()
-
-	// im.End()
-
-	im.Begin("lucydx12")
-
-	im.SliderFloat("camera angle", &dx_context.cam_angle, 0, 1)
-	im.SliderFloat("camera distance", &dx_context.cam_distance, 0.5, 20)
-
-	im.DragFloat3("light pos", &light_pos, 0.1, -5, 5)
-	im.DragFloat("light intensity", &light_int, 0.1, 0, 20)
-	im.DragFloat("light speed", &light_speed, 0.0001, 0, 20)
-
-
-	im.Checkbox("place texture", &place_texture)
-	if im.Button("Re-roll teapots") {
-		reroll_teapots()
-	}
-
-	im.End()
-
-	im.Render()
-}
-
+// call this right before swapchain present
 imgui_update_after :: proc() {
-	// call this right before swapchain present
 
 	// setting imgui's descriptor heap 
 	// if i don't do this, it errors out. seems like RenderDrawData doesn't set it
@@ -1737,4 +1735,90 @@ copy_to_buffer :: proc(buffer: ^dx.IResource, src: rawptr, len:int) {
 	check(hr, "Failed creating vertex buffer resource")
 	mem.copy(gpu_data, src, len)
 	buffer->Unmap(0, nil)
+}
+
+create_gbuffer :: proc() {
+	ct := &dx_context
+	// create texture resource and RTV's
+
+	// TODO: look into creating a heap and resources separately.
+
+	// albedo color and specular
+	gb_1_res := create_texture(u64(wx), u32(wy), .R8G8B8A8_UNORM, {.ALLOW_RENDER_TARGET}, {.RENDER_TARGET})
+
+	// world normal data
+	gb_2_res := create_texture(u64(wx), u32(wy), .R10G10B10A2_UNORM, {.ALLOW_RENDER_TARGET}, {.RENDER_TARGET})
+
+	// world space position
+	gb_3_res := create_texture(u64(wx), u32(wy), .R16G16B16A16_FLOAT, {.ALLOW_RENDER_TARGET}, {.RENDER_TARGET})
+
+	// creating rtv heap and rtv's
+
+	gb_descriptor_heap : ^dx.IDescriptorHeap
+
+	{
+		desc := dx.DESCRIPTOR_HEAP_DESC {
+			NumDescriptors = 3,
+			Type           = .RTV,
+			Flags          = {}, // maybe shader visible should be here idk
+		}
+
+		hr :=
+		ct.device->CreateDescriptorHeap(
+			&desc,
+			dx.IDescriptorHeap_UUID,
+			(^rawptr)(&gb_descriptor_heap),
+		)
+		check(hr, "Failed creating descriptor heap")
+		gb_descriptor_heap->SetName("lucy's g-buffer RTV descriptor heap")
+
+		rtv_descriptor_size: u32 = ct.device->GetDescriptorHandleIncrementSize(.RTV)
+
+		rtv_descriptor_handle: dx.CPU_DESCRIPTOR_HANDLE
+		gb_descriptor_heap->GetCPUDescriptorHandleForHeapStart(&rtv_descriptor_handle)
+
+		ct.device->CreateRenderTargetView(gb_1_res, nil, rtv_descriptor_handle)
+		rtv_descriptor_handle.ptr += uint(rtv_descriptor_size)
+
+		ct.device->CreateRenderTargetView(gb_2_res, nil, rtv_descriptor_handle)
+		rtv_descriptor_handle.ptr += uint(rtv_descriptor_size)
+
+		ct.device->CreateRenderTargetView(gb_3_res, nil, rtv_descriptor_handle)
+	}
+}
+
+// helper function that creates a texture resource in its own implicit heap
+// TODO: look into creating heap separately
+create_texture :: proc(width: u64, height: u32, format: dxgi.FORMAT, resource_flags:dx.RESOURCE_FLAGS, initial_state: dx.RESOURCE_STATES) ->
+		(res: ^dx.IResource){
+
+	ct := &dx_context
+
+	heap_properties := dx.HEAP_PROPERTIES {
+		Type = .DEFAULT,
+	}
+
+	texture_desc := dx.RESOURCE_DESC {
+		Width = width,
+		Height = height,
+		Dimension = .TEXTURE2D,
+		Layout = .UNKNOWN,
+		Format = format,
+		DepthOrArraySize = 1,
+		MipLevels = 1,
+		SampleDesc = {Count = 1},
+		Flags = resource_flags,
+	}
+
+	hr := ct.device->CreateCommittedResource(
+		&heap_properties,
+		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
+		&texture_desc,
+		initial_state,
+		nil,
+		dx.IResource_UUID,
+		(^rawptr)(&res),
+	)
+
+	return res
 }
