@@ -110,6 +110,22 @@ VertexBuffer :: struct {
 	buffer_stride: u32,
 }
 
+gbuffer_count :: 3
+
+GBufferUnit :: struct {
+	res: ^dx.IResource,
+	rtv: dx.CPU_DESCRIPTOR_HANDLE,
+	format: dxgi.FORMAT
+}
+
+GBuffer :: struct {
+	gb_albedo: GBufferUnit,
+	gb_normal: GBufferUnit,
+	gb_position: GBufferUnit,
+
+	rtv_heap : ^dx.IDescriptorHeap,
+}
+
 Context :: struct {
 	// sdl stuff
 	window: ^sdl.Window,
@@ -132,9 +148,10 @@ Context :: struct {
 	vertex_buffer_view:  dx.VERTEX_BUFFER_VIEW,
 	index_buffer_view: dx.INDEX_BUFFER_VIEW,
 	// descriptor heap for the render target view
-	rtv_descriptor_heap: ^dx.IDescriptorHeap, 
+	swapchain_rtv_descriptor_heap: ^dx.IDescriptorHeap, 
 	frame_index:         u32,
 	targets:             [NUM_RENDERTARGETS]^dx.IResource, // render targets
+	gbuffer: GBuffer,
 
 	// fence stuff (for waiting to render frame)
 	fence:               ^dx.IFence,
@@ -241,10 +258,10 @@ main :: proc() {
 		device->CreateDescriptorHeap(
 			&desc,
 			dx.IDescriptorHeap_UUID,
-			(^rawptr)(&dx_context.rtv_descriptor_heap),
+			(^rawptr)(&dx_context.swapchain_rtv_descriptor_heap),
 		)
 		check(hr, "Failed creating descriptor heap")
-		dx_context.rtv_descriptor_heap->SetName("lucy's swapchain RTV descriptor heap")
+		dx_context.swapchain_rtv_descriptor_heap->SetName("lucy's swapchain RTV descriptor heap")
 	}
 
 	// Fetch the two render targets from the swapchain
@@ -253,7 +270,7 @@ main :: proc() {
 		rtv_descriptor_size: u32 = device->GetDescriptorHandleIncrementSize(.RTV)
 
 		rtv_descriptor_handle: dx.CPU_DESCRIPTOR_HANDLE
-		dx_context.rtv_descriptor_heap->GetCPUDescriptorHandleForHeapStart(&rtv_descriptor_handle)
+		dx_context.swapchain_rtv_descriptor_heap->GetCPUDescriptorHandleForHeapStart(&rtv_descriptor_handle)
 
 		for i: u32 = 0; i < NUM_RENDERTARGETS; i += 1 {
 			hr =
@@ -280,8 +297,7 @@ main :: proc() {
 	check(hr, "Failed creating command allocator")
 
 	// Creating G-Buffer textures and RTV's
-	create_gbuffer()
-
+	dx_context.gbuffer = create_gbuffer()
 
 	// constant buffer
 	{
@@ -317,7 +333,6 @@ main :: proc() {
 	}
 
 	create_depth_buffer()
-
 
 	/* 
 	From https://docs.microsoft.com/en-us/windows/win32/direct3d12/root-signatures-overview:
@@ -486,6 +501,19 @@ main :: proc() {
 			RenderTargetWriteMask = u8(dx.COLOR_WRITE_ENABLE_ALL),
 		}
 
+		// all formats of the g buffers
+		// HERE
+		rtv_formats := [8]dxgi.FORMAT {
+			dx_context.gbuffer.gb_albedo.format,
+			dx_context.gbuffer.gb_normal.format,
+			dx_context.gbuffer.gb_position.format,
+			.UNKNOWN,
+			.UNKNOWN,
+			.UNKNOWN,
+			.UNKNOWN,
+			.UNKNOWN,
+		}
+
 		pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
 			pRootSignature = dx_context.root_signature,
 			VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
@@ -494,7 +522,7 @@ main :: proc() {
 			BlendState = {
 				AlphaToCoverageEnable = false,
 				IndependentBlendEnable = false,
-				RenderTarget = {0 = default_blend_state, 1 ..< 7 = {}},
+				RenderTarget = {0..<gbuffer_count = default_blend_state}
 			},
 			SampleMask = 0xFFFFFFFF,
 			RasterizerState = {
@@ -522,8 +550,8 @@ main :: proc() {
 				NumElements = u32(len(vertex_format)),
 			},
 			PrimitiveTopologyType = .TRIANGLE,
-			NumRenderTargets = 1,
-			RTVFormats = {0 = .R8G8B8A8_UNORM, 1 ..< 7 = .UNKNOWN},
+			NumRenderTargets = gbuffer_count,
+			RTVFormats = rtv_formats,
 			DSVFormat = .D32_FLOAT,
 			SampleDesc = {Count = 1, Quality = 0},
 		}
@@ -947,15 +975,23 @@ render :: proc() {
 
 	// Setting render targets. Clearing DSV and RTV.
 	{
-		rtv_handle := get_descriptor_heap_cpu_address(dx_context.rtv_descriptor_heap, dx_context.frame_index)
+		rtv_handles := [gbuffer_count]dx.CPU_DESCRIPTOR_HANDLE {
+			dx_context.gbuffer.gb_albedo.rtv,
+			dx_context.gbuffer.gb_normal.rtv,
+			dx_context.gbuffer.gb_position.rtv,
+		}
 		dsv_handle := get_descriptor_heap_cpu_address(dx_context.descriptor_heap_dsv, 0)
 
 		// setting depth buffer
-		cmdlist->OMSetRenderTargets(1, &rtv_handle, false, &dsv_handle)
+		cmdlist->OMSetRenderTargets(gbuffer_count, &rtv_handles[0], false, &dsv_handle)
 
 		// clear backbuffer
 		clearcolor := [?]f32{0.05, 0.05, 0.05, 1.0}
-		cmdlist->ClearRenderTargetView(rtv_handle, &clearcolor, 0, nil)
+
+		// we should probably clear each gbuffer individually to a sane value...
+		cmdlist->ClearRenderTargetView(rtv_handles[0], &clearcolor, 0, nil)
+		cmdlist->ClearRenderTargetView(rtv_handles[1], &clearcolor, 0, nil)
+		cmdlist->ClearRenderTargetView(rtv_handles[2], &clearcolor, 0, nil)
 
 		// clearing depth buffer
 		cmdlist->ClearDepthStencilView(dsv_handle, {.DEPTH, .STENCIL}, 1.0, 0, 0, nil)
@@ -1500,7 +1536,7 @@ create_depth_buffer :: proc() {
 	hr = c.device->CreateDescriptorHeap(&heap_desc, 
 		dx.IDescriptorHeap_UUID, (^rawptr)(&c.descriptor_heap_dsv))
 
-	dx_context.rtv_descriptor_heap->SetName("lucy's DSV (depth-stencil-view) descriptor heap")
+	dx_context.swapchain_rtv_descriptor_heap->SetName("lucy's DSV (depth-stencil-view) descriptor heap")
 
 	check(hr, "could not create descriptor heap for DSV")
 
@@ -1737,53 +1773,83 @@ copy_to_buffer :: proc(buffer: ^dx.IResource, src: rawptr, len:int) {
 	buffer->Unmap(0, nil)
 }
 
-create_gbuffer :: proc() {
+create_gbuffer :: proc() -> GBuffer {
 	ct := &dx_context
+
+	// creating rtv heap and rtv's
+	gb_descriptor_heap : ^dx.IDescriptorHeap
+
+	desc := dx.DESCRIPTOR_HEAP_DESC {
+		NumDescriptors = gbuffer_count,
+		Type           = .RTV,
+		Flags          = {}, // maybe shader visible should be here idk
+	}
+
+	hr :=
+	ct.device->CreateDescriptorHeap(
+		&desc,
+		dx.IDescriptorHeap_UUID,
+		(^rawptr)(&gb_descriptor_heap),
+	)
+	check(hr, "Failed creating descriptor heap")
+	gb_descriptor_heap->SetName("lucy's g-buffer RTV descriptor heap")
+	rtv_descriptor_size: u32 = ct.device->GetDescriptorHandleIncrementSize(.RTV)
+	rtv_descriptor_handle_heap_start: dx.CPU_DESCRIPTOR_HANDLE
+	gb_descriptor_heap->GetCPUDescriptorHandleForHeapStart(&rtv_descriptor_handle_heap_start)
+
 	// create texture resource and RTV's
 
 	// TODO: look into creating a heap and resources separately.
 
+	gb_albedo_format : dxgi.FORMAT = .R8G8B8A8_UNORM
+	gb_normal_format : dxgi.FORMAT = .R10G10B10A2_UNORM
+	gb_position_format : dxgi.FORMAT = .R16G16B16A16_FLOAT
+
 	// albedo color and specular
-	gb_1_res := create_texture(u64(wx), u32(wy), .R8G8B8A8_UNORM, {.ALLOW_RENDER_TARGET}, {.RENDER_TARGET})
+	gb_1_res := create_texture(u64(wx), u32(wy), gb_albedo_format, {.ALLOW_RENDER_TARGET}, {.RENDER_TARGET})
+	gb_1_res->SetName("gbuffer unit 0: ALBEDO + SPECULAR")
+
+	rtv_descriptor_handle_1 : dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
+	rtv_descriptor_handle_1.ptr += uint(rtv_descriptor_size) * 0
+	ct.device->CreateRenderTargetView(gb_1_res, nil, rtv_descriptor_handle_1)
 
 	// world normal data
-	gb_2_res := create_texture(u64(wx), u32(wy), .R10G10B10A2_UNORM, {.ALLOW_RENDER_TARGET}, {.RENDER_TARGET})
+	gb_2_res := create_texture(u64(wx), u32(wy), gb_normal_format, {.ALLOW_RENDER_TARGET}, {.RENDER_TARGET})
+	gb_2_res->SetName("gbuffer unit 1: NORMAL")
+
+	rtv_descriptor_handle_2 : dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
+	rtv_descriptor_handle_2.ptr += uint(rtv_descriptor_size) * 1
+	ct.device->CreateRenderTargetView(gb_2_res, nil, rtv_descriptor_handle_2)
 
 	// world space position
-	gb_3_res := create_texture(u64(wx), u32(wy), .R16G16B16A16_FLOAT, {.ALLOW_RENDER_TARGET}, {.RENDER_TARGET})
+	gb_3_res := create_texture(u64(wx), u32(wy), gb_position_format, {.ALLOW_RENDER_TARGET}, {.RENDER_TARGET})
+	gb_3_res->SetName("gbuffer unit 2: WORLD SPACE POSITION")
 
-	// creating rtv heap and rtv's
+	rtv_descriptor_handle_3: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
+	rtv_descriptor_handle_3.ptr += uint(rtv_descriptor_size) * 2
+	ct.device->CreateRenderTargetView(gb_3_res, nil, rtv_descriptor_handle_3)
 
-	gb_descriptor_heap : ^dx.IDescriptorHeap
+	return GBuffer {
 
-	{
-		desc := dx.DESCRIPTOR_HEAP_DESC {
-			NumDescriptors = 3,
-			Type           = .RTV,
-			Flags          = {}, // maybe shader visible should be here idk
-		}
+		gb_albedo = GBufferUnit {
+			res = gb_1_res,
+			rtv = rtv_descriptor_handle_1,
+			format = gb_albedo_format
+		},
 
-		hr :=
-		ct.device->CreateDescriptorHeap(
-			&desc,
-			dx.IDescriptorHeap_UUID,
-			(^rawptr)(&gb_descriptor_heap),
-		)
-		check(hr, "Failed creating descriptor heap")
-		gb_descriptor_heap->SetName("lucy's g-buffer RTV descriptor heap")
+		gb_normal = GBufferUnit {
+			res = gb_2_res,
+			rtv = rtv_descriptor_handle_2,
+			format = gb_normal_format,
+		},
 
-		rtv_descriptor_size: u32 = ct.device->GetDescriptorHandleIncrementSize(.RTV)
+		gb_position = GBufferUnit {
+			res = gb_3_res,
+			rtv = rtv_descriptor_handle_3,
+			format = gb_position_format
+		},
 
-		rtv_descriptor_handle: dx.CPU_DESCRIPTOR_HANDLE
-		gb_descriptor_heap->GetCPUDescriptorHandleForHeapStart(&rtv_descriptor_handle)
-
-		ct.device->CreateRenderTargetView(gb_1_res, nil, rtv_descriptor_handle)
-		rtv_descriptor_handle.ptr += uint(rtv_descriptor_size)
-
-		ct.device->CreateRenderTargetView(gb_2_res, nil, rtv_descriptor_handle)
-		rtv_descriptor_handle.ptr += uint(rtv_descriptor_size)
-
-		ct.device->CreateRenderTargetView(gb_3_res, nil, rtv_descriptor_handle)
+		rtv_heap = gb_descriptor_heap
 	}
 }
 

@@ -1,3 +1,6 @@
+// this is the first pass that populates all the g-buffers.
+
+
 #pragma pack_matrix(column_major)
 
 struct VSInput {
@@ -56,7 +59,23 @@ PSInput VSMain(VSInput the_input) {
 Texture2D<float4> myTexture : register(t1);
 SamplerState mySampler : register(s0);
 
-float4 PSMain(PSInput input) : SV_TARGET {
+struct PSOutput {
+    // Target 0: Albedo Color (RGB) and Specular Intensity (A)
+    // Common formats: DXGI_FORMAT_R8G8B8A8_UNORM
+    float4 albedoSpecRT : SV_Target0; 
+
+    // Target 1: World-Space Normals (RGB)
+    // We use DXGI_FORMAT_R8G8B8A8_UNORM or similar. Normals are usually packed.
+    float4 normalRT   : SV_Target1; 
+
+    // Target 2: World-Space Position (XYZ) (or Depth/View-Space Position)
+    // Common formats: DXGI_FORMAT_R16G16B16A16_FLOAT or DXGI_FORMAT_R32G32B32A32_FLOAT
+    float4 positionRT : SV_Target2; 
+};
+
+PSOutput PSMain(PSInput input) {
+    
+    PSOutput output;
 
     float4 pixelColor = float4(input.color, 1.0);
 
@@ -65,6 +84,15 @@ float4 PSMain(PSInput input) : SV_TARGET {
     }
 
     float3 norm = normalize(input.frag_normal);
+
+    // writing to all gbuffers
+
+    output.albedoSpecRT = pixelColor;
+    output.normalRT.rgb = norm;
+    output.positionRT.rgb = input.frag_pos_world;
+
+    // lighting: we won't use
+
     float3 light_dir = normalize(light_pos - input.frag_pos_world);
 
     float diff = max(dot(norm, light_dir), 0.0f);
@@ -87,7 +115,13 @@ float4 PSMain(PSInput input) : SV_TARGET {
     float3 specular = specularStrength * spec * spec_color;
 
     float3 result = (ambient + diffuse + specular) * pixelColor.xyz;
-    return float4(result, 1.0);
+
+    // return float4(result, 1.0);
+
+    // end lighting 
+
 
     // return float4(1,0,0,1);
+
+    return output;
 }
