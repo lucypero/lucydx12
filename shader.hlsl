@@ -91,8 +91,10 @@ PSOutput PSMain(PSInput input) {
     output.normalRT.rgb = norm;
     output.positionRT.rgb = input.frag_pos_world;
 
-    // lighting: we won't use
+    output.normalRT.a = 1.0f;
+    output.positionRT.a = 1.0f;
 
+    // lighting: we won't use
     float3 light_dir = normalize(light_pos - input.frag_pos_world);
 
     float diff = max(dot(norm, light_dir), 0.0f);

@@ -140,7 +140,10 @@ Context :: struct {
 	queue:               ^dx.ICommandQueue,
 	swapchain:           ^dxgi.ISwapChain3,
 	command_allocator:   ^dx.ICommandAllocator,
-	pipeline:            ^dx.IPipelineState,
+
+	pipeline_gbuffer:            ^dx.IPipelineState,
+	pipeline_lighting:            ^dx.IPipelineState,
+
 	cmdlist:             ^dx.IGraphicsCommandList,
 	constant_buffer_map: rawptr, //maps to our test constant buffer
 	root_signature:      ^dx.IRootSignature,
@@ -346,227 +349,8 @@ main :: proc() {
 
 	dx_context.instance_buffer = create_instance_buffer_example()
 
-	// The pipeline contains the shaders etc to use
-
-	// SHADERCODE
-
-	{
-
-		data, ok := os.read_entire_file("shader.hlsl")
-		if !ok {
-			fmt.eprintln("could not read file")
-			os.exit(1)
-		}
-		defer(delete(data))
-		data_size: uint = len(data)
-
-		compile_flags: u32 = 0
-		when ODIN_DEBUG {
-			compile_flags |= u32(d3dc.D3DCOMPILE.DEBUG)
-			compile_flags |= u32(d3dc.D3DCOMPILE.SKIP_OPTIMIZATION)
-		}
-
-		vs: ^dx.IBlob = nil
-		ps: ^dx.IBlob = nil
-
-		// errors
-		vs_res: ^d3dc.ID3DBlob
-		ps_res: ^d3dc.ID3DBlob
-
-		hr = d3dc.Compile(
-			rawptr(&data[0]), data_size, nil, nil, nil, "VSMain", "vs_4_0",
-			compile_flags, 0, &vs, &vs_res,
-		)
-
-		if (vs_res != nil) {
-			// errors in shader compilation
-			a := strings.string_from_ptr(
-				(^u8)(vs_res->GetBufferPointer()),
-				int(vs_res->GetBufferSize()),
-			)
-			fmt.println("DXC VS ERRORS: ", a)
-		}
-
-		check(hr, "Failed to compile vertex shader")
-
-
-		hr = d3dc.Compile(
-			rawptr(&data[0]), data_size, nil, nil, nil, "PSMain", "ps_4_0",
-			compile_flags, 0, &ps, &ps_res
-		)
-
-		check(hr, "Failed to compile pixel shader")
-
-		if (ps_res != nil) {
-			// errors in shader compilation
-			a := strings.string_from_ptr(
-				(^u8)(ps_res->GetBufferPointer()),
-				int(ps_res->GetBufferSize()),
-			)
-			fmt.println("DXC PS ERRORS: ", a)
-		}
-
-		// INPUTLAYOUT
-
-
-// INPUT_ELEMENT_DESC :: struct {
-// 	SemanticName:         cstring,
-// 	SemanticIndex:        u32,
-// 	Format:               dxgi.FORMAT,
-// 	InputSlot:            u32,
-// 	AlignedByteOffset:    u32,
-// 	InputSlotClass:       INPUT_CLASSIFICATION,
-// 	InstanceDataStepRate: u32,
-// }
-
-		// This layout matches the vertices data defined further down
-		// this has to include the instance data!!
-		vertex_format: []dx.INPUT_ELEMENT_DESC = {
-			{
-				SemanticName = "POSITION",
-				Format = .R32G32B32_FLOAT,
-				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-				InputSlotClass = .PER_VERTEX_DATA,
-			},
-			{
-				SemanticName = "NORMAL",
-				Format = .R32G32B32_FLOAT,
-				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-				InputSlotClass = .PER_VERTEX_DATA,
-			},
-			{
-				SemanticName = "TEXCOORD",
-				Format = .R32G32_FLOAT,
-				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-				InputSlotClass = .PER_VERTEX_DATA,
-			},
-			// per-instance data
-			{
-				SemanticName = "WORLDMATRIX",
-				SemanticIndex = 0,
-				Format = .R32G32B32A32_FLOAT,
-				InputSlot = 1,
-				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-				InputSlotClass = .PER_INSTANCE_DATA,
-				InstanceDataStepRate = 1
-			},
-			{
-				SemanticName = "WORLDMATRIX",
-				SemanticIndex = 1,
-				Format = .R32G32B32A32_FLOAT,
-				InputSlot = 1,
-				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-				InputSlotClass = .PER_INSTANCE_DATA,
-				InstanceDataStepRate = 1
-			},
-			{
-				SemanticName = "WORLDMATRIX",
-				SemanticIndex = 2,
-				Format = .R32G32B32A32_FLOAT,
-				InputSlot = 1,
-				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-				InputSlotClass = .PER_INSTANCE_DATA,
-				InstanceDataStepRate = 1
-			},
-			{
-				SemanticName = "WORLDMATRIX",
-				SemanticIndex = 3,
-				Format = .R32G32B32A32_FLOAT,
-				InputSlot = 1,
-				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-				InputSlotClass = .PER_INSTANCE_DATA,
-				InstanceDataStepRate = 1
-			},
-			{
-				SemanticName = "COLOR",
-				SemanticIndex = 0,
-				Format = .R32G32B32_FLOAT,
-				InputSlot = 1,
-				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-				InputSlotClass = .PER_INSTANCE_DATA,
-				InstanceDataStepRate = 1
-			},
-		}
-
-		default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
-			BlendEnable           = false,
-			LogicOpEnable         = false,
-			SrcBlend              = .ONE,
-			DestBlend             = .ZERO,
-			BlendOp               = .ADD,
-			SrcBlendAlpha         = .ONE,
-			DestBlendAlpha        = .ZERO,
-			BlendOpAlpha          = .ADD,
-			LogicOp               = .NOOP,
-			RenderTargetWriteMask = u8(dx.COLOR_WRITE_ENABLE_ALL),
-		}
-
-		// all formats of the g buffers
-		// HERE
-		rtv_formats := [8]dxgi.FORMAT {
-			dx_context.gbuffer.gb_albedo.format,
-			dx_context.gbuffer.gb_normal.format,
-			dx_context.gbuffer.gb_position.format,
-			.UNKNOWN,
-			.UNKNOWN,
-			.UNKNOWN,
-			.UNKNOWN,
-			.UNKNOWN,
-		}
-
-		pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
-			pRootSignature = dx_context.root_signature,
-			VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
-			PS = {pShaderBytecode = ps->GetBufferPointer(), BytecodeLength = ps->GetBufferSize()},
-			StreamOutput = {},
-			BlendState = {
-				AlphaToCoverageEnable = false,
-				IndependentBlendEnable = false,
-				RenderTarget = {0..<gbuffer_count = default_blend_state}
-			},
-			SampleMask = 0xFFFFFFFF,
-			RasterizerState = {
-				FillMode = .SOLID,
-				CullMode = .BACK,
-				FrontCounterClockwise = false,
-				DepthBias = 0,
-				DepthBiasClamp = 0,
-				SlopeScaledDepthBias = 0,
-				DepthClipEnable = true,
-				MultisampleEnable = false,
-				AntialiasedLineEnable = false,
-				ForcedSampleCount = 0,
-				ConservativeRaster = .OFF,
-			},
-			// enabling depth testing
-			DepthStencilState = {
-				DepthEnable = true,
-				StencilEnable = false,
-				DepthWriteMask = .ALL,
-				DepthFunc = .LESS,
-			},
-			InputLayout = {
-				pInputElementDescs = &vertex_format[0],
-				NumElements = u32(len(vertex_format)),
-			},
-			PrimitiveTopologyType = .TRIANGLE,
-			NumRenderTargets = gbuffer_count,
-			RTVFormats = rtv_formats,
-			DSVFormat = .D32_FLOAT,
-			SampleDesc = {Count = 1, Quality = 0},
-		}
-
-		hr =
-		device->CreateGraphicsPipelineState(
-			&pipeline_state_desc,
-			dx.IPipelineState_UUID,
-			(^rawptr)(&dx_context.pipeline),
-		)
-		check(hr, "Pipeline creation failed")
-
-		vs->Release()
-		ps->Release()
-	}
+	create_gbuffer_pso()
+	create_lighting_pso()
 
 	// Create the commandlist that is reused further down.
 	hr =
@@ -574,7 +358,7 @@ main :: proc() {
 		0,
 		.DIRECT,
 		dx_context.command_allocator,
-		dx_context.pipeline,
+		dx_context.pipeline_gbuffer,
 		dx.ICommandList_UUID,
 		(^rawptr)(&dx_context.cmdlist),
 	)
@@ -899,11 +683,7 @@ update :: proc() {
 
 render :: proc() {
 
-
-	command_allocator := dx_context.command_allocator
-	pipeline := dx_context.pipeline
-	cmdlist := dx_context.cmdlist
-
+	c := &dx_context
 
 	hr: dx.HRESULT
 
@@ -912,10 +692,10 @@ render :: proc() {
 	// case .WINDOWEVENT:
 	// This is equivalent to WM_PAINT in win32 API
 	// if e.window.event == .EXPOSED {
-	hr = command_allocator->Reset()
+	hr = c.command_allocator->Reset()
 	check(hr, "Failed resetting command allocator")
 
-	hr = cmdlist->Reset(command_allocator, pipeline)
+	hr = c.cmdlist->Reset(c.command_allocator, c.pipeline_gbuffer)
 	check(hr, "Failed to reset command list")
 
 	viewport := dx.VIEWPORT {
@@ -933,13 +713,13 @@ render :: proc() {
 	}
 
 	// This state is reset everytime the cmd list is reset, so we need to rebind it
-	cmdlist->SetGraphicsRootSignature(dx_context.root_signature)
+	c.cmdlist->SetGraphicsRootSignature(dx_context.root_signature)
 
 	// setting descriptor heap for our cbv srv uav's
-	cmdlist->SetDescriptorHeaps(1, &dx_context.descriptor_heap_cbv_srv_uav)
+	c.cmdlist->SetDescriptorHeaps(1, &dx_context.descriptor_heap_cbv_srv_uav)
 
 	// setting the root cbv that we set up in the root signature. root parameter 0
-	cmdlist->SetGraphicsRootConstantBufferView(
+	c.cmdlist->SetGraphicsRootConstantBufferView(
 		0,
 		dx_context.constant_buffer->GetGPUVirtualAddress(),
 	)
@@ -949,13 +729,13 @@ render :: proc() {
 		// setting the graphics root descriptor table
 		// in the root signature, so that it points to
 		// our SRV descriptor
-		cmdlist->SetGraphicsRootDescriptorTable(1, 
+		c.cmdlist->SetGraphicsRootDescriptorTable(1, 
 			get_descriptor_heap_gpu_address(dx_context.descriptor_heap_cbv_srv_uav, 1)
 		)
 	}
 
-	cmdlist->RSSetViewports(1, &viewport)
-	cmdlist->RSSetScissorRects(1, &scissor_rect)
+	c.cmdlist->RSSetViewports(1, &viewport)
+	c.cmdlist->RSSetScissorRects(1, &scissor_rect)
 
 	to_render_target_barrier := dx.RESOURCE_BARRIER {
 		Type  = .TRANSITION,
@@ -969,7 +749,7 @@ render :: proc() {
 		Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
 	}
 
-	cmdlist->ResourceBarrier(1, &to_render_target_barrier)
+	c.cmdlist->ResourceBarrier(1, &to_render_target_barrier)
 	// now that the RTVs are set to Render target, you can draw.
 
 
@@ -983,22 +763,22 @@ render :: proc() {
 		dsv_handle := get_descriptor_heap_cpu_address(dx_context.descriptor_heap_dsv, 0)
 
 		// setting depth buffer
-		cmdlist->OMSetRenderTargets(gbuffer_count, &rtv_handles[0], false, &dsv_handle)
+		c.cmdlist->OMSetRenderTargets(gbuffer_count, &rtv_handles[0], false, &dsv_handle)
 
 		// clear backbuffer
 		clearcolor := [?]f32{0.05, 0.05, 0.05, 1.0}
 
 		// we should probably clear each gbuffer individually to a sane value...
-		cmdlist->ClearRenderTargetView(rtv_handles[0], &clearcolor, 0, nil)
-		cmdlist->ClearRenderTargetView(rtv_handles[1], &clearcolor, 0, nil)
-		cmdlist->ClearRenderTargetView(rtv_handles[2], &clearcolor, 0, nil)
+		c.cmdlist->ClearRenderTargetView(rtv_handles[0], &clearcolor, 0, nil)
+		c.cmdlist->ClearRenderTargetView(rtv_handles[1], &clearcolor, 0, nil)
+		c.cmdlist->ClearRenderTargetView(rtv_handles[2], &clearcolor, 0, nil)
 
 		// clearing depth buffer
-		cmdlist->ClearDepthStencilView(dsv_handle, {.DEPTH, .STENCIL}, 1.0, 0, 0, nil)
+		c.cmdlist->ClearDepthStencilView(dsv_handle, {.DEPTH, .STENCIL}, 1.0, 0, 0, nil)
 	}
 
 	// draw call
-	cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
+	c.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
 
 	// binding vertex buffer view and instance buffer view
 	vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW {
@@ -1006,10 +786,10 @@ render :: proc() {
 		dx_context.instance_buffer.vbv,
 	}
 
-	cmdlist->IASetVertexBuffers(0, len(vertex_buffers_views), &vertex_buffers_views[0])
-	cmdlist->IASetIndexBuffer(&dx_context.index_buffer_view)
-	cmdlist->DrawIndexedInstanced(dx_context.index_count, 
-					dx_context.instance_buffer.vertex_count, 0, 0, 0)
+	c.cmdlist->IASetVertexBuffers(0, len(vertex_buffers_views), &vertex_buffers_views[0])
+	c.cmdlist->IASetIndexBuffer(&c.index_buffer_view)
+	c.cmdlist->DrawIndexedInstanced(c.index_count, 
+					c.instance_buffer.vertex_count, 0, 0, 0)
 
 	// add imgui draw commands to cmd list
 	imgui_update_after()
@@ -1020,13 +800,13 @@ render :: proc() {
 	to_present_barrier.Transition.StateBefore = {.RENDER_TARGET}
 	to_present_barrier.Transition.StateAfter = dx.RESOURCE_STATE_PRESENT
 
-	cmdlist->ResourceBarrier(1, &to_present_barrier)
+	c.cmdlist->ResourceBarrier(1, &to_present_barrier)
 
-	hr = cmdlist->Close()
+	hr = c.cmdlist->Close()
 	check(hr, "Failed to close command list")
 
 	// execute
-	cmdlists := [?]^dx.IGraphicsCommandList{cmdlist}
+	cmdlists := [?]^dx.IGraphicsCommandList{c.cmdlist}
 	dx_context.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
 
 	// present
@@ -1054,7 +834,7 @@ render :: proc() {
 			windows.WaitForSingleObject(dx_context.fence_event, windows.INFINITE)
 		}
 
-		dx_context.frame_index = dx_context.swapchain->GetCurrentBackBufferIndex()
+		c.frame_index = c.swapchain->GetCurrentBackBufferIndex()
 	}
 }
 
@@ -1170,7 +950,7 @@ create_sample_texture :: proc() {
 		SubresourceIndex = 0,
 	}
 
-	dx_context.cmdlist->Reset(dx_context.command_allocator, dx_context.pipeline)
+	dx_context.cmdlist->Reset(dx_context.command_allocator, ct.pipeline_gbuffer)
 	dx_context.cmdlist->CopyTextureRegion(&copy_location_dst, 0, 0, 0, &copy_location_src, nil)
 
 
@@ -1887,4 +1667,336 @@ create_texture :: proc(width: u64, height: u32, format: dxgi.FORMAT, resource_fl
 	)
 
 	return res
+}
+
+// todo: create shader lighting_pass.hlsl
+create_lighting_pso :: proc() {
+	
+	c := &dx_context
+
+	vs, ps := compile_shader("lighting.hlsl")
+
+	// INPUTLAYOUT
+
+	// INPUT_ELEMENT_DESC :: struct {
+	// 	SemanticName:         cstring,
+	// 	SemanticIndex:        u32,
+	// 	Format:               dxgi.FORMAT,
+	// 	InputSlot:            u32,
+	// 	AlignedByteOffset:    u32,
+	// 	InputSlotClass:       INPUT_CLASSIFICATION,
+	// 	InstanceDataStepRate: u32,
+	// }
+
+	vertex_format := [?]dx.INPUT_ELEMENT_DESC{
+		{
+			SemanticName = "POSITION",
+			Format = .R32G32B32_FLOAT,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_VERTEX_DATA,
+		},
+		{
+			SemanticName = "TEXCOORD",
+			Format = .R32G32_FLOAT,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_VERTEX_DATA,
+		},
+	}
+
+	default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
+		BlendEnable           = false,
+		LogicOpEnable         = false,
+		SrcBlend              = .ONE,
+		DestBlend             = .ZERO,
+		BlendOp               = .ADD,
+		SrcBlendAlpha         = .ONE,
+		DestBlendAlpha        = .ZERO,
+		BlendOpAlpha          = .ADD,
+		LogicOp               = .NOOP,
+		RenderTargetWriteMask = u8(dx.COLOR_WRITE_ENABLE_ALL),
+	}
+
+	// the swapchain rtv
+	rtv_formats := [8]dxgi.FORMAT {
+		0 =.R8G8B8A8_UNORM,
+		1..<7 = .UNKNOWN,
+	}
+
+	pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
+		pRootSignature = dx_context.root_signature,
+		VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
+		PS = {pShaderBytecode = ps->GetBufferPointer(), BytecodeLength = ps->GetBufferSize()},
+		StreamOutput = {},
+		BlendState = {
+			AlphaToCoverageEnable = false,
+			IndependentBlendEnable = false,
+			RenderTarget = {0 = default_blend_state, 1 ..< 7 = {}},
+		},
+		SampleMask = 0xFFFFFFFF,
+		RasterizerState = {
+			FillMode = .SOLID,
+			CullMode = .BACK,
+			FrontCounterClockwise = false,
+			DepthBias = 0,
+			DepthBiasClamp = 0,
+			SlopeScaledDepthBias = 0,
+			DepthClipEnable = true,
+			MultisampleEnable = false,
+			AntialiasedLineEnable = false,
+			ForcedSampleCount = 0,
+			ConservativeRaster = .OFF,
+		},
+		// enabling depth testing
+		DepthStencilState = {
+			DepthEnable = true,
+			StencilEnable = false,
+			DepthWriteMask = .ALL,
+			DepthFunc = .LESS,
+		},
+		InputLayout = {
+			pInputElementDescs = &vertex_format[0],
+			NumElements = u32(len(vertex_format)),
+		},
+		PrimitiveTopologyType = .TRIANGLE,
+		NumRenderTargets = 1,
+		RTVFormats = {0 = .R8G8B8A8_UNORM, 1 ..< 7 = .UNKNOWN},
+		DSVFormat = .D32_FLOAT,
+		SampleDesc = {Count = 1, Quality = 0},
+	}
+
+	hr :=
+	c.device->CreateGraphicsPipelineState(
+		&pipeline_state_desc,
+		dx.IPipelineState_UUID,
+		(^rawptr)(&dx_context.pipeline_lighting),
+	)
+	check(hr, "Pipeline creation failed")
+
+	vs->Release()
+	ps->Release()
+
+}
+
+// compiles vertex and pixel shader
+compile_shader :: proc(shader_filename: string) -> (vs, ps: ^d3dc.ID3D10Blob) {
+
+	c := &dx_context
+
+	data, ok := os.read_entire_file(shader_filename)
+
+	if !ok {
+		fmt.eprintln("could not read file")
+		os.exit(1)
+	}
+
+	defer(delete(data))
+	data_size: uint = len(data)
+
+	compile_flags: u32 = 0
+	when ODIN_DEBUG {
+		compile_flags |= u32(d3dc.D3DCOMPILE.DEBUG)
+		compile_flags |= u32(d3dc.D3DCOMPILE.SKIP_OPTIMIZATION)
+	}
+
+	// errors
+	vs_res: ^d3dc.ID3DBlob
+	ps_res: ^d3dc.ID3DBlob
+
+	hr := d3dc.Compile(
+		rawptr(&data[0]), data_size, nil, nil, nil, "VSMain", "vs_4_0",
+		compile_flags, 0, &vs, &vs_res,
+	)
+
+	if (vs_res != nil) {
+		// errors in shader compilation
+		a := strings.string_from_ptr(
+			(^u8)(vs_res->GetBufferPointer()),
+			int(vs_res->GetBufferSize()),
+		)
+		fmt.printfln("DXC VS ERRORS in %s: %s", shader_filename, a)
+	}
+
+	check(hr, "Failed to compile vertex shader")
+
+	hr = d3dc.Compile(
+		rawptr(&data[0]), data_size, nil, nil, nil, "PSMain", "ps_4_0",
+		compile_flags, 0, &ps, &ps_res
+	)
+
+	check(hr, "Failed to compile pixel shader")
+
+	if (ps_res != nil) {
+		// errors in shader compilation
+		a := strings.string_from_ptr(
+			(^u8)(ps_res->GetBufferPointer()),
+			int(ps_res->GetBufferSize()),
+		)
+		fmt.printfln("DXC PS ERRORS in %s: %s", shader_filename, a)
+	}
+
+	return vs, ps
+}
+
+// creates PSO for the first drawing pass that populates the gbuffer
+create_gbuffer_pso :: proc() {
+
+	c := &dx_context
+
+	vs, ps := compile_shader("shader.hlsl")
+
+	// INPUTLAYOUT
+
+// INPUT_ELEMENT_DESC :: struct {
+// 	SemanticName:         cstring,
+// 	SemanticIndex:        u32,
+// 	Format:               dxgi.FORMAT,
+// 	InputSlot:            u32,
+// 	AlignedByteOffset:    u32,
+// 	InputSlotClass:       INPUT_CLASSIFICATION,
+// 	InstanceDataStepRate: u32,
+// }
+
+	// This layout matches the vertices data defined further down
+	// this has to include the instance data!!
+	vertex_format :=  [?]dx.INPUT_ELEMENT_DESC {
+		{
+			SemanticName = "POSITION",
+			Format = .R32G32B32_FLOAT,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_VERTEX_DATA,
+		},
+		{
+			SemanticName = "NORMAL",
+			Format = .R32G32B32_FLOAT,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_VERTEX_DATA,
+		},
+		{
+			SemanticName = "TEXCOORD",
+			Format = .R32G32_FLOAT,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_VERTEX_DATA,
+		},
+		// per-instance data
+		{
+			SemanticName = "WORLDMATRIX",
+			SemanticIndex = 0,
+			Format = .R32G32B32A32_FLOAT,
+			InputSlot = 1,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_INSTANCE_DATA,
+			InstanceDataStepRate = 1
+		},
+		{
+			SemanticName = "WORLDMATRIX",
+			SemanticIndex = 1,
+			Format = .R32G32B32A32_FLOAT,
+			InputSlot = 1,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_INSTANCE_DATA,
+			InstanceDataStepRate = 1
+		},
+		{
+			SemanticName = "WORLDMATRIX",
+			SemanticIndex = 2,
+			Format = .R32G32B32A32_FLOAT,
+			InputSlot = 1,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_INSTANCE_DATA,
+			InstanceDataStepRate = 1
+		},
+		{
+			SemanticName = "WORLDMATRIX",
+			SemanticIndex = 3,
+			Format = .R32G32B32A32_FLOAT,
+			InputSlot = 1,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_INSTANCE_DATA,
+			InstanceDataStepRate = 1
+		},
+		{
+			SemanticName = "COLOR",
+			SemanticIndex = 0,
+			Format = .R32G32B32_FLOAT,
+			InputSlot = 1,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_INSTANCE_DATA,
+			InstanceDataStepRate = 1
+		},
+	}
+
+	default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
+		BlendEnable           = false,
+		LogicOpEnable         = false,
+		SrcBlend              = .ONE,
+		DestBlend             = .ZERO,
+		BlendOp               = .ADD,
+		SrcBlendAlpha         = .ONE,
+		DestBlendAlpha        = .ZERO,
+		BlendOpAlpha          = .ADD,
+		LogicOp               = .NOOP,
+		RenderTargetWriteMask = u8(dx.COLOR_WRITE_ENABLE_ALL),
+	}
+
+	// all formats of the g buffers
+	// HERE
+	rtv_formats := [8]dxgi.FORMAT {
+		0 = dx_context.gbuffer.gb_albedo.format,
+		1 = dx_context.gbuffer.gb_normal.format,
+		2 = dx_context.gbuffer.gb_position.format,
+		3 ..< 7 = .UNKNOWN,
+	}
+
+	pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
+		pRootSignature = dx_context.root_signature,
+		VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
+		PS = {pShaderBytecode = ps->GetBufferPointer(), BytecodeLength = ps->GetBufferSize()},
+		StreamOutput = {},
+		BlendState = {
+			AlphaToCoverageEnable = false,
+			IndependentBlendEnable = false,
+			RenderTarget = {0..<gbuffer_count = default_blend_state}
+		},
+		SampleMask = 0xFFFFFFFF,
+		RasterizerState = {
+			FillMode = .SOLID,
+			CullMode = .BACK,
+			FrontCounterClockwise = false,
+			DepthBias = 0,
+			DepthBiasClamp = 0,
+			SlopeScaledDepthBias = 0,
+			DepthClipEnable = true,
+			MultisampleEnable = false,
+			AntialiasedLineEnable = false,
+			ForcedSampleCount = 0,
+			ConservativeRaster = .OFF,
+		},
+		// enabling depth testing
+		DepthStencilState = {
+			DepthEnable = true,
+			StencilEnable = false,
+			DepthWriteMask = .ALL,
+			DepthFunc = .LESS,
+		},
+		InputLayout = {
+			pInputElementDescs = &vertex_format[0],
+			NumElements = u32(len(vertex_format)),
+		},
+		PrimitiveTopologyType = .TRIANGLE,
+		NumRenderTargets = gbuffer_count,
+		RTVFormats = rtv_formats,
+		DSVFormat = .D32_FLOAT,
+		SampleDesc = {Count = 1, Quality = 0},
+	}
+
+	hr :=
+	c.device->CreateGraphicsPipelineState(
+		&pipeline_state_desc,
+		dx.IPipelineState_UUID,
+		(^rawptr)(&dx_context.pipeline_gbuffer),
+	)
+	check(hr, "Pipeline creation failed")
+
+	vs->Release()
+	ps->Release()
 }

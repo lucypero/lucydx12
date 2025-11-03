@@ -1,5 +1,7 @@
+# current todo
+- just draw a red screen sized quad for the lighting pass, as a test.
+- deferred rendering: a second PSO for the final render.
 - set up some basic allocator stuff
-    - set up a better temp allocator. clear it every frame.
     - set up a tracking allocator for lasting allocations.
 
 
@@ -7,7 +9,6 @@
 
 - blinn phong lighting (just need to add some stuff to the shader to accomplish this)
 - deferred rendering (read it in book) (page 883)
-
 
 
 # references
