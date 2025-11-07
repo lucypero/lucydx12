@@ -142,11 +142,10 @@ Context :: struct {
 	command_allocator:   ^dx.ICommandAllocator,
 
 	pipeline_gbuffer:            ^dx.IPipelineState,
-	pipeline_lighting:            ^dx.IPipelineState,
 
 	cmdlist:             ^dx.IGraphicsCommandList,
 	constant_buffer_map: rawptr, //maps to our test constant buffer
-	root_signature:      ^dx.IRootSignature,
+	gbuffer_pass_root_signature:      ^dx.IRootSignature,
 	constant_buffer:     ^dx.IResource,
 	vertex_buffer_view:  dx.VERTEX_BUFFER_VIEW,
 	index_buffer_view: dx.INDEX_BUFFER_VIEW,
@@ -155,6 +154,10 @@ Context :: struct {
 	frame_index:         u32,
 	targets:             [NUM_RENDERTARGETS]^dx.IResource, // render targets
 	gbuffer: GBuffer,
+
+	// lighting pass resources
+	pipeline_lighting:            ^dx.IPipelineState,
+	lighting_pass_root_signature:      ^dx.IRootSignature,
 
 	// fence stuff (for waiting to render frame)
 	fence:               ^dx.IFence,
@@ -345,7 +348,7 @@ main :: proc() {
 		simply have one compute root signature. These root signatures are independent of each other.
 	*/
 
-	create_root_signature()
+	create_gbuffer_pass_root_signature()
 
 	dx_context.instance_buffer = create_instance_buffer_example()
 
@@ -698,109 +701,29 @@ render :: proc() {
 	hr = c.cmdlist->Reset(c.command_allocator, c.pipeline_gbuffer)
 	check(hr, "Failed to reset command list")
 
-	viewport := dx.VIEWPORT {
-		Width  = f32(wx),
-		Height = f32(wy),
-		MinDepth = 0,
-		MaxDepth = 1
-	}
+	render_gbuffer_pass()
 
-	scissor_rect := dx.RECT {
-		left   = 0,
-		right  = wx,
-		top    = 0,
-		bottom = wy,
-	}
+	render_lighting_pass()
 
-	// This state is reset everytime the cmd list is reset, so we need to rebind it
-	c.cmdlist->SetGraphicsRootSignature(dx_context.root_signature)
+	// Cannot draw after this point!!
 
-	// setting descriptor heap for our cbv srv uav's
-	c.cmdlist->SetDescriptorHeaps(1, &dx_context.descriptor_heap_cbv_srv_uav)
 
-	// setting the root cbv that we set up in the root signature. root parameter 0
-	c.cmdlist->SetGraphicsRootConstantBufferView(
-		0,
-		dx_context.constant_buffer->GetGPUVirtualAddress(),
-	)
+	// Transitioning the render target to "Present" state
 
-	// setting descriptor tables for our texture. root parameter 1
 	{
-		// setting the graphics root descriptor table
-		// in the root signature, so that it points to
-		// our SRV descriptor
-		c.cmdlist->SetGraphicsRootDescriptorTable(1, 
-			get_descriptor_heap_gpu_address(dx_context.descriptor_heap_cbv_srv_uav, 1)
-		)
-	}
-
-	c.cmdlist->RSSetViewports(1, &viewport)
-	c.cmdlist->RSSetScissorRects(1, &scissor_rect)
-
-	to_render_target_barrier := dx.RESOURCE_BARRIER {
-		Type  = .TRANSITION,
-		Flags = {},
-	}
-
-	to_render_target_barrier.Transition = {
-		pResource   = dx_context.targets[dx_context.frame_index],
-		StateBefore = dx.RESOURCE_STATE_PRESENT,
-		StateAfter  = {.RENDER_TARGET},
-		Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
-	}
-
-	c.cmdlist->ResourceBarrier(1, &to_render_target_barrier)
-	// now that the RTVs are set to Render target, you can draw.
-
-
-	// Setting render targets. Clearing DSV and RTV.
-	{
-		rtv_handles := [gbuffer_count]dx.CPU_DESCRIPTOR_HANDLE {
-			dx_context.gbuffer.gb_albedo.rtv,
-			dx_context.gbuffer.gb_normal.rtv,
-			dx_context.gbuffer.gb_position.rtv,
+		to_present_barrier := dx.RESOURCE_BARRIER {
+			Type = .TRANSITION,
+			Flags = {},
+			Transition = {
+				pResource   = dx_context.targets[dx_context.frame_index],
+				StateBefore = {.RENDER_TARGET},
+				StateAfter  = dx.RESOURCE_STATE_PRESENT,
+				Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
+			}
 		}
-		dsv_handle := get_descriptor_heap_cpu_address(dx_context.descriptor_heap_dsv, 0)
 
-		// setting depth buffer
-		c.cmdlist->OMSetRenderTargets(gbuffer_count, &rtv_handles[0], false, &dsv_handle)
-
-		// clear backbuffer
-		clearcolor := [?]f32{0.05, 0.05, 0.05, 1.0}
-
-		// we should probably clear each gbuffer individually to a sane value...
-		c.cmdlist->ClearRenderTargetView(rtv_handles[0], &clearcolor, 0, nil)
-		c.cmdlist->ClearRenderTargetView(rtv_handles[1], &clearcolor, 0, nil)
-		c.cmdlist->ClearRenderTargetView(rtv_handles[2], &clearcolor, 0, nil)
-
-		// clearing depth buffer
-		c.cmdlist->ClearDepthStencilView(dsv_handle, {.DEPTH, .STENCIL}, 1.0, 0, 0, nil)
+		c.cmdlist->ResourceBarrier(1, &to_present_barrier)
 	}
-
-	// draw call
-	c.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
-
-	// binding vertex buffer view and instance buffer view
-	vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW {
-		dx_context.vertex_buffer_view,
-		dx_context.instance_buffer.vbv,
-	}
-
-	c.cmdlist->IASetVertexBuffers(0, len(vertex_buffers_views), &vertex_buffers_views[0])
-	c.cmdlist->IASetIndexBuffer(&c.index_buffer_view)
-	c.cmdlist->DrawIndexedInstanced(c.index_count, 
-					c.instance_buffer.vertex_count, 0, 0, 0)
-
-	// add imgui draw commands to cmd list
-	imgui_update_after()
-
-	// Cannot draw after this point because we transition the render target to "Present" state
-
-	to_present_barrier := to_render_target_barrier
-	to_present_barrier.Transition.StateBefore = {.RENDER_TARGET}
-	to_present_barrier.Transition.StateAfter = dx.RESOURCE_STATE_PRESENT
-
-	c.cmdlist->ResourceBarrier(1, &to_present_barrier)
 
 	hr = c.cmdlist->Close()
 	check(hr, "Failed to close command list")
@@ -1107,7 +1030,7 @@ create_descriptor_heap_cbv_srv_uav :: proc() {
 		get_descriptor_heap_cpu_address(c.descriptor_heap_cbv_srv_uav, 1))
 }
 
-create_root_signature :: proc() {
+create_gbuffer_pass_root_signature :: proc() {
 
 	// We'll define a descriptor range for our texture SRV
 	texture_range := dx.DESCRIPTOR_RANGE {
@@ -1178,7 +1101,7 @@ create_root_signature :: proc() {
 		serialized_desc->GetBufferPointer(),
 		serialized_desc->GetBufferSize(),
 		dx.IRootSignature_UUID,
-		(^rawptr)(&dx_context.root_signature),
+		(^rawptr)(&dx_context.gbuffer_pass_root_signature),
 	)
 	check(hr, "Failed creating root signature")
 	serialized_desc->Release()
@@ -1586,7 +1509,7 @@ create_gbuffer :: proc() -> GBuffer {
 	gb_position_format : dxgi.FORMAT = .R16G16B16A16_FLOAT
 
 	// albedo color and specular
-	gb_1_res := create_texture(u64(wx), u32(wy), gb_albedo_format, {.ALLOW_RENDER_TARGET}, {.RENDER_TARGET})
+	gb_1_res := create_texture(u64(wx), u32(wy), gb_albedo_format, {.ALLOW_RENDER_TARGET}, initial_state = {.PIXEL_SHADER_RESOURCE})
 	gb_1_res->SetName("gbuffer unit 0: ALBEDO + SPECULAR")
 
 	rtv_descriptor_handle_1 : dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
@@ -1594,7 +1517,7 @@ create_gbuffer :: proc() -> GBuffer {
 	ct.device->CreateRenderTargetView(gb_1_res, nil, rtv_descriptor_handle_1)
 
 	// world normal data
-	gb_2_res := create_texture(u64(wx), u32(wy), gb_normal_format, {.ALLOW_RENDER_TARGET}, {.RENDER_TARGET})
+	gb_2_res := create_texture(u64(wx), u32(wy), gb_normal_format, {.ALLOW_RENDER_TARGET}, initial_state = {.PIXEL_SHADER_RESOURCE})
 	gb_2_res->SetName("gbuffer unit 1: NORMAL")
 
 	rtv_descriptor_handle_2 : dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
@@ -1602,7 +1525,7 @@ create_gbuffer :: proc() -> GBuffer {
 	ct.device->CreateRenderTargetView(gb_2_res, nil, rtv_descriptor_handle_2)
 
 	// world space position
-	gb_3_res := create_texture(u64(wx), u32(wy), gb_position_format, {.ALLOW_RENDER_TARGET}, {.RENDER_TARGET})
+	gb_3_res := create_texture(u64(wx), u32(wy), gb_position_format, {.ALLOW_RENDER_TARGET}, initial_state = {.PIXEL_SHADER_RESOURCE})
 	gb_3_res->SetName("gbuffer unit 2: WORLD SPACE POSITION")
 
 	rtv_descriptor_handle_3: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
@@ -1676,33 +1599,6 @@ create_lighting_pso :: proc() {
 
 	vs, ps := compile_shader("lighting.hlsl")
 
-	// INPUTLAYOUT
-
-	// INPUT_ELEMENT_DESC :: struct {
-	// 	SemanticName:         cstring,
-	// 	SemanticIndex:        u32,
-	// 	Format:               dxgi.FORMAT,
-	// 	InputSlot:            u32,
-	// 	AlignedByteOffset:    u32,
-	// 	InputSlotClass:       INPUT_CLASSIFICATION,
-	// 	InstanceDataStepRate: u32,
-	// }
-
-	vertex_format := [?]dx.INPUT_ELEMENT_DESC{
-		{
-			SemanticName = "POSITION",
-			Format = .R32G32B32_FLOAT,
-			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-			InputSlotClass = .PER_VERTEX_DATA,
-		},
-		{
-			SemanticName = "TEXCOORD",
-			Format = .R32G32_FLOAT,
-			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-			InputSlotClass = .PER_VERTEX_DATA,
-		},
-	}
-
 	default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
 		BlendEnable           = false,
 		LogicOpEnable         = false,
@@ -1722,8 +1618,11 @@ create_lighting_pso :: proc() {
 		1..<7 = .UNKNOWN,
 	}
 
+	// create root signature
+	create_lighting_root_signature()
+
 	pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
-		pRootSignature = dx_context.root_signature,
+		pRootSignature = c.lighting_pass_root_signature,
 		VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
 		PS = {pShaderBytecode = ps->GetBufferPointer(), BytecodeLength = ps->GetBufferSize()},
 		StreamOutput = {},
@@ -1753,9 +1652,10 @@ create_lighting_pso :: proc() {
 			DepthWriteMask = .ALL,
 			DepthFunc = .LESS,
 		},
+		// no input layout. we don't need a vertex buffer.
 		InputLayout = {
-			pInputElementDescs = &vertex_format[0],
-			NumElements = u32(len(vertex_format)),
+			pInputElementDescs = nil,
+			NumElements = 0
 		},
 		PrimitiveTopologyType = .TRIANGLE,
 		NumRenderTargets = 1,
@@ -1775,6 +1675,87 @@ create_lighting_pso :: proc() {
 	vs->Release()
 	ps->Release()
 
+}
+
+create_lighting_root_signature :: proc() {
+
+	c := &dx_context
+
+
+	// We'll define a descriptor range for our gbuffers
+	texture_range := dx.DESCRIPTOR_RANGE {
+		RangeType = .SRV,
+		NumDescriptors = 3,
+		BaseShaderRegister = 1, // Corresponds to t1 in the shader
+		RegisterSpace = 0,
+		OffsetInDescriptorsFromTableStart = dx.DESCRIPTOR_RANGE_OFFSET_APPEND,
+	}
+
+	root_parameters_len :: 2
+
+	root_parameters: [root_parameters_len]dx.ROOT_PARAMETER
+
+	// our test constant buffer
+	root_parameters[0] = {
+		ParameterType = .CBV,
+		Descriptor = {ShaderRegister = 0, RegisterSpace = 0},
+		ShaderVisibility = .ALL, // vertex, pixel, or both (all)
+	}
+
+	// our descriptor table for the texture
+	root_parameters[1] = {
+		ParameterType = .DESCRIPTOR_TABLE,
+		DescriptorTable = {
+			NumDescriptorRanges = 1,
+			pDescriptorRanges = &texture_range
+		},
+		ShaderVisibility = .PIXEL
+	}
+
+	// our static sampler
+
+	// We'll define a static sampler description
+	sampler_desc := dx.STATIC_SAMPLER_DESC {
+		Filter = .MIN_MAG_MIP_LINEAR, // Tri-linear filtering
+		AddressU = .CLAMP,           // Repeat the texture in the U direction
+		AddressV = .CLAMP,           // Repeat the texture in the V direction
+		AddressW = .WRAP,           // Repeat the texture in the W direction
+		MipLODBias = 0.0,
+		MaxAnisotropy = 0,
+		ComparisonFunc = .NEVER,
+		BorderColor = .OPAQUE_BLACK,
+		MinLOD = 0.0,
+		MaxLOD = dx.FLOAT32_MAX,
+		ShaderRegister = 0, // This corresponds to the s0 register in the shader
+		RegisterSpace = 0,
+		ShaderVisibility = .PIXEL,
+	}
+
+	desc := dx.VERSIONED_ROOT_SIGNATURE_DESC {
+		Version = ._1_0,
+		Desc_1_0 = {
+			NumParameters = root_parameters_len,
+			pParameters = &root_parameters[0],
+			NumStaticSamplers = 1,
+			pStaticSamplers = &sampler_desc
+		},
+	}
+
+	// desc.Desc_1_0.Flags = {.ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT}
+	desc.Desc_1_0.Flags = {}
+	serialized_desc: ^dx.IBlob
+	hr := dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
+	check(hr, "Failed to serialize root signature")
+	hr =
+	c.device->CreateRootSignature(
+		0,
+		serialized_desc->GetBufferPointer(),
+		serialized_desc->GetBufferSize(),
+		dx.IRootSignature_UUID,
+		(^rawptr)(&c.lighting_pass_root_signature),
+	)
+	check(hr, "Failed creating root signature")
+	serialized_desc->Release()
 }
 
 // compiles vertex and pixel shader
@@ -1948,7 +1929,7 @@ create_gbuffer_pso :: proc() {
 	}
 
 	pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
-		pRootSignature = dx_context.root_signature,
+		pRootSignature = dx_context.gbuffer_pass_root_signature,
 		VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
 		PS = {pShaderBytecode = ps->GetBufferPointer(), BytecodeLength = ps->GetBufferSize()},
 		StreamOutput = {},
@@ -1999,4 +1980,184 @@ create_gbuffer_pso :: proc() {
 
 	vs->Release()
 	ps->Release()
+}
+
+render_gbuffer_pass :: proc() {
+
+	c := &dx_context
+
+	viewport := dx.VIEWPORT {
+		Width  = f32(wx),
+		Height = f32(wy),
+		MinDepth = 0,
+		MaxDepth = 1
+	}
+
+	scissor_rect := dx.RECT {
+		left   = 0,
+		right  = wx,
+		top    = 0,
+		bottom = wy,
+	}
+
+	// This state is reset everytime the cmd list is reset, so we need to rebind it
+	c.cmdlist->SetGraphicsRootSignature(dx_context.gbuffer_pass_root_signature)
+
+	// setting descriptor heap for our cbv srv uav's
+	c.cmdlist->SetDescriptorHeaps(1, &dx_context.descriptor_heap_cbv_srv_uav)
+
+	// setting the root cbv that we set up in the root signature. root parameter 0
+	c.cmdlist->SetGraphicsRootConstantBufferView(
+		0,
+		dx_context.constant_buffer->GetGPUVirtualAddress(),
+	)
+
+	// setting descriptor tables for our texture. root parameter 1
+	{
+		// setting the graphics root descriptor table
+		// in the root signature, so that it points to
+		// our SRV descriptor
+		c.cmdlist->SetGraphicsRootDescriptorTable(1, 
+			get_descriptor_heap_gpu_address(dx_context.descriptor_heap_cbv_srv_uav, 1)
+		)
+	}
+
+	c.cmdlist->RSSetViewports(1, &viewport)
+	c.cmdlist->RSSetScissorRects(1, &scissor_rect)
+
+	// TODO: transition the g buffers here instead of the swapchain buffers!!!
+
+	// Transitioning gbuffers from SRVs to render target
+	{
+		res_barriers : [3]dx.RESOURCE_BARRIER
+
+		// res barrier template
+
+		res_barriers[0] = dx.RESOURCE_BARRIER {
+			Type  = .TRANSITION,
+			Flags = {},
+			Transition = {
+					pResource   = nil,
+					StateBefore = {.PIXEL_SHADER_RESOURCE},
+					StateAfter  = {.RENDER_TARGET},
+					Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
+			}
+		}
+
+		// populating all res barriers with each gbuffer
+		res_barriers[0] = res_barriers[0]
+		res_barriers[0].Transition.pResource = c.gbuffer.gb_albedo.res
+
+		res_barriers[1] = res_barriers[0]
+		res_barriers[1].Transition.pResource = c.gbuffer.gb_normal.res
+
+		res_barriers[2] = res_barriers[0]
+		res_barriers[2].Transition.pResource = c.gbuffer.gb_position.res
+
+		c.cmdlist->ResourceBarrier(3, &res_barriers[0])
+	}
+
+	// Setting render targets. Clearing DSV and RTV.
+	{
+		rtv_handles := [gbuffer_count]dx.CPU_DESCRIPTOR_HANDLE {
+			dx_context.gbuffer.gb_albedo.rtv,
+			dx_context.gbuffer.gb_normal.rtv,
+			dx_context.gbuffer.gb_position.rtv,
+		}
+		dsv_handle := get_descriptor_heap_cpu_address(dx_context.descriptor_heap_dsv, 0)
+
+		// setting depth buffer
+		c.cmdlist->OMSetRenderTargets(gbuffer_count, &rtv_handles[0], false, &dsv_handle)
+
+		// clear backbuffer
+		clearcolor := [?]f32{0.05, 0.05, 0.05, 1.0}
+
+		// we should probably clear each gbuffer individually to a sane value...
+		c.cmdlist->ClearRenderTargetView(rtv_handles[0], &clearcolor, 0, nil)
+		c.cmdlist->ClearRenderTargetView(rtv_handles[1], &clearcolor, 0, nil)
+		c.cmdlist->ClearRenderTargetView(rtv_handles[2], &clearcolor, 0, nil)
+
+		// clearing depth buffer
+		c.cmdlist->ClearDepthStencilView(dsv_handle, {.DEPTH, .STENCIL}, 1.0, 0, 0, nil)
+	}
+
+	// draw call
+	c.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
+
+	// binding vertex buffer view and instance buffer view
+	vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW {
+		dx_context.vertex_buffer_view,
+		dx_context.instance_buffer.vbv,
+	}
+
+	c.cmdlist->IASetVertexBuffers(0, len(vertex_buffers_views), &vertex_buffers_views[0])
+	c.cmdlist->IASetIndexBuffer(&c.index_buffer_view)
+	c.cmdlist->DrawIndexedInstanced(c.index_count, 
+					c.instance_buffer.vertex_count, 0, 0, 0)
+
+}
+
+render_lighting_pass :: proc() {
+
+	c := &dx_context
+
+
+	// Transitioning gbuffers from render target to SRVs
+	{
+		res_barriers : [3]dx.RESOURCE_BARRIER
+
+		// res barrier template
+
+		res_barriers[0] = dx.RESOURCE_BARRIER {
+			Type  = .TRANSITION,
+			Flags = {},
+			Transition = {
+					pResource   = nil,
+					StateBefore  = {.RENDER_TARGET},
+					StateAfter = {.PIXEL_SHADER_RESOURCE},
+					Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
+			}
+		}
+
+		// populating all res barriers with each gbuffer
+		res_barriers[0] = res_barriers[0]
+		res_barriers[0].Transition.pResource = c.gbuffer.gb_albedo.res
+
+		res_barriers[1] = res_barriers[0]
+		res_barriers[1].Transition.pResource = c.gbuffer.gb_normal.res
+
+		res_barriers[2] = res_barriers[0]
+		res_barriers[2].Transition.pResource = c.gbuffer.gb_position.res
+
+		c.cmdlist->ResourceBarrier(3, &res_barriers[0])
+	}
+
+	// here u have to transition the swapchain buffer so it is a RT
+	{
+		to_render_target_barrier := dx.RESOURCE_BARRIER {
+			Type  = .TRANSITION,
+			Flags = {},
+			Transition = {
+				pResource   = dx_context.targets[dx_context.frame_index],
+				StateBefore = dx.RESOURCE_STATE_PRESENT,
+				StateAfter  = {.RENDER_TARGET},
+				Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
+			}
+		}
+
+		c.cmdlist->ResourceBarrier(1, &to_render_target_barrier)
+	}
+
+	// TODO: bind and draw here!!!
+
+
+	// after all the game drawing, draw imgui.
+
+	// add imgui draw commands to cmd list
+
+	// uncomment after you are done.
+
+	// the drawinstanced error thing is because of this. 
+	//   just finish writing this function and it'll work.
+	imgui_update_after()
 }
