@@ -124,6 +124,7 @@ GBuffer :: struct {
 	gb_position: GBufferUnit,
 
 	rtv_heap : ^dx.IDescriptorHeap,
+	srv_heap : ^dx.IDescriptorHeap,
 }
 
 Context :: struct {
@@ -1481,11 +1482,12 @@ create_gbuffer :: proc() -> GBuffer {
 
 	// creating rtv heap and rtv's
 	gb_descriptor_heap : ^dx.IDescriptorHeap
+	gb_srv_dh : ^dx.IDescriptorHeap
 
 	desc := dx.DESCRIPTOR_HEAP_DESC {
 		NumDescriptors = gbuffer_count,
 		Type           = .RTV,
-		Flags          = {}, // maybe shader visible should be here idk
+		Flags          = {},
 	}
 
 	hr :=
@@ -1496,9 +1498,28 @@ create_gbuffer :: proc() -> GBuffer {
 	)
 	check(hr, "Failed creating descriptor heap")
 	gb_descriptor_heap->SetName("lucy's g-buffer RTV descriptor heap")
+
 	rtv_descriptor_size: u32 = ct.device->GetDescriptorHandleIncrementSize(.RTV)
 	rtv_descriptor_handle_heap_start: dx.CPU_DESCRIPTOR_HANDLE
 	gb_descriptor_heap->GetCPUDescriptorHandleForHeapStart(&rtv_descriptor_handle_heap_start)
+
+	// creating SRV descriptor heap
+
+	desc = dx.DESCRIPTOR_HEAP_DESC {
+		NumDescriptors = gbuffer_count,
+		Type           = .CBV_SRV_UAV,
+		Flags          = {.SHADER_VISIBLE},
+	}
+
+	hr =
+	ct.device->CreateDescriptorHeap(
+		&desc,
+		dx.IDescriptorHeap_UUID,
+		(^rawptr)(&gb_srv_dh),
+	)
+	check(hr, "Failed creating descriptor heap")
+	gb_descriptor_heap->SetName("lucy's g-buffer CBV_SRV_UAV descriptor heap")
+
 
 	// create texture resource and RTV's
 
@@ -1515,6 +1536,8 @@ create_gbuffer :: proc() -> GBuffer {
 	rtv_descriptor_handle_1 : dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
 	rtv_descriptor_handle_1.ptr += uint(rtv_descriptor_size) * 0
 	ct.device->CreateRenderTargetView(gb_1_res, nil, rtv_descriptor_handle_1)
+	ct.device->CreateShaderResourceView(gb_1_res, nil, 
+		get_descriptor_heap_cpu_address(gb_srv_dh, 0))
 
 	// world normal data
 	gb_2_res := create_texture(u64(wx), u32(wy), gb_normal_format, {.ALLOW_RENDER_TARGET}, initial_state = {.PIXEL_SHADER_RESOURCE})
@@ -1523,6 +1546,8 @@ create_gbuffer :: proc() -> GBuffer {
 	rtv_descriptor_handle_2 : dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
 	rtv_descriptor_handle_2.ptr += uint(rtv_descriptor_size) * 1
 	ct.device->CreateRenderTargetView(gb_2_res, nil, rtv_descriptor_handle_2)
+	ct.device->CreateShaderResourceView(gb_2_res, nil, 
+		get_descriptor_heap_cpu_address(gb_srv_dh, 1))
 
 	// world space position
 	gb_3_res := create_texture(u64(wx), u32(wy), gb_position_format, {.ALLOW_RENDER_TARGET}, initial_state = {.PIXEL_SHADER_RESOURCE})
@@ -1531,6 +1556,8 @@ create_gbuffer :: proc() -> GBuffer {
 	rtv_descriptor_handle_3: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
 	rtv_descriptor_handle_3.ptr += uint(rtv_descriptor_size) * 2
 	ct.device->CreateRenderTargetView(gb_3_res, nil, rtv_descriptor_handle_3)
+	ct.device->CreateShaderResourceView(gb_3_res, nil, 
+		get_descriptor_heap_cpu_address(gb_srv_dh, 2))
 
 	return GBuffer {
 
@@ -1552,7 +1579,8 @@ create_gbuffer :: proc() -> GBuffer {
 			format = gb_position_format
 		},
 
-		rtv_heap = gb_descriptor_heap
+		rtv_heap = gb_descriptor_heap,
+		srv_heap = gb_srv_dh
 	}
 }
 
@@ -1986,19 +2014,6 @@ render_gbuffer_pass :: proc() {
 
 	c := &dx_context
 
-	viewport := dx.VIEWPORT {
-		Width  = f32(wx),
-		Height = f32(wy),
-		MinDepth = 0,
-		MaxDepth = 1
-	}
-
-	scissor_rect := dx.RECT {
-		left   = 0,
-		right  = wx,
-		top    = 0,
-		bottom = wy,
-	}
 
 	// This state is reset everytime the cmd list is reset, so we need to rebind it
 	c.cmdlist->SetGraphicsRootSignature(dx_context.gbuffer_pass_root_signature)
@@ -2022,8 +2037,24 @@ render_gbuffer_pass :: proc() {
 		)
 	}
 
-	c.cmdlist->RSSetViewports(1, &viewport)
-	c.cmdlist->RSSetScissorRects(1, &scissor_rect)
+	{
+		viewport := dx.VIEWPORT {
+			Width  = f32(wx),
+			Height = f32(wy),
+			MinDepth = 0,
+			MaxDepth = 1
+		}
+
+		scissor_rect := dx.RECT {
+			left   = 0,
+			right  = wx,
+			top    = 0,
+			bottom = wy,
+		}
+
+		c.cmdlist->RSSetViewports(1, &viewport)
+		c.cmdlist->RSSetScissorRects(1, &scissor_rect)
+	}
 
 	// TODO: transition the g buffers here instead of the swapchain buffers!!!
 
@@ -2101,6 +2132,7 @@ render_lighting_pass :: proc() {
 
 	c := &dx_context
 
+	c.cmdlist->SetPipelineState(c.pipeline_lighting)
 
 	// Transitioning gbuffers from render target to SRVs
 	{
@@ -2150,6 +2182,77 @@ render_lighting_pass :: proc() {
 
 	// TODO: bind and draw here!!!
 
+	// This state is reset everytime the cmd list is reset, so we need to rebind it
+	c.cmdlist->SetGraphicsRootSignature(c.lighting_pass_root_signature)
+
+
+	// setting the root cbv that we set up in the root signature. root parameter 0
+	c.cmdlist->SetGraphicsRootConstantBufferView(
+		0,
+		dx_context.constant_buffer->GetGPUVirtualAddress(),
+	)
+
+	// setting descriptor tables for our gbuffers
+	{
+
+		// setting descriptor heap for our cbv srv uav's
+		c.cmdlist->SetDescriptorHeaps(1, &c.gbuffer.srv_heap)
+
+		// setting the graphics root descriptor table
+		// in the root signature, so that it points to
+		// our SRV descriptor
+		c.cmdlist->SetGraphicsRootDescriptorTable(1, 
+			get_descriptor_heap_gpu_address(c.gbuffer.srv_heap, 0)
+		)
+
+		// c.gbuffer.rtv_heap
+	}
+
+	{
+		viewport := dx.VIEWPORT {
+			Width  = f32(wx),
+			Height = f32(wy),
+			MinDepth = 0,
+			MaxDepth = 1
+		}
+
+		scissor_rect := dx.RECT {
+			left   = 0,
+			right  = wx,
+			top    = 0,
+			bottom = wy,
+		}
+
+		c.cmdlist->RSSetViewports(1, &viewport)
+		c.cmdlist->RSSetScissorRects(1, &scissor_rect)
+	}
+
+	// Setting render targets. Clearing DSV and RTV.
+	{
+		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
+			get_descriptor_heap_cpu_address(c.swapchain_rtv_descriptor_heap, c.frame_index)
+		}
+
+		dsv_handle := get_descriptor_heap_cpu_address(dx_context.descriptor_heap_dsv, 0)
+
+		// setting depth buffer
+		c.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, &dsv_handle)
+
+		// clear backbuffer
+		clearcolor := [?]f32{0.05, 0.05, 0.05, 1.0}
+
+		// we should probably clear each gbuffer individually to a sane value...
+		c.cmdlist->ClearRenderTargetView(rtv_handles[0], &clearcolor, 0, nil)
+
+		// clearing depth buffer
+		c.cmdlist->ClearDepthStencilView(dsv_handle, {.DEPTH, .STENCIL}, 1.0, 0, 0, nil)
+	}
+
+	// draw call
+	c.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
+
+	// 3. Draw 3 vertices (which triggers the VS 3 times)
+	c.cmdlist->DrawInstanced(3,1,0,0)
 
 	// after all the game drawing, draw imgui.
 

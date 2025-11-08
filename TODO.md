@@ -4,6 +4,8 @@
 - set up some basic allocator stuff
     - set up a tracking allocator for lasting allocations.
 
+- experiment with `setpipelinestate`. see what u can delete after using that.
+
 
 # possible cool goals:
 

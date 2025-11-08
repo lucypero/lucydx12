@@ -3,6 +3,12 @@
 
 #pragma pack_matrix(column_major)
 
+Texture2D<float4> albedo : register(t1);
+Texture2D<float4> normal : register(t2);
+Texture2D<float4> position : register(t3);
+
+SamplerState mySampler : register(s0);
+
 struct PSInput
 {
     float4 position : SV_Position; // Clip-space position
@@ -12,12 +18,31 @@ struct PSInput
 PSInput VSMain(uint VertexID : SV_VertexID)
 {
     PSInput output;
-    output.uvs = float2(1, 1);
-    output.position = float4(1, 1, 1, 1.0);
+
+    const float2 positions[3] = {
+        float2(-1.0, 3.0),  // Top-left (covers the top edge)
+        float2(3.0, -1.0),  // Bottom-right (covers the right edge)
+        float2(-1.0, -1.0), // Bottom-left
+    };
+
+    const float2 uvs[3] = {
+        float2(0.0, -1.0), // Corresponding UVs to map positions to [0, 1] UV space
+        float2(2.0, 1.0),
+        float2(0.0, 1.0),
+    };
+
+    // Use the VertexID to look up the hardcoded data
+    output.position = float4(positions[VertexID].xy, 0.0, 1.0);
+    output.uvs = uvs[VertexID];
+
     return output;
 }
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    return float4(0.0, 1.0, 0.0, 1.0);
+    float4 pixelColor = albedo.Sample(mySampler, input.uvs);
+    float4 normalColor = normal.Sample(mySampler, input.uvs);
+    float4 positionColor = position.Sample(mySampler, input.uvs);
+
+    return float4(pixelColor.xyz * normalColor.xyz * positionColor.xyz, 1.0);
 }
