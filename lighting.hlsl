@@ -9,10 +9,21 @@ Texture2D<float4> position : register(t3);
 
 SamplerState mySampler : register(s0);
 
+cbuffer ConstantBuffer : register(b0)
+{
+    float4x4 view;
+    float4x4 projection;
+    float3 light_pos;
+    float light_int;
+    float3 view_pos;
+    float time;
+    bool place_texture;
+};
+
 struct PSInput
 {
-    float4 position : SV_Position; // Clip-space position
-    float2 uvs : TEXCOORD0;        // UV coordinates passed to PS
+    float4 position : SV_Position;
+    float2 uvs : TEXCOORD0;
 };
 
 PSInput VSMain(uint VertexID : SV_VertexID)
@@ -20,13 +31,13 @@ PSInput VSMain(uint VertexID : SV_VertexID)
     PSInput output;
 
     const float2 positions[3] = {
-        float2(-1.0, 3.0),  // Top-left (covers the top edge)
-        float2(3.0, -1.0),  // Bottom-right (covers the right edge)
-        float2(-1.0, -1.0), // Bottom-left
+        float2(-1.0, 3.0),
+        float2(3.0, -1.0),
+        float2(-1.0, -1.0),
     };
 
     const float2 uvs[3] = {
-        float2(0.0, -1.0), // Corresponding UVs to map positions to [0, 1] UV space
+        float2(0.0, -1.0),
         float2(2.0, 1.0),
         float2(0.0, 1.0),
     };
@@ -44,5 +55,32 @@ float4 PSMain(PSInput input) : SV_TARGET
     float4 normalColor = normal.Sample(mySampler, input.uvs);
     float4 positionColor = position.Sample(mySampler, input.uvs);
 
-    return float4(pixelColor.xyz * normalColor.xyz * positionColor.xyz, 1.0);
+    float3 norm = normalize(normalColor);
+    float3 light_dir = normalize(light_pos - positionColor);
+
+    // diffuse
+
+    float diff = max(dot(norm, light_dir), 0.0f);
+    float3 diffuse = diff * light_int;
+
+    float amb_val = 0.05;
+
+    float3 ambient = float3(amb_val, amb_val, amb_val);
+
+    // Specular calculation
+
+    float specularStrength = 0.5;
+
+    float3 viewDir = normalize(view_pos - positionColor);
+    float3 reflectDir = reflect(light_dir, norm);
+
+    float3 spec_color = float3(1, 1, 1);
+
+    float spec = pow(max(dot(viewDir, reflectDir), 0.0), 128);
+    float3 specular = specularStrength * spec * spec_color;
+
+    float3 result = (ambient + diffuse + specular) * pixelColor.xyz;
+
+    return float4(result, 1.0);
+    // return float4(pixelColor.xyz * normalColor.xyz * positionColor.xyz, 1.0);
 }
