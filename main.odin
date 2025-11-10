@@ -49,6 +49,7 @@ light_int: f32
 light_speed: f32
 place_texture: bool
 the_time_sec: f32
+exit_app: bool
 
 // constant buffer data
 ConstantBufferData :: struct #align (256) {
@@ -209,7 +210,7 @@ check :: proc(res: dx.HRESULT, message: string) {
 
 main :: proc() {
 	// Init SDL and create window
-	if err := sdl.Init(sdl.INIT_EVERYTHING); err != 0 {
+	if err := sdl.Init(sdl.InitFlags{.TIMER, .AUDIO, .VIDEO, .EVENTS}); err != 0 {
 		fmt.eprintln(err)
 		return
 	}
@@ -509,6 +510,10 @@ main :: proc() {
 		im.Render()
 		render()
 		free_all(context.temp_allocator)
+
+		if exit_app {
+			break main_loop
+		}
 	}
 }
 
@@ -665,6 +670,10 @@ update :: proc() {
 
 	light_pos.x = linalg.sin(the_time_sec * light_speed) * 2
 	light_pos.z = linalg.cos(the_time_sec * light_speed) * 2
+
+	if keyboard[sdl.Scancode.ESCAPE] == 1 {
+		exit_app = true
+	}
 
 	
 	// im.End()
@@ -1147,7 +1156,9 @@ do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u16) {
 		case .texcoord:
 			attr_texcoord = attribute
 		case:
-			fmt.eprintfln("Unkown gltf attribute: {}", attribute)
+			// it's outputting "unknown attribute COLOR_0" and it's annoying. 
+			//  so, i am commenting this error log.
+			// fmt.eprintfln("Unkown gltf attribute: {}", attribute)
 		}
 	}
 
@@ -1529,8 +1540,15 @@ create_gbuffer :: proc() -> GBuffer {
 	gb_normal_format : dxgi.FORMAT = .R10G10B10A2_UNORM
 	gb_position_format : dxgi.FORMAT = .R16G16B16A16_FLOAT
 
+	clear_value := dx.CLEAR_VALUE {
+		Format = gb_albedo_format,
+		Color = {0,0,0,1.0}
+	}
+
 	// albedo color and specular
-	gb_1_res := create_texture(u64(wx), u32(wy), gb_albedo_format, {.ALLOW_RENDER_TARGET}, initial_state = {.PIXEL_SHADER_RESOURCE})
+	gb_1_res := create_texture(u64(wx), u32(wy), gb_albedo_format, {.ALLOW_RENDER_TARGET}, 
+			initial_state = {.PIXEL_SHADER_RESOURCE})
+
 	gb_1_res->SetName("gbuffer unit 0: ALBEDO + SPECULAR")
 
 	rtv_descriptor_handle_1 : dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
@@ -1540,7 +1558,9 @@ create_gbuffer :: proc() -> GBuffer {
 		get_descriptor_heap_cpu_address(gb_srv_dh, 0))
 
 	// world normal data
-	gb_2_res := create_texture(u64(wx), u32(wy), gb_normal_format, {.ALLOW_RENDER_TARGET}, initial_state = {.PIXEL_SHADER_RESOURCE})
+	gb_2_res := create_texture(u64(wx), u32(wy), gb_normal_format, {.ALLOW_RENDER_TARGET},
+		initial_state = {.PIXEL_SHADER_RESOURCE},
+	)
 	gb_2_res->SetName("gbuffer unit 1: NORMAL")
 
 	rtv_descriptor_handle_2 : dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
@@ -1550,7 +1570,9 @@ create_gbuffer :: proc() -> GBuffer {
 		get_descriptor_heap_cpu_address(gb_srv_dh, 1))
 
 	// world space position
-	gb_3_res := create_texture(u64(wx), u32(wy), gb_position_format, {.ALLOW_RENDER_TARGET}, initial_state = {.PIXEL_SHADER_RESOURCE})
+	gb_3_res := create_texture(u64(wx), u32(wy), gb_position_format, {.ALLOW_RENDER_TARGET}, 
+		initial_state = {.PIXEL_SHADER_RESOURCE},
+	)
 	gb_3_res->SetName("gbuffer unit 2: WORLD SPACE POSITION")
 
 	rtv_descriptor_handle_3: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
@@ -1586,13 +1608,26 @@ create_gbuffer :: proc() -> GBuffer {
 
 // helper function that creates a texture resource in its own implicit heap
 // TODO: look into creating heap separately
-create_texture :: proc(width: u64, height: u32, format: dxgi.FORMAT, resource_flags:dx.RESOURCE_FLAGS, initial_state: dx.RESOURCE_STATES) ->
+create_texture :: proc(width: u64, height: u32, format: dxgi.FORMAT, resource_flags:dx.RESOURCE_FLAGS, 
+		initial_state: dx.RESOURCE_STATES,
+		opt_clear_value: dx.CLEAR_VALUE = {},
+		set_clear_value_to_zero : bool = true
+	) ->
 		(res: ^dx.IResource){
 
 	ct := &dx_context
 
+	opt_clear_value := opt_clear_value
+
 	heap_properties := dx.HEAP_PROPERTIES {
 		Type = .DEFAULT,
+	}
+
+	if set_clear_value_to_zero {
+		opt_clear_value = dx.CLEAR_VALUE {
+			Format = format,
+			Color = {0,0,0,1}
+		}
 	}
 
 	texture_desc := dx.RESOURCE_DESC {
@@ -1612,7 +1647,7 @@ create_texture :: proc(width: u64, height: u32, format: dxgi.FORMAT, resource_fl
 		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
 		&texture_desc,
 		initial_state,
-		nil,
+		&opt_clear_value,
 		dx.IResource_UUID,
 		(^rawptr)(&res),
 	)
@@ -2101,7 +2136,7 @@ render_gbuffer_pass :: proc() {
 		c.cmdlist->OMSetRenderTargets(gbuffer_count, &rtv_handles[0], false, &dsv_handle)
 
 		// clear backbuffer
-		clearcolor := [?]f32{0.05, 0.05, 0.05, 1.0}
+		clearcolor := [?]f32{0, 0, 0, 1.0}
 
 		// we should probably clear each gbuffer individually to a sane value...
 		c.cmdlist->ClearRenderTargetView(rtv_handles[0], &clearcolor, 0, nil)

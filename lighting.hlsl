@@ -51,9 +51,9 @@ PSInput VSMain(uint VertexID : SV_VertexID)
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    float4 pixelColor = albedo.Sample(mySampler, input.uvs);
-    float4 normalColor = normal.Sample(mySampler, input.uvs);
-    float4 positionColor = position.Sample(mySampler, input.uvs);
+    float3 pixelColor = albedo.Sample(mySampler, input.uvs).xyz;
+    float3 normalColor = normal.Sample(mySampler, input.uvs).xyz;
+    float3 positionColor = position.Sample(mySampler, input.uvs).xyz;
 
     float3 norm = normalize(normalColor);
     float3 light_dir = normalize(light_pos - positionColor);
@@ -79,7 +79,7 @@ float4 PSMain(PSInput input) : SV_TARGET
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), 128);
     float3 specular = specularStrength * spec * spec_color;
 
-    float3 result = (ambient + diffuse + specular) * pixelColor.xyz;
+    float3 result = (ambient + diffuse + specular) * pixelColor;
 
     return float4(result, 1.0);
     // return float4(pixelColor.xyz * normalColor.xyz * positionColor.xyz, 1.0);

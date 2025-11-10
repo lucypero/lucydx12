@@ -8,7 +8,10 @@
             "name": "Debug",
             "program": "${workspaceFolder}/lucydx12.exe",
             "args": [],
-            "cwd": "${workspaceFolder}"
+            "cwd": "${workspaceFolder}",
+            "logging": {
+                "moduleLoad": false,
+            },
         }
     ]
 }
