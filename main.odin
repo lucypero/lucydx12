@@ -515,6 +515,16 @@ main :: proc() {
 			break main_loop
 		}
 	}
+
+
+	when ODIN_DEBUG {
+		debug_device : ^dx.IDebugDevice
+		dx_context.device->QueryInterface(dx.IDebugDevice_UUID,
+					(^rawptr)(&debug_device))
+		// TODO: with this info, release all the things! this is your homework for now
+		debug_device->ReportLiveDeviceObjects({.DETAIL, .SUMMARY, .IGNORE_INTERNAL})
+		fmt.println("======= report end ========")
+	}
 }
 
 create_swapchain :: proc(

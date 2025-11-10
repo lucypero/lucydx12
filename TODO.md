@@ -6,6 +6,9 @@
 
 - experiment with `setpipelinestate`. see what u can delete after using that.
 
+- check this out. p cool. about memory management.
+https://github.com/microsoft/DirectX-Graphics-Samples/tree/master/TechniqueDemos/D3D12MemoryManagement
+
 
 # possible cool goals:
 
