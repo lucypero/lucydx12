@@ -6,7 +6,7 @@
         {
             "label": "build debug",
             "type": "shell",
-            "command": "odin build . -debug -out:lucydx12.exe",
+            "command": "odin build . -debug -out:lucydx12.exe -linker:radlink",
             "problemMatcher": "$msCompile",
             "group": {
                 "kind": "build",
