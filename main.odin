@@ -546,10 +546,8 @@ main :: proc() {
 	// this does nothing
 	sdl.DestroyWindow(dx_context.window)
 	
-	print_ref_count(dx_context.device)
-
 	when ODIN_DEBUG {
-	    fmt.println("======= report start ========")
+	    windows.OutputDebugStringA("=== report start =====\n")
 		debug_device : ^dx.IDebugDevice2
 		dx_context.device->QueryInterface(dx.IDebugDevice2_UUID,
 					(^rawptr)(&debug_device))
@@ -558,12 +556,13 @@ main :: proc() {
 		dx_context.device->Release()
 		debug_device->ReportLiveDeviceObjects({.DETAIL, .IGNORE_INTERNAL})
 		debug_device->Release()
-		fmt.println("======= report end ========")
 		
 		// DXGI report
 		dxgi_debug : ^dxgi.IDebug1
 		dxgi.DXGIGetDebugInterface1(0, dxgi.IDebug1_UUID, (^rawptr)(&dxgi_debug))
 		dxgi_debug->ReportLiveObjects(dxgi.DEBUG_ALL, {})
+		// TODO: make a function that prints to the debugger but works just like printfln
+		windows.OutputDebugStringA("=== report end =====\n")
 	}
 }
 
