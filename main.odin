@@ -1,5 +1,6 @@
 package main
 
+import "vendor:directx/dxc"
 import "core:odin/ast"
 import "core:fmt"
 import "core:mem"
@@ -17,7 +18,7 @@ import "core:c"
 import "core:math"
 import "core:math/linalg"
 import "vendor:cgltf"
-import "core:container/small_array"
+import sa "core:container/small_array"
 import "base:runtime"
 import "core:math/rand"
 
@@ -50,6 +51,12 @@ light_speed: f32
 place_texture: bool
 the_time_sec: f32
 exit_app: bool
+
+DXResourcePool :: sa.Small_Array(100, ^dx.IUnknown)
+
+// dx resources to be freed at the end of the app
+resources_longterm : DXResourcePool
+
 
 // constant buffer data
 ConstantBufferData :: struct #align (256) {
@@ -224,7 +231,7 @@ main :: proc() {
 		wy,
 		{.ALLOW_HIGHDPI, .SHOWN, .RESIZABLE},
 	)
-
+	
 	if dx_context.window == nil {
 		fmt.eprintln(sdl.GetError())
 		return
@@ -236,6 +243,7 @@ main :: proc() {
 	context_init(&dx_context)
 
 	device := dx_context.device
+	
 
 	hr: dx.HRESULT
 
@@ -246,6 +254,7 @@ main :: proc() {
 
 		hr = device->CreateCommandQueue(&desc, dx.ICommandQueue_UUID, (^rawptr)(&dx_context.queue))
 		check(hr, "Failed creating command queue")
+		sa.push(&resources_longterm, dx_context.queue)
 	}
 
 	// Create the swapchain, it's the thing that contains render targets that we draw into. 
@@ -270,13 +279,13 @@ main :: proc() {
 		)
 		check(hr, "Failed creating descriptor heap")
 		dx_context.swapchain_rtv_descriptor_heap->SetName("lucy's swapchain RTV descriptor heap")
+		sa.push(&resources_longterm, dx_context.swapchain_rtv_descriptor_heap)
 	}
-
+	
 	// Fetch the two render targets from the swapchain
 
 	{
 		rtv_descriptor_size: u32 = device->GetDescriptorHandleIncrementSize(.RTV)
-
 		rtv_descriptor_handle: dx.CPU_DESCRIPTOR_HANDLE
 		dx_context.swapchain_rtv_descriptor_heap->GetCPUDescriptorHandleForHeapStart(&rtv_descriptor_handle)
 
@@ -287,6 +296,7 @@ main :: proc() {
 				dx.IResource_UUID,
 				(^rawptr)(&dx_context.targets[i]),
 			)
+			dx_context.targets[i]->Release()
 			check(hr, "Failed getting render target")
 			device->CreateRenderTargetView(dx_context.targets[i], nil, rtv_descriptor_handle)
 			rtv_descriptor_handle.ptr += uint(rtv_descriptor_size)
@@ -303,6 +313,7 @@ main :: proc() {
 		(^rawptr)(&dx_context.command_allocator),
 	)
 	check(hr, "Failed creating command allocator")
+	sa.push(&resources_longterm, dx_context.command_allocator)
 
 	// Creating G-Buffer textures and RTV's
 	dx_context.gbuffer = create_gbuffer()
@@ -335,6 +346,8 @@ main :: proc() {
 		)
 
 		check(hr, "failed creating constant buffer")
+		dx_context.constant_buffer->SetName("lucy's constant buffer")
+		sa.push(&resources_longterm, dx_context.constant_buffer)
 
 		// empty range means the cpu won't read from it
 		dx_context.constant_buffer->Map(0, &dx.RANGE{}, &dx_context.constant_buffer_map)
@@ -370,6 +383,7 @@ main :: proc() {
 	check(hr, "Failed to create command list")
 	hr = dx_context.cmdlist->Close()
 	check(hr, "Failed to close command list")
+	sa.push(&resources_longterm, dx_context.cmdlist)
 
 	// texture test
 	create_sample_texture()
@@ -423,6 +437,7 @@ main :: proc() {
 			(^rawptr)(&vertex_buffer),
 		)
 		check(hr, "Failed creating vertex buffer")
+		sa.push(&resources_longterm, vertex_buffer)
 
 		gpu_data: rawptr
 		read_range: dx.RANGE
@@ -451,6 +466,8 @@ main :: proc() {
 			nil, dx.IResource_UUID, (^rawptr)(&index_buffer)
 		)
 		check(hr, "failed index buffer")
+		index_buffer->SetName("lucy's index buffer")
+		sa.push(&resources_longterm, index_buffer)
 
 		dx_context.index_buffer_view = dx.INDEX_BUFFER_VIEW {
 			BufferLocation = index_buffer->GetGPUVirtualAddress(),
@@ -475,6 +492,7 @@ main :: proc() {
 			(^rawptr)(&dx_context.fence),
 		)
 		check(hr, "Failed to create fence")
+		sa.push(&resources_longterm, dx_context.fence)
 		dx_context.fence_value += 1
 		manual_reset: windows.BOOL = false
 		initial_state: windows.BOOL = false
@@ -516,14 +534,36 @@ main :: proc() {
 		}
 	}
 
+	// cleaning up
+    
+	
+	imgui_destoy()
+
+	#reverse for i in sa.slice(&resources_longterm) {
+		i->Release()
+	}
+	
+	// this does nothing
+	sdl.DestroyWindow(dx_context.window)
+	
+	print_ref_count(dx_context.device)
 
 	when ODIN_DEBUG {
-		debug_device : ^dx.IDebugDevice
-		dx_context.device->QueryInterface(dx.IDebugDevice_UUID,
+	    fmt.println("======= report start ========")
+		debug_device : ^dx.IDebugDevice2
+		dx_context.device->QueryInterface(dx.IDebugDevice2_UUID,
 					(^rawptr)(&debug_device))
-		// TODO: with this info, release all the things! this is your homework for now
-		debug_device->ReportLiveDeviceObjects({.DETAIL, .SUMMARY, .IGNORE_INTERNAL})
+		// Finally, release the device (it is not in any pool)
+		// The device will be freed after we release the debug device
+		dx_context.device->Release()
+		debug_device->ReportLiveDeviceObjects({.DETAIL, .IGNORE_INTERNAL})
+		debug_device->Release()
 		fmt.println("======= report end ========")
+		
+		// DXGI report
+		dxgi_debug : ^dxgi.IDebug1
+		dxgi.DXGIGetDebugInterface1(0, dxgi.IDebug1_UUID, (^rawptr)(&dxgi_debug))
+		dxgi_debug->ReportLiveObjects(dxgi.DEBUG_ALL, {})
 	}
 }
 
@@ -561,6 +601,7 @@ create_swapchain :: proc(
 		(^^dxgi.ISwapChain1)(&swapchain),
 	)
 	check(hr, "Failed to create swap chain")
+	sa.push(&resources_longterm, swapchain)
 
 	return
 }
@@ -581,6 +622,7 @@ init_dx :: proc() {
 
 		hr = dxgi.CreateDXGIFactory2(flags, dxgi.IFactory4_UUID, cast(^rawptr)&factory)
 		check(hr, "Failed creating factory")
+		sa.push(&resources_longterm, factory)
 	}
 
 	dx_context.factory = factory
@@ -597,21 +639,25 @@ init_dx :: proc() {
 		check(hr, "failed getting debug interface")
 
 		debug_controller->EnableDebugLayer()
+		debug_controller->Release()
 	}
 
 	for i: u32 = 0; factory->EnumAdapters1(i, &adapter) != error_not_found; i += 1 {
 		desc: dxgi.ADAPTER_DESC1
 		adapter->GetDesc1(&desc)
+		sa.push(&resources_longterm, adapter)
 		if .SOFTWARE in desc.Flags {
 			continue
 		}
 
-		hr = dx.CreateDevice((^dxgi.IUnknown)(adapter), ._12_0, dx.IDevice_UUID, nil)
+		device: ^dx.IDevice
+		hr = dx.CreateDevice((^dxgi.IUnknown)(adapter), ._12_0, dx.IDevice_UUID, (^rawptr)(&device))
 
 		if hr >= 0 {
+			dx_context.device = device
 			break
 		} else {
-			fmt.printfln("Failed to create device, err: %X", hr) // -2147467262
+			fmt.eprintfln("Failed to create device, err: %X", hr) // -2147467262
 			// E_NOINTERFACE
 			// no such interface supported
 			return
@@ -619,24 +665,15 @@ init_dx :: proc() {
 	}
 
 	if adapter == nil {
-		fmt.println("Could not find hardware adapter")
+		fmt.eprintln("Could not find hardware adapter")
 		return
 	}
-
-	device: ^dx.IDevice
-
-	// Create D3D12 device that represents the GPU
-	hr = dx.CreateDevice((^dxgi.IUnknown)(adapter), ._12_0, dx.IDevice_UUID, (^rawptr)(&device))
-	check(hr, "Failed to create device")
-
-	dx_context.device = device
 }
 
 get_projection_matrix :: proc(fov_rad: f32, screenWidth: i32, screenHeight: i32, near: f32, far: f32) -> dxm {
     f := math.tan_f32(fov_rad * 0.5)
 
     aspect := f32(screenWidth) / f32(screenHeight)
-
 
 	return dxm {
         aspect / f, 0.0, 0.0, 0.0,
@@ -825,6 +862,8 @@ create_sample_texture :: proc() {
 	)
 
 	check(hr, "failed creating texture")
+	ct.texture->SetName("lucy's sample texture (it's now astrobot)")
+	sa.push(&resources_longterm, ct.texture)
 
 	// getting data from texture that we'll use later
 	text_footprint: dx.PLACED_SUBRESOURCE_FOOTPRINT
@@ -863,8 +902,10 @@ create_sample_texture :: proc() {
 		dx.IResource_UUID,
 		(^rawptr)(&texture_upload),
 	)
-
+	
 	check(hr, "failed creating upload texture")
+	texture_upload->SetName("lucy's texture upload resource, for tx uploading")
+	defer texture_upload->Release()
 
 	// here you do a Map and you memcpy the data to the upload resource.
 	// you'll have to use an image library here to get the pixel data of an image.
@@ -903,7 +944,7 @@ create_sample_texture :: proc() {
 	fence: ^dx.IFence
 	hr = dx_context.device->CreateFence(fence_value, {}, dx.IFence_UUID, (^rawptr)(&fence))
 	fence_value += 1
-
+	sa.push(&resources_longterm, fence)
 
 	// you need to set a resource barrier here to transition the texture resource to a generic read state
 	// read gemini answer: https://gemini.google.com/app/b17b9b13fb300d60
@@ -949,8 +990,6 @@ create_sample_texture :: proc() {
 		windows.WaitForSingleObject(fence_event, windows.INFINITE)
 	}
 
-	// here, the gpu is done! now release upload resource then change texture type to generic read
-	texture_upload->Release()
 }
 
 gen_teapot_instance_data :: proc() -> []InstanceData {
@@ -1001,7 +1040,7 @@ create_instance_buffer_example :: proc() -> VertexBuffer {
 
 	instance_data_size := len(instance_data) * size_of(instance_data[0])
 
-	vb := create_vertex_buffer(size_of(instance_data[0]), u32(instance_data_size))
+	vb := create_vertex_buffer(size_of(instance_data[0]), u32(instance_data_size), pool = &resources_longterm)
 
 	// third: we copy the data to the buffer (map and unmap)									
 	copy_to_buffer(vb.buffer, &instance_data[0], instance_data_size)
@@ -1033,6 +1072,7 @@ create_descriptor_heap_cbv_srv_uav :: proc() {
 	hr := c.device->CreateDescriptorHeap(&cbv_heap_desc, dx.IDescriptorHeap_UUID,
 		 (^rawptr)(&c.descriptor_heap_cbv_srv_uav))
 	check(hr, "failed creating descriptor heap")
+	sa.push(&resources_longterm, c.descriptor_heap_cbv_srv_uav)
 
 	c.descriptor_heap_cbv_srv_uav->SetName("lucy's cbv srv uav descriptor heap")
 
@@ -1124,6 +1164,7 @@ create_gbuffer_pass_root_signature :: proc() {
 		(^rawptr)(&dx_context.gbuffer_pass_root_signature),
 	)
 	check(hr, "Failed creating root signature")
+	sa.push(&resources_longterm, dx_context.gbuffer_pass_root_signature)
 	serialized_desc->Release()
 }
 
@@ -1247,7 +1288,8 @@ create_depth_buffer :: proc() {
 	)
 
 	check(hr, "failed creating depth resource")
-
+	c.depth_stencil_res->SetName("depth stencil texture")
+	sa.push(&resources_longterm, c.depth_stencil_res)
 
 	// depth stencil view descriptor heap
 
@@ -1261,9 +1303,10 @@ create_depth_buffer :: proc() {
 	hr = c.device->CreateDescriptorHeap(&heap_desc, 
 		dx.IDescriptorHeap_UUID, (^rawptr)(&c.descriptor_heap_dsv))
 
-	dx_context.swapchain_rtv_descriptor_heap->SetName("lucy's DSV (depth-stencil-view) descriptor heap")
+	c.descriptor_heap_dsv->SetName("lucy's DSV (depth-stencil-view) descriptor heap")
 
 	check(hr, "could not create descriptor heap for DSV")
+	sa.push(&resources_longterm, c.descriptor_heap_dsv)
 
 	// creating depth stencil view
 
@@ -1276,7 +1319,6 @@ create_depth_buffer :: proc() {
 	}
 
 	c.device->CreateDepthStencilView(c.depth_stencil_res, &dsv_desc, descriptor_handle)
-
 }
 
 
@@ -1337,10 +1379,9 @@ imgui_init :: proc() {
 
 	hr := c.device->CreateDescriptorHeap(&srv_descriptor_heap_desc,
 		 dx.IDescriptorHeap_UUID, (^rawptr)(&dx_context.imgui_descriptor_heap))
-
-	dx_context.imgui_descriptor_heap->SetName("imgui's cbv srv uav descriptor heap")
-
 	check(hr, "could ont create imgui descriptor heap")
+	dx_context.imgui_descriptor_heap->SetName("imgui's cbv srv uav descriptor heap")
+	sa.push(&resources_longterm, dx_context.imgui_descriptor_heap)
 
 	dx_context.imgui_allocator = descriptor_heap_allocator_create(dx_context.imgui_descriptor_heap, .CBV_SRV_UAV)
 
@@ -1373,9 +1414,9 @@ imgui_init :: proc() {
 }
 
 imgui_destoy :: proc() {
-	im.DestroyContext()
 	imgui_impl_sdl2.Shutdown() // here
 	imgui_impl_dx12.Shutdown()
+	im.DestroyContext()
 }
 
 // call this right before swapchain present
@@ -1439,7 +1480,7 @@ get_world_mat :: proc(pos, scale: v3, rot_rads : f32, rot_vec: v3) -> dxm {
 }
 
 // returns a vertex buffer view
-create_vertex_buffer :: proc(stride_in_bytes, size_in_bytes: u32) -> VertexBuffer {
+create_vertex_buffer :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^DXResourcePool) -> VertexBuffer {
 
 	vb : ^dx.IResource
 
@@ -1473,6 +1514,7 @@ create_vertex_buffer :: proc(stride_in_bytes, size_in_bytes: u32) -> VertexBuffe
 		(^rawptr)(&vb),
 	)
 	check(hr, "Failed creating vertex buffer")
+	sa.push(pool, vb)
 
 	vbv := dx.VERTEX_BUFFER_VIEW {
 		BufferLocation = vb->GetGPUVirtualAddress(),
@@ -1489,11 +1531,11 @@ create_vertex_buffer :: proc(stride_in_bytes, size_in_bytes: u32) -> VertexBuffe
 	}
 }
 
-// copies data to a dx resource. then umaps the memory
+// copies data to a dx resource. then unmaps the memory
 copy_to_buffer :: proc(buffer: ^dx.IResource, src: rawptr, len:int) {
 	gpu_data: rawptr
 	hr := buffer->Map(0, &dx.RANGE{}, &gpu_data)
-	check(hr, "Failed creating vertex buffer resource")
+	check(hr, "Failed mapping")
 	mem.copy(gpu_data, src, len)
 	buffer->Unmap(0, nil)
 }
@@ -1501,8 +1543,8 @@ copy_to_buffer :: proc(buffer: ^dx.IResource, src: rawptr, len:int) {
 create_gbuffer :: proc() -> GBuffer {
 	ct := &dx_context
 
-	// creating rtv heap and rtv's
-	gb_descriptor_heap : ^dx.IDescriptorHeap
+	// creating rtv heap and srv heaps
+	gb_rtv_dh : ^dx.IDescriptorHeap
 	gb_srv_dh : ^dx.IDescriptorHeap
 
 	desc := dx.DESCRIPTOR_HEAP_DESC {
@@ -1515,14 +1557,14 @@ create_gbuffer :: proc() -> GBuffer {
 	ct.device->CreateDescriptorHeap(
 		&desc,
 		dx.IDescriptorHeap_UUID,
-		(^rawptr)(&gb_descriptor_heap),
+		(^rawptr)(&gb_rtv_dh),
 	)
 	check(hr, "Failed creating descriptor heap")
-	gb_descriptor_heap->SetName("lucy's g-buffer RTV descriptor heap")
+	gb_rtv_dh->SetName("lucy's g-buffer RTV descriptor heap")
 
 	rtv_descriptor_size: u32 = ct.device->GetDescriptorHandleIncrementSize(.RTV)
 	rtv_descriptor_handle_heap_start: dx.CPU_DESCRIPTOR_HANDLE
-	gb_descriptor_heap->GetCPUDescriptorHandleForHeapStart(&rtv_descriptor_handle_heap_start)
+	gb_rtv_dh->GetCPUDescriptorHandleForHeapStart(&rtv_descriptor_handle_heap_start)
 
 	// creating SRV descriptor heap
 
@@ -1539,8 +1581,7 @@ create_gbuffer :: proc() -> GBuffer {
 		(^rawptr)(&gb_srv_dh),
 	)
 	check(hr, "Failed creating descriptor heap")
-	gb_descriptor_heap->SetName("lucy's g-buffer CBV_SRV_UAV descriptor heap")
-
+	gb_rtv_dh->SetName("lucy's g-buffer CBV_SRV_UAV descriptor heap")
 
 	// create texture resource and RTV's
 
@@ -1557,7 +1598,8 @@ create_gbuffer :: proc() -> GBuffer {
 
 	// albedo color and specular
 	gb_1_res := create_texture(u64(wx), u32(wy), gb_albedo_format, {.ALLOW_RENDER_TARGET}, 
-			initial_state = {.PIXEL_SHADER_RESOURCE})
+			initial_state = {.PIXEL_SHADER_RESOURCE},
+			pool = &resources_longterm)
 
 	gb_1_res->SetName("gbuffer unit 0: ALBEDO + SPECULAR")
 
@@ -1566,10 +1608,12 @@ create_gbuffer :: proc() -> GBuffer {
 	ct.device->CreateRenderTargetView(gb_1_res, nil, rtv_descriptor_handle_1)
 	ct.device->CreateShaderResourceView(gb_1_res, nil, 
 		get_descriptor_heap_cpu_address(gb_srv_dh, 0))
+	// u gotta release the whole heap
 
 	// world normal data
 	gb_2_res := create_texture(u64(wx), u32(wy), gb_normal_format, {.ALLOW_RENDER_TARGET},
 		initial_state = {.PIXEL_SHADER_RESOURCE},
+		pool = &resources_longterm
 	)
 	gb_2_res->SetName("gbuffer unit 1: NORMAL")
 
@@ -1582,6 +1626,7 @@ create_gbuffer :: proc() -> GBuffer {
 	// world space position
 	gb_3_res := create_texture(u64(wx), u32(wy), gb_position_format, {.ALLOW_RENDER_TARGET}, 
 		initial_state = {.PIXEL_SHADER_RESOURCE},
+		pool = &resources_longterm
 	)
 	gb_3_res->SetName("gbuffer unit 2: WORLD SPACE POSITION")
 
@@ -1590,6 +1635,9 @@ create_gbuffer :: proc() -> GBuffer {
 	ct.device->CreateRenderTargetView(gb_3_res, nil, rtv_descriptor_handle_3)
 	ct.device->CreateShaderResourceView(gb_3_res, nil, 
 		get_descriptor_heap_cpu_address(gb_srv_dh, 2))
+
+	sa.push(&resources_longterm, gb_rtv_dh)
+	sa.push(&resources_longterm, gb_srv_dh)
 
 	return GBuffer {
 
@@ -1611,7 +1659,7 @@ create_gbuffer :: proc() -> GBuffer {
 			format = gb_position_format
 		},
 
-		rtv_heap = gb_descriptor_heap,
+		rtv_heap = gb_rtv_dh,
 		srv_heap = gb_srv_dh
 	}
 }
@@ -1621,7 +1669,8 @@ create_gbuffer :: proc() -> GBuffer {
 create_texture :: proc(width: u64, height: u32, format: dxgi.FORMAT, resource_flags:dx.RESOURCE_FLAGS, 
 		initial_state: dx.RESOURCE_STATES,
 		opt_clear_value: dx.CLEAR_VALUE = {},
-		set_clear_value_to_zero : bool = true
+		set_clear_value_to_zero : bool = true,
+		pool : ^DXResourcePool
 	) ->
 		(res: ^dx.IResource){
 
@@ -1661,6 +1710,8 @@ create_texture :: proc(width: u64, height: u32, format: dxgi.FORMAT, resource_fl
 		dx.IResource_UUID,
 		(^rawptr)(&res),
 	)
+	
+	sa.push(pool, res)
 
 	return res
 }
@@ -1744,10 +1795,11 @@ create_lighting_pso :: proc() {
 		(^rawptr)(&dx_context.pipeline_lighting),
 	)
 	check(hr, "Pipeline creation failed")
+	dx_context.pipeline_lighting->SetName("PSO for lighting pass")
+	sa.push(&resources_longterm, dx_context.pipeline_lighting)
 
 	vs->Release()
 	ps->Release()
-
 }
 
 create_lighting_root_signature :: proc() {
@@ -1828,6 +1880,7 @@ create_lighting_root_signature :: proc() {
 		(^rawptr)(&c.lighting_pass_root_signature),
 	)
 	check(hr, "Failed creating root signature")
+	sa.push(&resources_longterm, c.lighting_pass_root_signature)
 	serialized_desc->Release()
 }
 
@@ -2050,6 +2103,8 @@ create_gbuffer_pso :: proc() {
 		(^rawptr)(&dx_context.pipeline_gbuffer),
 	)
 	check(hr, "Pipeline creation failed")
+	dx_context.pipeline_gbuffer->SetName("PSO for gbuffer pass")
+	sa.push(&resources_longterm, dx_context.pipeline_gbuffer)
 
 	vs->Release()
 	ps->Release()
@@ -2209,7 +2264,7 @@ render_lighting_pass :: proc() {
 		c.cmdlist->ResourceBarrier(3, &res_barriers[0])
 	}
 
-	// here u have to transition the swapchain buffer so it is a RT
+// here u have to transition the swapchain buffer so it is a RT
 	{
 		to_render_target_barrier := dx.RESOURCE_BARRIER {
 			Type  = .TRANSITION,
@@ -2308,4 +2363,10 @@ render_lighting_pass :: proc() {
 	// the drawinstanced error thing is because of this. 
 	//   just finish writing this function and it'll work.
 	imgui_update_after()
+}
+
+print_ref_count :: proc(obj: ^dx.IUnknown) {
+    obj->AddRef()
+    count := obj->Release()
+    fmt.printfln("count: %v", count)
 }
