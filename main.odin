@@ -19,6 +19,8 @@ import "vendor:cgltf"
 import sa "core:container/small_array"
 import "base:runtime"
 import "core:math/rand"
+import "core:prof/spall"
+import "core:sync"
 
 // imgui
 import im "../odin-imgui"
@@ -28,6 +30,8 @@ import "../odin-imgui/imgui_impl_sdl2"
 import "../odin-imgui/imgui_impl_dx12"
 
 // --- const definitions / aliases ---
+
+PROFILE :: #config(PROFILE, false) // defines `FOO` as a constant with the default value of false
 
 NUM_RENDERTARGETS :: 2
 
@@ -44,6 +48,13 @@ DXResourcePool :: sa.Small_Array(100, ^dx.IUnknown)
 gbuffer_count :: 3
 
 // ---- all state ----
+
+// profiling stuff
+
+when PROFILE {
+    spall_ctx: spall.Context
+    @(thread_local) spall_buffer: spall.Buffer
+}
 
 // window dimensions
 wx := i32(2000)
@@ -221,6 +232,21 @@ check :: proc(res: dx.HRESULT, message: string) {
 }
 
 main :: proc() {
+    
+// setting up profiling
+when PROFILE {
+    spall_ctx = spall.context_create("trace_test.spall")
+   	defer spall.context_destroy(&spall_ctx)
+    
+   	buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
+   	defer delete(buffer_backing)
+    
+   	spall_buffer = spall.buffer_create(buffer_backing, u32(sync.current_thread_id()))
+   	defer spall.buffer_destroy(&spall_ctx, &spall_buffer)
+    
+   	spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, #procedure)
+}
+    
 	// Init SDL and create window
 	if err := sdl.Init(sdl.InitFlags{.TIMER, .AUDIO, .VIDEO, .EVENTS}); err != 0 {
 		fmt.eprintln(err)
@@ -545,6 +571,7 @@ main :: proc() {
 
 do_main_loop :: proc() {
     main_loop: for {
+        when PROFILE do spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, name="main loop")
 		for e: sdl.Event; sdl.PollEvent(&e); {
    
 			imgui_impl_sdl2.ProcessEvent(&e)
@@ -825,6 +852,7 @@ render :: proc() {
 
 	// present
 	{
+	    when PROFILE do spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, name="Present")
 		flags: dxgi.PRESENT
 		params: dxgi.PRESENT_PARAMETERS
 		hr = dx_context.swapchain->Present1(1, flags, &params)
@@ -833,6 +861,8 @@ render :: proc() {
 
 	// wait for frame to finish
 	{
+	    when PROFILE do spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, name="v-sync wait")
+					
 		current_fence_value := dx_context.fence_value
 
 		hr = dx_context.queue->Signal(dx_context.fence, current_fence_value)
@@ -2444,4 +2474,20 @@ lprintfln :: proc(fmt_s: string, args: ..any) {
 	}
 	
 	windows.OutputDebugStringA(final_string_c)
+}
+
+// Automatic profiling of every procedure:
+
+when PROFILE {
+    
+@(instrumentation_enter)
+spall_enter :: proc "contextless" (proc_address, call_site_return_address: rawptr, loc: runtime.Source_Code_Location) {
+	spall._buffer_begin(&spall_ctx, &spall_buffer, "", "", loc)
+}
+
+@(instrumentation_exit)
+spall_exit :: proc "contextless" (proc_address, call_site_return_address: rawptr, loc: runtime.Source_Code_Location) {
+	spall._buffer_end(&spall_ctx, &spall_buffer)
+}
+
 }
