@@ -1,27 +1,16 @@
-# releasing things
-
-current unreleased number: (Refcount of device)
-
-42
-37
-36
-34
-30
-21
-11
-10
-3
-
-
-
-
 # current todo
-- just draw a red screen sized quad for the lighting pass, as a test.
-- deferred rendering: a second PSO for the final render.
+
+- start designing a scene graph. look up resources on that. maybe your books cover it.
+- do hot reloading of shaders. fun small thing to do.
+  - hot reloading example: [link](https://github.com/karl-zylinski/odin-raylib-hot-reload-game-template/blob/main/source/main_hot_reload/main_hot_reload.odin#L142)
+  
+- Deferred Release Queue: that is processed N frames later (where N is your buffer count) to avoid blocking the CPU immediately.
+
 - set up some basic allocator stuff
     - set up a tracking allocator for lasting allocations.
 
 - experiment with `setpipelinestate`. see what u can delete after using that.
+  - (not much). you are already calling that by passing your pipeline to the command list reset() call.
 
 - check this out. p cool. about memory management.
 https://github.com/microsoft/DirectX-Graphics-Samples/tree/master/TechniqueDemos/D3D12MemoryManagement

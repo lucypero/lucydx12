@@ -10,7 +10,7 @@
             "problemMatcher": "$msCompile",
             "group": {
                 "kind": "build",
-                "isDefault": true,
+                "isDefault": true
             },
             "presentation": {
                 "echo": true,
@@ -40,6 +40,17 @@
                 "kind": "build",
                 "isDefault": false
             }
+        },
+        {
+          "label": "vet",
+          "type": "shell",
+          "command": "odin build . -out:lucydx12.exe -vet -vet-packages:main -vet-unused-procedures",
+          "problemMatcher": "$msCompile",
+          "group": {
+              "kind": "build",
+              "isDefault": false
+          }
         }
+        
     ]
 }

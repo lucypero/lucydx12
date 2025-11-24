@@ -1,5 +1,6 @@
 *.exe
 *.pdb
+*.rdi
 models/
 .obsidian/
 imgui.ini

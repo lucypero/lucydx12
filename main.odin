@@ -1,7 +1,5 @@
 package main
 
-import "vendor:directx/dxc"
-import "core:odin/ast"
 import "core:fmt"
 import "core:mem"
 import "core:os"
@@ -29,19 +27,27 @@ import "../odin-imgui/imgui_impl_sdl2"
 // imgui dx12 implementation
 import "../odin-imgui/imgui_impl_dx12"
 
+// --- const definitions / aliases ---
+
 NUM_RENDERTARGETS :: 2
 
 TURNS_TO_RAD :: math.PI * 2
-
-// window dimensions
-wx := i32(2000)
-wy := i32(1000)
 
 v2 :: linalg.Vector2f32
 v3 :: linalg.Vector3f32
 v4 :: linalg.Vector4f32
 
 dxm :: matrix[4,4]f32
+
+DXResourcePool :: sa.Small_Array(100, ^dx.IUnknown)
+
+gbuffer_count :: 3
+
+// ---- all state ----
+
+// window dimensions
+wx := i32(2000)
+wy := i32(1000)
 
 dx_context: Context
 start_time: time.Time
@@ -52,7 +58,8 @@ place_texture: bool
 the_time_sec: f32
 exit_app: bool
 
-DXResourcePool :: sa.Small_Array(100, ^dx.IUnknown)
+// last_write time for shaders
+last_write_time : os.File_Time
 
 // dx resources to be freed at the end of the app
 resources_longterm : DXResourcePool
@@ -118,7 +125,6 @@ VertexBuffer :: struct {
 	buffer_stride: u32,
 }
 
-gbuffer_count :: 3
 
 GBufferUnit :: struct {
 	res: ^dx.IResource,
@@ -213,7 +219,6 @@ check :: proc(res: dx.HRESULT, message: string) {
 	fmt.printf("%v. Error code: %0x\n", message, u32(res))
 	os.exit(-1)
 }
-
 
 main :: proc() {
 	// Init SDL and create window
@@ -504,36 +509,8 @@ main :: proc() {
 	}
 
 	start_time = time.now()
-
-	main_loop: for {
-		for e: sdl.Event; sdl.PollEvent(&e); {
-
-			imgui_impl_sdl2.ProcessEvent(&e)
-
-			#partial switch e.type {
-			case .QUIT:
-				break main_loop
-			case .WINDOWEVENT:
-				if e.window.event == .CLOSE{
-					break main_loop
-				}
-			}
-		}
-
-		imgui_impl_dx12.NewFrame()
-		imgui_impl_sdl2.NewFrame()
-		im.NewFrame()
-		update()
-		im.End()
-		im.Render()
-		render()
-		free_all(context.temp_allocator)
-
-		if exit_app {
-			break main_loop
-		}
-	}
-
+	
+	do_main_loop()
 	// cleaning up
     
 	
@@ -566,6 +543,37 @@ main :: proc() {
 	}
 }
 
+do_main_loop :: proc() {
+    main_loop: for {
+		for e: sdl.Event; sdl.PollEvent(&e); {
+   
+			imgui_impl_sdl2.ProcessEvent(&e)
+   
+			#partial switch e.type {
+			case .QUIT:
+				break main_loop
+			case .WINDOWEVENT:
+				if e.window.event == .CLOSE{
+					break main_loop
+				}
+			}
+		}
+   
+		imgui_impl_dx12.NewFrame()
+		imgui_impl_sdl2.NewFrame()
+		im.NewFrame()
+		update()
+		im.End()
+		im.Render()
+		render()
+		free_all(context.temp_allocator)
+   
+		if exit_app {
+			break main_loop
+		}
+	}
+}
+
 create_swapchain :: proc(
 	factory: ^dxgi.IFactory4,
 	queue: ^dx.ICommandQueue,
@@ -579,6 +587,7 @@ create_swapchain :: proc(
 	sdl.GetWindowWMInfo(window, &window_info)
 	window_handle := dxgi.HWND(window_info.info.win.window)
 
+	
 	desc := dxgi.SWAP_CHAIN_DESC1 {
 		Width = u32(wx),
 		Height = u32(wy),
@@ -721,8 +730,34 @@ update :: proc() {
 		exit_app = true
 	}
 
+	// watch for shader change
+	game_dll_mod, game_dll_mod_err := os.last_write_time_by_name("lighting.hlsl")
+	
+	reload := false
+	
+	if game_dll_mod_err == os.ERROR_NONE && last_write_time != game_dll_mod {
+        last_write_time = game_dll_mod
+		reload = true
+	}
+	
+	if reload {
+		lprintfln("Recompiling shader...")
+		// handle releasing resources
+		vs, ps, ok := compile_shader("lighting.hlsl")
+		if !ok {
+            lprintfln("could not compile new shader!! check logs")
+		} else {
+		    // release new shader immediately
+			lprintln("could compile new shader perfectly fine!!")
+			vs->Release()
+			ps->Release()
+		}
+	}
 	
 	// im.End()
+	// 
+	
+	// imgui stuff
 
 	im.Begin("lucydx12")
 
@@ -1720,7 +1755,17 @@ create_lighting_pso :: proc() {
 	
 	c := &dx_context
 
-	vs, ps := compile_shader("lighting.hlsl")
+	vs, ps, ok := compile_shader("lighting.hlsl")
+	
+	if !ok {
+        lprintfln("could not compile shader!! check logs")
+        os.exit(1)
+	}
+	
+	game_dll_mod, game_dll_mod_err := os.last_write_time_by_name("lighting.hlsl")
+	if game_dll_mod_err == os.ERROR_NONE {
+        last_write_time = game_dll_mod
+	}
 
 	default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
 		BlendEnable           = false,
@@ -1884,14 +1929,14 @@ create_lighting_root_signature :: proc() {
 }
 
 // compiles vertex and pixel shader
-compile_shader :: proc(shader_filename: string) -> (vs, ps: ^d3dc.ID3D10Blob) {
+compile_shader :: proc(shader_filename: string) -> (vs, ps: ^d3dc.ID3D10Blob, ok: bool) {
 
 	c := &dx_context
 
-	data, ok := os.read_entire_file(shader_filename)
+	data, ok_f := os.read_entire_file(shader_filename)
 
-	if !ok {
-		fmt.eprintln("could not read file")
+	if !ok_f {
+		lprintfln("could not read file")
 		os.exit(1)
 	}
 
@@ -1919,17 +1964,19 @@ compile_shader :: proc(shader_filename: string) -> (vs, ps: ^d3dc.ID3D10Blob) {
 			(^u8)(vs_res->GetBufferPointer()),
 			int(vs_res->GetBufferSize()),
 		)
-		fmt.printfln("DXC VS ERRORS in %s: %s", shader_filename, a)
+		lprintfln("DXC VS ERRORS in %s: %s", shader_filename, a)
 	}
 
-	check(hr, "Failed to compile vertex shader")
+	if (hr < 0) {
+	    // vertex shader is worng
+	    // something went wrong
+	    return vs, ps, false
+	}
 
 	hr = d3dc.Compile(
 		rawptr(&data[0]), data_size, nil, nil, nil, "PSMain", "ps_4_0",
 		compile_flags, 0, &ps, &ps_res
 	)
-
-	check(hr, "Failed to compile pixel shader")
 
 	if (ps_res != nil) {
 		// errors in shader compilation
@@ -1937,10 +1984,15 @@ compile_shader :: proc(shader_filename: string) -> (vs, ps: ^d3dc.ID3D10Blob) {
 			(^u8)(ps_res->GetBufferPointer()),
 			int(ps_res->GetBufferSize()),
 		)
-		fmt.printfln("DXC PS ERRORS in %s: %s", shader_filename, a)
+		lprintfln("DXC PS ERRORS in %s: %s", shader_filename, a)
+	}
+	
+	if (hr < 0) {
+	    // pixel shader is wrong
+	    return vs, ps, false
 	}
 
-	return vs, ps
+	return vs, ps, true
 }
 
 // creates PSO for the first drawing pass that populates the gbuffer
@@ -1948,7 +2000,11 @@ create_gbuffer_pso :: proc() {
 
 	c := &dx_context
 
-	vs, ps := compile_shader("shader.hlsl")
+	vs, ps, ok := compile_shader("shader.hlsl")
+	if !ok {
+        lprintfln("could not compile shader!! check logs")
+        os.exit(1)
+	}
 
 	// INPUTLAYOUT
 
@@ -2353,14 +2409,6 @@ render_lighting_pass :: proc() {
 	// 3. Draw 3 vertices (which triggers the VS 3 times)
 	c.cmdlist->DrawInstanced(3,1,0,0)
 
-	// after all the game drawing, draw imgui.
-
-	// add imgui draw commands to cmd list
-
-	// uncomment after you are done.
-
-	// the drawinstanced error thing is because of this. 
-	//   just finish writing this function and it'll work.
 	imgui_update_after()
 }
 
@@ -2368,4 +2416,32 @@ print_ref_count :: proc(obj: ^dx.IUnknown) {
     obj->AddRef()
     count := obj->Release()
     fmt.printfln("count: %v", count)
+}
+
+// Prints to windows debug, with a fmt.println() interface
+lprintln :: proc(args: ..any, sep := " ") {
+	str: strings.Builder
+	strings.builder_init(&str, context.temp_allocator)
+	final_string := fmt.sbprintln(&str, ..args, sep=sep)
+	final_string_c, err := strings.to_cstring(&str)
+	
+	if err != .None {
+	    os.exit(1)
+	}
+	
+	 windows.OutputDebugStringA(final_string_c)
+}
+
+lprintfln :: proc(fmt_s: string, args: ..any) {
+    str: strings.Builder
+	strings.builder_init(&str, context.temp_allocator)
+	final_string := fmt.sbprintf(&str, fmt_s, ..args, newline=true)
+	
+	final_string_c, err := strings.to_cstring(&str)
+	
+	if err != .None {
+	    os.exit(1)
+	}
+	
+	windows.OutputDebugStringA(final_string_c)
 }
