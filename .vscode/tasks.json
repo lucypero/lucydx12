@@ -50,7 +50,18 @@
               "kind": "build",
               "isDefault": false
           }
+        },
+        {
+          "label": "profile",
+          "type": "shell",
+          "command": "odin build . -debug -out:lucydx12.exe -linker:radlink -define:PROFILE=true",
+          "problemMatcher": "$msCompile",
+          "group": {
+              "kind": "build",
+              "isDefault": false
+          }
         }
+        
         
     ]
 }
