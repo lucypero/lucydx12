@@ -155,6 +155,7 @@ GBuffer :: struct {
 }
 
 HotSwapState :: struct {
+    // TODO: store more data here so u don't have to pass the data around in the hotswap methods
     last_write_time : os.File_Time,
     pso_swap: ^dx.IPipelineState,
 	
@@ -775,8 +776,11 @@ update :: proc() {
 		exit_app = true
 	}
 	
-	hotswap_watch(&c.lighting_hotswap, c.lighting_pass_root_signature, lighting_shader_filename, is_lighting_pass = true)
-	hotswap_watch(&c.gbuffer_hotswap, c.gbuffer_pass_root_signature, gbuffer_shader_filename, is_lighting_pass = false)
+	hotswap_watch(&c.lighting_hotswap, c.lighting_pass_root_signature, lighting_shader_filename,
+	   pso_creation_proc = create_new_lighting_pso)
+	
+	hotswap_watch(&c.gbuffer_hotswap, c.gbuffer_pass_root_signature, gbuffer_shader_filename,
+	    pso_creation_proc = create_new_gbuffer_pso)
 	
 	// im.End()
 	// 
@@ -2508,9 +2512,13 @@ spall_exit :: proc "contextless" (proc_address, call_site_return_address: rawptr
 
 }
 
+pso_creation_signature :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3dc.ID3D10Blob) -> ^dx.IPipelineState
+
 // checks if it should rebuild a shader
 // if it should then compiles the new shader and makes a new PSO with it
-hotswap_watch :: proc(hs: ^HotSwapState, root_signature: ^dx.IRootSignature, shader_name: string, is_lighting_pass: bool) {
+hotswap_watch :: proc(hs: ^HotSwapState, root_signature: ^dx.IRootSignature, shader_name: string,
+    pso_creation_proc : pso_creation_signature) {
+        
     // watch for shader change
 	game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(shader_name)
 	
@@ -2529,13 +2537,7 @@ hotswap_watch :: proc(hs: ^HotSwapState, root_signature: ^dx.IRootSignature, sha
                lprintfln("Could not compile new shader!! check logs")
 		} else {
 			// create the new PSO to be swapped later
-			if is_lighting_pass {
-    			hs.pso_swap = create_new_lighting_pso(root_signature, vs, ps)
-			}
-			else {
-    			hs.pso_swap = create_new_gbuffer_pso(root_signature, vs, ps)
-			}
-			
+    	    hs.pso_swap = pso_creation_proc(root_signature, vs, ps)
 			vs->Release()
 			ps->Release()
 		}

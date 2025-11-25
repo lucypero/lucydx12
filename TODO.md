@@ -1,5 +1,8 @@
 # current todo
 
+- HotSwapState :: struct: 
+    // TODO: store more data here so u don't have to pass the data around in the hotswap methods
+
 - start designing a scene graph. look up resources on that. maybe your books cover it.
 - do hot reloading of shaders. fun small thing to do.
   - hot reloading example: [link](https://github.com/karl-zylinski/odin-raylib-hot-reload-game-template/blob/main/source/main_hot_reload/main_hot_reload.odin#L142)

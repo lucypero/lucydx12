@@ -84,8 +84,6 @@ float4 PSMain(PSInput input) : SV_TARGET
     //result.g *= 1.3f;
     
     //hot reload;
-    
-    
 
     return float4(result, 1.0);
     // return float4(pixelColor.xyz * normalColor.xyz * positionColor.xyz, 1.0);
