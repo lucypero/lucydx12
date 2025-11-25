@@ -45,6 +45,9 @@ dxm :: matrix[4,4]f32
 
 DXResourcePool :: sa.Small_Array(100, ^dx.IUnknown)
 
+gbuffer_shader_filename :: "shader.hlsl"
+lighting_shader_filename :: "lighting.hlsl"
+
 gbuffer_count :: 3
 
 // ---- all state ----
@@ -410,7 +413,7 @@ when PROFILE {
 
 	dx_context.instance_buffer = create_instance_buffer_example()
 
-	create_gbuffer_pso()
+	create_gbuffer_pso_initial()
 	create_lighting_pso_initial()
 
 	// Create the commandlist that is reused further down.
@@ -757,33 +760,6 @@ get_view_projection :: proc(cam_pos: v3) -> (dxm, dxm) {
 	// return view * proj
 }
 
-// checks if it should rebuild a shader
-// if it should then compiles the new shader and makes a new PSO with it
-hotswap_watch :: proc(hs: ^HotSwapState, root_signature: ^dx.IRootSignature, shader_name: string) {
-    // watch for shader change
-	game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(shader_name)
-	
-	reload := false
-	
-	if game_dll_mod_err == os.ERROR_NONE && hs.last_write_time != game_dll_mod {
-	    hs.last_write_time = game_dll_mod
-		reload = true
-	}
-	
-	if reload {
-		lprintfln("Recompiling shader...")
-		// handle releasing resources
-		vs, ps, ok := compile_shader(shader_name)
-		if !ok {
-               lprintfln("Could not compile new shader!! check logs")
-		} else {
-			// create the new PSO to be swapped later
-			hs.pso_swap = create_new_lighting_pso(root_signature, vs, ps)
-			vs->Release()
-			ps->Release()
-		}
-	}
-}
 
 update :: proc() {
     
@@ -799,7 +775,8 @@ update :: proc() {
 		exit_app = true
 	}
 	
-	hotswap_watch(&c.lighting_hotswap, c.lighting_pass_root_signature, "lighting.hlsl")
+	hotswap_watch(&c.lighting_hotswap, c.lighting_pass_root_signature, lighting_shader_filename, is_lighting_pass = true)
+	hotswap_watch(&c.gbuffer_hotswap, c.gbuffer_pass_root_signature, gbuffer_shader_filename, is_lighting_pass = false)
 	
 	// im.End()
 	// 
@@ -902,15 +879,8 @@ render :: proc() {
 		// swap PSO here if needed (hot reload of shaders)
 		
 		// hot swap handling
-		
-		if c.lighting_hotswap.pso_swap != nil {
-    		c.pipeline_lighting->Release()
-    		c.pipeline_lighting = c.lighting_hotswap.pso_swap
-            // replace pointer from freeing queue
-            pso_pointer := sa.get_ptr(&resources_longterm, c.lighting_hotswap.pso_index)
-            pso_pointer^ = c.pipeline_lighting
-    		c.lighting_hotswap.pso_swap = nil
-		}
+		hotswap_swap(&c.lighting_hotswap, &c.pipeline_lighting)
+		hotswap_swap(&c.gbuffer_hotswap, &c.pipeline_gbuffer)
 	}
 }
 
@@ -1893,28 +1863,27 @@ create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3d
 	return pso
 }
 
+
 create_lighting_pso_initial :: proc() {
 	
 	c := &dx_context
 
-	vs, ps, ok := compile_shader("lighting.hlsl")
+	vs, ps, ok := compile_shader(lighting_shader_filename)
 	
 	if !ok {
         lprintfln("could not compile shader!! check logs")
         os.exit(1)
 	}
 	
-	game_dll_mod, game_dll_mod_err := os.last_write_time_by_name("lighting.hlsl")
-	if game_dll_mod_err == os.ERROR_NONE {
-        c.lighting_hotswap.last_write_time = game_dll_mod
-	}
-	
 	// create root signature
 	create_lighting_root_signature()
 	
 	c.pipeline_lighting = create_new_lighting_pso(c.lighting_pass_root_signature, vs, ps)
-	c.lighting_hotswap.pso_index = sa.len(resources_longterm)
+	
+	pso_index := sa.len(resources_longterm)
 	sa.push(&resources_longterm, c.pipeline_lighting)
+	
+	hotswap_init(&c.lighting_hotswap, lighting_shader_filename, pso_index)
 
 	vs->Release()
 	ps->Release()
@@ -2069,30 +2038,11 @@ compile_shader :: proc(shader_filename: string) -> (vs, ps: ^d3dc.ID3D10Blob, ok
 	return vs, ps, true
 }
 
-// creates PSO for the first drawing pass that populates the gbuffer
-create_gbuffer_pso :: proc() {
-
-	c := &dx_context
-
-	vs, ps, ok := compile_shader("shader.hlsl")
-	if !ok {
-        lprintfln("could not compile shader!! check logs")
-        os.exit(1)
-	}
-
-	// INPUTLAYOUT
-
-// INPUT_ELEMENT_DESC :: struct {
-// 	SemanticName:         cstring,
-// 	SemanticIndex:        u32,
-// 	Format:               dxgi.FORMAT,
-// 	InputSlot:            u32,
-// 	AlignedByteOffset:    u32,
-// 	InputSlotClass:       INPUT_CLASSIFICATION,
-// 	InstanceDataStepRate: u32,
-// }
-
-	// This layout matches the vertices data defined further down
+create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3dc.ID3D10Blob) -> ^dx.IPipelineState {
+    
+    c := &dx_context
+    
+    // This layout matches the vertices data defined further down
 	// this has to include the instance data!!
 	vertex_format :=  [?]dx.INPUT_ELEMENT_DESC {
 		{
@@ -2160,7 +2110,7 @@ create_gbuffer_pso :: proc() {
 			InstanceDataStepRate = 1
 		},
 	}
-
+   
 	default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
 		BlendEnable           = false,
 		LogicOpEnable         = false,
@@ -2173,7 +2123,7 @@ create_gbuffer_pso :: proc() {
 		LogicOp               = .NOOP,
 		RenderTargetWriteMask = u8(dx.COLOR_WRITE_ENABLE_ALL),
 	}
-
+   
 	// all formats of the g buffers
 	// HERE
 	rtv_formats := [8]dxgi.FORMAT {
@@ -2182,9 +2132,9 @@ create_gbuffer_pso :: proc() {
 		2 = dx_context.gbuffer.gb_position.format,
 		3 ..< 7 = .UNKNOWN,
 	}
-
+   
 	pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
-		pRootSignature = dx_context.gbuffer_pass_root_signature,
+		pRootSignature = root_signature,
 		VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
 		PS = {pShaderBytecode = ps->GetBufferPointer(), BytecodeLength = ps->GetBufferSize()},
 		StreamOutput = {},
@@ -2224,17 +2174,39 @@ create_gbuffer_pso :: proc() {
 		DSVFormat = .D32_FLOAT,
 		SampleDesc = {Count = 1, Quality = 0},
 	}
-
+	
+	pso : ^dx.IPipelineState
+   
 	hr :=
 	c.device->CreateGraphicsPipelineState(
 		&pipeline_state_desc,
 		dx.IPipelineState_UUID,
-		(^rawptr)(&dx_context.pipeline_gbuffer),
+		(^rawptr)(&pso),
 	)
 	check(hr, "Pipeline creation failed")
-	dx_context.pipeline_gbuffer->SetName("PSO for gbuffer pass")
-	sa.push(&resources_longterm, dx_context.pipeline_gbuffer)
+	pso->SetName("PSO for gbuffer pass")
+	
+	return pso
+}
 
+// creates PSO for the first drawing pass that populates the gbuffer
+create_gbuffer_pso_initial :: proc() {
+
+	c := &dx_context
+
+	vs, ps, ok := compile_shader(gbuffer_shader_filename)
+	if !ok {
+        lprintfln("could not compile shader!! check logs")
+        os.exit(1)
+	}
+
+    c.pipeline_gbuffer = create_new_gbuffer_pso(c.gbuffer_pass_root_signature, vs, ps)
+    
+    pso_index := sa.len(resources_longterm)
+	sa.push(&resources_longterm, c.pipeline_gbuffer)
+	
+	hotswap_init(&c.gbuffer_hotswap, gbuffer_shader_filename, pso_index)
+	
 	vs->Release()
 	ps->Release()
 }
@@ -2534,4 +2506,58 @@ spall_exit :: proc "contextless" (proc_address, call_site_return_address: rawptr
 	spall._buffer_end(&spall_ctx, &spall_buffer)
 }
 
+}
+
+// checks if it should rebuild a shader
+// if it should then compiles the new shader and makes a new PSO with it
+hotswap_watch :: proc(hs: ^HotSwapState, root_signature: ^dx.IRootSignature, shader_name: string, is_lighting_pass: bool) {
+    // watch for shader change
+	game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(shader_name)
+	
+	reload := false
+	
+	if game_dll_mod_err == os.ERROR_NONE && hs.last_write_time != game_dll_mod {
+	    hs.last_write_time = game_dll_mod
+		reload = true
+	}
+	
+	if reload {
+		lprintfln("Recompiling shader...")
+		// handle releasing resources
+		vs, ps, ok := compile_shader(shader_name)
+		if !ok {
+               lprintfln("Could not compile new shader!! check logs")
+		} else {
+			// create the new PSO to be swapped later
+			if is_lighting_pass {
+    			hs.pso_swap = create_new_lighting_pso(root_signature, vs, ps)
+			}
+			else {
+    			hs.pso_swap = create_new_gbuffer_pso(root_signature, vs, ps)
+			}
+			
+			vs->Release()
+			ps->Release()
+		}
+	}
+}
+
+hotswap_init :: proc(hs: ^HotSwapState, shader_filename: string, index_in_free_queue: int) {
+    game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(shader_filename)
+	if game_dll_mod_err == os.ERROR_NONE {
+           hs.last_write_time = game_dll_mod
+           
+	}
+	hs.pso_index = index_in_free_queue
+}
+
+hotswap_swap :: proc(hs: ^HotSwapState, pso: ^^dx.IPipelineState) {
+    if hs.pso_swap != nil {
+  		pso^->Release()
+  		pso^ = hs.pso_swap
+        // replace pointer from freeing queue
+        pso_pointer := sa.get_ptr(&resources_longterm, hs.pso_index)
+        pso_pointer^ = pso^
+  		hs.pso_swap = nil
+    }
 }
