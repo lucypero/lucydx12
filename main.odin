@@ -31,7 +31,7 @@ import "../odin-imgui/imgui_impl_dx12"
 
 // --- const definitions / aliases ---
 
-PROFILE :: #config(PROFILE, false) // defines `FOO` as a constant with the default value of false
+PROFILE :: #config(PROFILE, false)
 
 NUM_RENDERTARGETS :: 2
 
@@ -183,6 +183,12 @@ Context :: struct {
 
 	// lighting pass resources
 	pipeline_lighting:            ^dx.IPipelineState,
+	pipeline_lighting_swap: ^dx.IPipelineState,
+	
+	// index in the queue array to free the resource
+	// i use this to swap the pointer when the pso gets hot swapped
+	lighting_pso_index: int,
+	
 	lighting_pass_root_signature:      ^dx.IRootSignature,
 
 	// fence stuff (for waiting to render frame)
@@ -399,7 +405,7 @@ when PROFILE {
 	dx_context.instance_buffer = create_instance_buffer_example()
 
 	create_gbuffer_pso()
-	create_lighting_pso()
+	create_lighting_pso_initial()
 
 	// Create the commandlist that is reused further down.
 	hr =
@@ -746,6 +752,8 @@ get_view_projection :: proc(cam_pos: v3) -> (dxm, dxm) {
 }
 
 update :: proc() {
+    
+    c := &dx_context
 
 	sdl.PumpEvents()
 	keyboard := sdl.GetKeyboardStateAsSlice()
@@ -772,10 +780,10 @@ update :: proc() {
 		// handle releasing resources
 		vs, ps, ok := compile_shader("lighting.hlsl")
 		if !ok {
-            lprintfln("could not compile new shader!! check logs")
+            lprintfln("Could not compile new shader!! check logs")
 		} else {
-		    // release new shader immediately
-			lprintln("could compile new shader perfectly fine!!")
+			// create the new PSO to be swapped later
+			c.pipeline_lighting_swap = create_new_lighting_pso(c.lighting_pass_root_signature, vs, ps)
 			vs->Release()
 			ps->Release()
 		}
@@ -794,7 +802,6 @@ update :: proc() {
 	im.DragFloat3("light pos", &light_pos, 0.1, -5, 5)
 	im.DragFloat("light intensity", &light_int, 0.1, 0, 20)
 	im.DragFloat("light speed", &light_speed, 0.0001, 0, 20)
-
 
 	im.Checkbox("place texture", &place_texture)
 	if im.Button("Re-roll teapots") {
@@ -879,6 +886,17 @@ render :: proc() {
 		}
 
 		c.frame_index = c.swapchain->GetCurrentBackBufferIndex()
+		
+		// swap PSO here if needed (hot reload of shaders)
+		if c.pipeline_lighting_swap != nil {
+    		c.pipeline_lighting->Release()
+    		c.pipeline_lighting = c.pipeline_lighting_swap
+            // replace pointer from freeing queue
+            pso_pointer := sa.get_ptr(&resources_longterm, c.lighting_pso_index)
+            pso_pointer^ = c.pipeline_lighting
+            
+    		c.pipeline_lighting_swap = nil
+		}
 	}
 }
 
@@ -1780,24 +1798,12 @@ create_texture :: proc(width: u64, height: u32, format: dxgi.FORMAT, resource_fl
 	return res
 }
 
-// todo: create shader lighting_pass.hlsl
-create_lighting_pso :: proc() {
-	
-	c := &dx_context
-
-	vs, ps, ok := compile_shader("lighting.hlsl")
-	
-	if !ok {
-        lprintfln("could not compile shader!! check logs")
-        os.exit(1)
-	}
-	
-	game_dll_mod, game_dll_mod_err := os.last_write_time_by_name("lighting.hlsl")
-	if game_dll_mod_err == os.ERROR_NONE {
-        last_write_time = game_dll_mod
-	}
-
-	default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
+create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3dc.ID3D10Blob) -> ^dx.IPipelineState {
+    
+    c := &dx_context
+    
+    
+    default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
 		BlendEnable           = false,
 		LogicOpEnable         = false,
 		SrcBlend              = .ONE,
@@ -1809,18 +1815,15 @@ create_lighting_pso :: proc() {
 		LogicOp               = .NOOP,
 		RenderTargetWriteMask = u8(dx.COLOR_WRITE_ENABLE_ALL),
 	}
-
+   
 	// the swapchain rtv
 	rtv_formats := [8]dxgi.FORMAT {
 		0 =.R8G8B8A8_UNORM,
 		1..<7 = .UNKNOWN,
 	}
-
-	// create root signature
-	create_lighting_root_signature()
-
+   
 	pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
-		pRootSignature = c.lighting_pass_root_signature,
+		pRootSignature = root_signature,
 		VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
 		PS = {pShaderBytecode = ps->GetBufferPointer(), BytecodeLength = ps->GetBufferSize()},
 		StreamOutput = {},
@@ -1861,16 +1864,44 @@ create_lighting_pso :: proc() {
 		DSVFormat = .D32_FLOAT,
 		SampleDesc = {Count = 1, Quality = 0},
 	}
-
+	
+	pso : ^dx.IPipelineState
+   
 	hr :=
 	c.device->CreateGraphicsPipelineState(
 		&pipeline_state_desc,
 		dx.IPipelineState_UUID,
-		(^rawptr)(&dx_context.pipeline_lighting),
+		(^rawptr)(&pso),
 	)
 	check(hr, "Pipeline creation failed")
-	dx_context.pipeline_lighting->SetName("PSO for lighting pass")
-	sa.push(&resources_longterm, dx_context.pipeline_lighting)
+	pso->SetName("PSO for lighting pass")
+	
+	return pso
+}
+
+create_lighting_pso_initial :: proc() {
+	
+	c := &dx_context
+
+	vs, ps, ok := compile_shader("lighting.hlsl")
+	
+	if !ok {
+        lprintfln("could not compile shader!! check logs")
+        os.exit(1)
+	}
+	
+	game_dll_mod, game_dll_mod_err := os.last_write_time_by_name("lighting.hlsl")
+	if game_dll_mod_err == os.ERROR_NONE {
+        last_write_time = game_dll_mod
+	}
+	
+	// create root signature
+	create_lighting_root_signature()
+	
+	c.pipeline_lighting = create_new_lighting_pso(c.lighting_pass_root_signature, vs, ps)
+
+	c.lighting_pso_index = sa.len(resources_longterm)
+	sa.push(&resources_longterm, c.pipeline_lighting)
 
 	vs->Release()
 	ps->Release()
