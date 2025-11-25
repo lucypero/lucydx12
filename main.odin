@@ -70,7 +70,6 @@ the_time_sec: f32
 exit_app: bool
 
 // last_write time for shaders
-last_write_time : os.File_Time
 
 // dx resources to be freed at the end of the app
 resources_longterm : DXResourcePool
@@ -152,6 +151,15 @@ GBuffer :: struct {
 	srv_heap : ^dx.IDescriptorHeap,
 }
 
+HotSwapState :: struct {
+    last_write_time : os.File_Time,
+    pso_swap: ^dx.IPipelineState,
+	
+	// index in the queue array to free the resource
+	// i use this to swap the pointer when the pso gets hot swapped
+	pso_index: int,
+}
+
 Context :: struct {
 	// sdl stuff
 	window: ^sdl.Window,
@@ -183,12 +191,6 @@ Context :: struct {
 
 	// lighting pass resources
 	pipeline_lighting:            ^dx.IPipelineState,
-	pipeline_lighting_swap: ^dx.IPipelineState,
-	
-	// index in the queue array to free the resource
-	// i use this to swap the pointer when the pso gets hot swapped
-	lighting_pso_index: int,
-	
 	lighting_pass_root_signature:      ^dx.IRootSignature,
 
 	// fence stuff (for waiting to render frame)
@@ -217,6 +219,10 @@ Context :: struct {
 
 	cam_angle: f32,
 	cam_distance: f32,
+	
+	// hot swap shader state
+	lighting_hotswap : HotSwapState,
+	gbuffer_hotswap : HotSwapState, // todo this one (make helper functions for setting initial state and swapping code)
 }
 
 // initializes app data in Context struct
@@ -751,6 +757,34 @@ get_view_projection :: proc(cam_pos: v3) -> (dxm, dxm) {
 	// return view * proj
 }
 
+// checks if it should rebuild a shader
+// if it should then compiles the new shader and makes a new PSO with it
+hotswap_watch :: proc(hs: ^HotSwapState, root_signature: ^dx.IRootSignature, shader_name: string) {
+    // watch for shader change
+	game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(shader_name)
+	
+	reload := false
+	
+	if game_dll_mod_err == os.ERROR_NONE && hs.last_write_time != game_dll_mod {
+	    hs.last_write_time = game_dll_mod
+		reload = true
+	}
+	
+	if reload {
+		lprintfln("Recompiling shader...")
+		// handle releasing resources
+		vs, ps, ok := compile_shader(shader_name)
+		if !ok {
+               lprintfln("Could not compile new shader!! check logs")
+		} else {
+			// create the new PSO to be swapped later
+			hs.pso_swap = create_new_lighting_pso(root_signature, vs, ps)
+			vs->Release()
+			ps->Release()
+		}
+	}
+}
+
 update :: proc() {
     
     c := &dx_context
@@ -764,30 +798,8 @@ update :: proc() {
 	if keyboard[sdl.Scancode.ESCAPE] == 1 {
 		exit_app = true
 	}
-
-	// watch for shader change
-	game_dll_mod, game_dll_mod_err := os.last_write_time_by_name("lighting.hlsl")
 	
-	reload := false
-	
-	if game_dll_mod_err == os.ERROR_NONE && last_write_time != game_dll_mod {
-        last_write_time = game_dll_mod
-		reload = true
-	}
-	
-	if reload {
-		lprintfln("Recompiling shader...")
-		// handle releasing resources
-		vs, ps, ok := compile_shader("lighting.hlsl")
-		if !ok {
-            lprintfln("Could not compile new shader!! check logs")
-		} else {
-			// create the new PSO to be swapped later
-			c.pipeline_lighting_swap = create_new_lighting_pso(c.lighting_pass_root_signature, vs, ps)
-			vs->Release()
-			ps->Release()
-		}
-	}
+	hotswap_watch(&c.lighting_hotswap, c.lighting_pass_root_signature, "lighting.hlsl")
 	
 	// im.End()
 	// 
@@ -888,14 +900,16 @@ render :: proc() {
 		c.frame_index = c.swapchain->GetCurrentBackBufferIndex()
 		
 		// swap PSO here if needed (hot reload of shaders)
-		if c.pipeline_lighting_swap != nil {
+		
+		// hot swap handling
+		
+		if c.lighting_hotswap.pso_swap != nil {
     		c.pipeline_lighting->Release()
-    		c.pipeline_lighting = c.pipeline_lighting_swap
+    		c.pipeline_lighting = c.lighting_hotswap.pso_swap
             // replace pointer from freeing queue
-            pso_pointer := sa.get_ptr(&resources_longterm, c.lighting_pso_index)
+            pso_pointer := sa.get_ptr(&resources_longterm, c.lighting_hotswap.pso_index)
             pso_pointer^ = c.pipeline_lighting
-            
-    		c.pipeline_lighting_swap = nil
+    		c.lighting_hotswap.pso_swap = nil
 		}
 	}
 }
@@ -1892,15 +1906,14 @@ create_lighting_pso_initial :: proc() {
 	
 	game_dll_mod, game_dll_mod_err := os.last_write_time_by_name("lighting.hlsl")
 	if game_dll_mod_err == os.ERROR_NONE {
-        last_write_time = game_dll_mod
+        c.lighting_hotswap.last_write_time = game_dll_mod
 	}
 	
 	// create root signature
 	create_lighting_root_signature()
 	
 	c.pipeline_lighting = create_new_lighting_pso(c.lighting_pass_root_signature, vs, ps)
-
-	c.lighting_pso_index = sa.len(resources_longterm)
+	c.lighting_hotswap.pso_index = sa.len(resources_longterm)
 	sa.push(&resources_longterm, c.pipeline_lighting)
 
 	vs->Release()

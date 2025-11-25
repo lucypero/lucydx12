@@ -80,8 +80,8 @@ float4 PSMain(PSInput input) : SV_TARGET
     float3 specular = specularStrength * spec * spec_color;
 
     float3 result = (ambient + diffuse + specular) * pixelColor;
-    result.r *= 0.0f;
-    result.g *= 1.3f;
+    //result.r *= 0.0f;
+    //result.g *= 1.3f;
     
     //hot reload;
     
