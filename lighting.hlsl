@@ -51,40 +51,64 @@ PSInput VSMain(uint VertexID : SV_VertexID)
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-    float3 pixelColor = albedo.Sample(mySampler, input.uvs).xyz;
+    float3 albedoColor = albedo.Sample(mySampler, input.uvs).xyz;
     float3 normalColor = normal.Sample(mySampler, input.uvs).xyz;
     float3 positionColor = position.Sample(mySampler, input.uvs).xyz;
 
-    float3 norm = normalize(normalColor);
+    // calculating normal
+    
+    float3 norm = 0.0f;
+    {
+        norm = normalize(normalColor); // range: [0.0, 1.0]
+        
+        // unmap normal value back to -1 to 1 range
+        norm = (norm * 2.0f) - 1.0f;
+        
+        // normalize again to be safe
+        norm = normalize(norm);
+    }
+    
     float3 light_dir = normalize(light_pos - positionColor);
 
-    // diffuse
+    // calculating diffuse
+    float3 diffuse = 0;
+    {
+        float diff = max(dot(norm, light_dir), 0.0f);
+        diffuse = diff * light_int;
+    }
 
-    float diff = max(dot(norm, light_dir), 0.0f);
-    float3 diffuse = diff * light_int;
-
-    float amb_val = 0.05;
-
-    float3 ambient = float3(amb_val, amb_val, amb_val);
+    // calculating ambient
+    float3 ambient = 0;
+    {
+        float amb_val = 0.05;
+        ambient = float3(amb_val, amb_val, amb_val);
+    }
 
     // Specular calculation
-
-    float specularStrength = 0.5;
-
-    float3 viewDir = normalize(view_pos - positionColor);
-    float3 reflectDir = reflect(light_dir, norm);
-
-    float3 spec_color = float3(1, 1, 1);
-
-    float spec = pow(max(dot(viewDir, reflectDir), 0.0), 128);
-    float3 specular = specularStrength * spec * spec_color;
-
-    float3 result = (ambient + diffuse + specular) * pixelColor;
-    //result.r *= 0.0f;
-    //result.g *= 1.3f;
     
-    //hot reload;
+    float3 specular = 0;
+    {
+        float specularStrength = 0.5;
+    
+        float3 viewDir = normalize(view_pos - positionColor);
+        float3 reflectDir = reflect(light_dir, norm);
+    
+        float3 spec_color = float3(1, 1, 1);
+    
+        float spec = pow(max(dot(viewDir, reflectDir), 0.0), 128);
+        specular = specularStrength * spec * spec_color;
+    }
 
+    float3 result = (ambient + diffuse + specular) * albedoColor;
+    
+    // -- Display g buffer 1
+    // return float4(albedoColor, 1.0);
+    // -- Display g buffer 2
+    // return float4(normalColor, 1.0);
+    // -- Display g buffer 3
+    // return float4(positionColor, 1.0);
+    
+    // -- Display Final image
     return float4(result, 1.0);
-    // return float4(pixelColor.xyz * normalColor.xyz * positionColor.xyz, 1.0);
+    
 }

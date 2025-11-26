@@ -88,7 +88,9 @@ PSOutput PSMain(PSInput input) {
     // writing to all gbuffers
 
     output.albedoSpecRT = pixelColor;
-    output.normalRT.rgb = norm;
+    
+    // output.normalRT.rgb = norm;
+    output.normalRT.rgb = (norm * 0.5f) + 0.5f;
     output.positionRT.rgb = input.frag_pos_world;
 
     output.normalRT.a = 1.0f;

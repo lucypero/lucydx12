@@ -761,7 +761,6 @@ get_view_projection :: proc(cam_pos: v3) -> (dxm, dxm) {
 	// return view * proj
 }
 
-
 update :: proc() {
     
     c := &dx_context
