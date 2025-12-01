@@ -1061,8 +1061,25 @@ create_sample_texture :: proc() {
 
 }
 
-gen_teapot_instance_data :: proc() -> []InstanceData {
+gen_just_one_instance_data :: proc() -> []InstanceData {
+    // returning one instance with no transformations
+    // we're rendering sponza now. we only want one.
+    
+    
+    instance_data := make([]InstanceData, 1, context.temp_allocator)
+    
+    world_mat : dxm
+    world_mat = 1
+    
+	instance_data[0] = InstanceData {
+		world_mat = world_mat,
+		color = v3{1,1,1},
+	}
+    
+    return instance_data
+}
 
+gen_teapot_instance_data :: proc() -> []InstanceData {
 	teapot_count := 50
 
 	instance_data := make([]InstanceData, teapot_count, context.temp_allocator)
@@ -1102,7 +1119,8 @@ gen_teapot_instance_data :: proc() -> []InstanceData {
 create_instance_buffer_example :: proc() -> VertexBuffer {
 
 	// first: we create the data
-	instance_data := gen_teapot_instance_data()
+	instance_data := gen_just_one_instance_data()
+	// instance_data := gen_teapot_instance_data()
 
 	// second: we create the DX buffer, passing the size we want. and stride
 	//   it needs to return the vertex buffer view
@@ -1237,9 +1255,132 @@ create_gbuffer_pass_root_signature :: proc() {
 	serialized_desc->Release()
 }
 
+
+
+gltf_print_nodes_recurse :: proc(node: ^cgltf.node, vertices: ^[dynamic]VertexData, indices: ^[dynamic]u16) {
+    // algorithm state
+    node_i := node
+    cur_child_i : uint = 0
+    depth := 0
+    child_i_levels : [10]uint
+    children_are_explored : bool
+    
+    // for printing stuff
+    builder : strings.Builder
+    strings.builder_init_len_cap(&builder, 0, 30)
+    defer strings.builder_destroy(&builder)
+    
+    for {
+        
+        if !children_are_explored {
+            // do the thing here
+            for i in 0..<depth {
+                fmt.sbprintf(&builder,"-")
+            }
+            fmt.sbprintf(&builder, "Node name: %v", node_i.name)
+            
+            
+            if node_i.mesh != nil {
+                fmt.sbprintf(&builder, " - IS MESH! with %v primitives", len(node_i.mesh.primitives))
+                
+                // add everything from primitives to our buffers
+                for prim in node_i.mesh.primitives {
+                    
+                    attr_position: cgltf.attribute
+                   	attr_normal: cgltf.attribute
+                   	attr_texcoord: cgltf.attribute
+                   	
+                   	for attribute in prim.attributes {
+                  		#partial switch attribute.type {
+                  		case .position:
+                 			attr_position = attribute
+                  		case .normal:
+                 			attr_normal = attribute
+                  		case .texcoord:
+                 			attr_texcoord = attribute
+                  		case:
+                 			// it's outputting "unknown attribute COLOR_0" and it's annoying. 
+                 			//  so, i am commenting this error log.
+                 			// fmt.eprintfln("Unkown gltf attribute: {}", attribute)
+                  		}
+                   	}
+                    
+                    for i in 0 ..< attr_position.data.count {
+                  		vertex: VertexData
+                  		ok: b32
+                  		ok = cgltf.accessor_read_float(attr_position.data, i, &vertex.pos[0], 3)
+                  		if !ok do fmt.eprintln("Error reading gltf position")
+                  		ok = cgltf.accessor_read_float(attr_normal.data, i, &vertex.normal[0], 3)
+                  		if !ok do fmt.eprintln("Error reading gltf normal")
+                  		ok = cgltf.accessor_read_float(attr_texcoord.data, i, &vertex.uv[0], 2)
+                  		if !ok do fmt.eprintln("Error reading gltf texcoord")
+                                    
+                  		position := v4{vertex.pos.x, vertex.pos.y, vertex.pos.z, 1}
+                  		// vertex.pos = (mesh_mat * position).xyz
+                  		vertex.pos = (position).xyz
+                        append(vertices, vertex)
+                  		// vertices[i] = vertex
+                   	}
+                                    
+                   	for i in 0 ..< prim.indices.count {
+                  		append(indices, u16(cgltf.accessor_read_index(prim.indices, i)))
+                   	}
+                    
+                }
+            }
+            
+            
+            
+            
+            lprintfln(strings.to_string(builder))
+            strings.builder_reset(&builder)
+            
+            // store vertices n stuff somewhere
+            
+        }
+        
+        if node_i.children == nil || children_are_explored {
+            children_are_explored = false
+            
+            // go to next sibling
+            cur_child_i += 1
+            
+            if node_i.parent == nil {
+                break
+            }
+            
+            // if there is no next sibling, go up 
+            if cur_child_i >= len(node_i.parent.children) {
+                
+                depth -= 1
+                
+                // if the current's node's parent doesn't have a parent, we're done!
+                if node_i.parent.parent == nil {
+                    break
+                }
+                
+                // check if this one has a sibling
+                node_i = node_i.parent.parent.children[child_i_levels[depth]]
+                cur_child_i = child_i_levels[depth]
+                children_are_explored = true
+                continue
+            }
+            
+            node_i = node_i.parent.children[cur_child_i]
+        } else {
+            // go to first child
+            child_i_levels[depth] = cur_child_i
+            cur_child_i = 0
+            node_i = node_i.children[cur_child_i]
+            depth += 1
+        }
+    }
+}
+
 do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u16) {
 
-	model_filepath :: "models/teapot.glb"
+	// model_filepath :: "models/teapot.glb"
+	model_filepath :: "models/main_sponza/NewSponza_Main_glTF_003.gltf"
 	model_filepath_c := strings.clone_to_cstring(model_filepath, context.temp_allocator)
 
 	cgltf_options : cgltf.options
@@ -1256,65 +1397,23 @@ do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u16) {
 	if load_buffers_result != .success {
 		fmt.eprintln("Error loading buffers from gltf: {} - {}", model_filepath, load_buffers_result)
 	}
-
-	// extracting mesh
-
-	mesh := data.nodes[0].mesh
-	assert(len(mesh.primitives) == 1)
-	primitive := mesh.primitives[0]
-
-	attr_position: cgltf.attribute
-	attr_normal: cgltf.attribute
-	attr_texcoord: cgltf.attribute
 	
-	for attribute in primitive.attributes {
-		#partial switch attribute.type {
-		case .position:
-			attr_position = attribute
-		case .normal:
-			attr_normal = attribute
-		case .texcoord:
-			attr_texcoord = attribute
-		case:
-			// it's outputting "unknown attribute COLOR_0" and it's annoying. 
-			//  so, i am commenting this error log.
-			// fmt.eprintfln("Unkown gltf attribute: {}", attribute)
-		}
+	// new stuff start
+	
+	// just taking the first scene
+	
+	assert(len(data.scenes) == 1)
+	
+	scene := data.scenes[0]
+	
+	vertices_dyn := make([dynamic]VertexData)
+	indices_dyn := make([dynamic]u16)
+	
+	for root_node in scene.nodes {
+	    gltf_print_nodes_recurse(root_node, &vertices_dyn, &indices_dyn)
 	}
-
-	assert(attr_position.data.count == attr_normal.data.count)
-	assert(attr_position.data.count == attr_texcoord.data.count)
-
-	// if attr_position.data == nil || primitive.indices == nil do return {}, {}
-
-	vertices = make([]VertexData, attr_position.data.count)
-	indices = make([]u16, primitive.indices.count)
-
-	// mesh_mat := linalg.matrix4_from_quaternion_f32(rotation)
-	// mesh_mat *= linalg.matrix4_rotate_f32(math.to_radians_f32(180), {0, 1, 0})
-	// mesh_mat *= linalg.matrix4_translate_f32(translation)
-
-	for i in 0 ..< attr_position.data.count {
-		vertex: VertexData
-		ok: b32
-		ok = cgltf.accessor_read_float(attr_position.data, i, &vertex.pos[0], 3)
-		if !ok do fmt.eprintln("Error reading gltf position")
-		ok = cgltf.accessor_read_float(attr_normal.data, i, &vertex.normal[0], 3)
-		if !ok do fmt.eprintln("Error reading gltf normal")
-		ok = cgltf.accessor_read_float(attr_texcoord.data, i, &vertex.uv[0], 2)
-		if !ok do fmt.eprintln("Error reading gltf texcoord")
-
-		position := v4{vertex.pos.x, vertex.pos.y, vertex.pos.z, 1}
-		// vertex.pos = (mesh_mat * position).xyz
-		vertex.pos = (position).xyz
-		vertices[i] = vertex
-	}
-
-	for i in 0 ..< primitive.indices.count {
-		indices[i] = u16(cgltf.accessor_read_index(primitive.indices, i))
-	}
-
-	return
+	
+	return vertices_dyn[:], indices_dyn[:]
 }
 
 create_depth_buffer :: proc() {
