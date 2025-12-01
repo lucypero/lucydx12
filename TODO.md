@@ -19,10 +19,28 @@
 https://github.com/microsoft/DirectX-Graphics-Samples/tree/master/TechniqueDemos/D3D12MemoryManagement
 
 
+# parsing gltf, for real
+
+## basic idea:
+
+go through every root node hierarchically. 
+  - filter out non meshes.
+  - apply transforms to the vertices (this part will be the hard one)
+  - add all vertices to one huge buffer
+  
+## where are we rn?
+
+- store mesh data properly. go to the buffers directly in the gltf file.
+
 # possible cool goals:
 
-- blinn phong lighting (just need to add some stuff to the shader to accomplish this)
-- deferred rendering (read it in book) (page 883)
+- [ ] render sponza
+- [ ] blinn phong lighting (just need to add some stuff to the shader to accomplish this)
+- [x] deferred rendering (read it in book) (page 883)
+
+
+- some sort of scene structure so you can render multiple things
+
 
 
 # references
@@ -32,6 +50,8 @@ https://github.com/microsoft/DirectX-Graphics-Samples/tree/master/TechniqueDemos
 
 https://www.youtube.com/watch?v=foG5_BegCzU&list=PLD3tf_aBsga1A9B7UoDkM-yObxlLh9pku&index=27
 
+
+- [Scene Samples](https://www.intel.com/content/www/us/en/developer/topic-technology/graphics-research/samples.html)
 
 # code by kamwithk for deleting stuff
 
