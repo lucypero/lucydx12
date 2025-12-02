@@ -519,7 +519,7 @@ when PROFILE {
 		dx_context.index_buffer_view = dx.INDEX_BUFFER_VIEW {
 			BufferLocation = index_buffer->GetGPUVirtualAddress(),
 			SizeInBytes = u32(index_buffer_size),
-			Format = .R16_UINT
+			Format = .R32_UINT
 		}
 
 		hr = index_buffer->Map(0, &dx.RANGE{}, &gpu_data)
@@ -1257,7 +1257,7 @@ create_gbuffer_pass_root_signature :: proc() {
 
 
 
-gltf_print_nodes_recurse :: proc(node: ^cgltf.node, vertices: ^[dynamic]VertexData, indices: ^[dynamic]u16) {
+gltf_print_nodes_recurse :: proc(node: ^cgltf.node, vertices: ^[dynamic]VertexData, indices: ^[dynamic]u32) -> (u32, u32){
     // algorithm state
     node_i := node
     cur_child_i : uint = 0
@@ -1267,6 +1267,9 @@ gltf_print_nodes_recurse :: proc(node: ^cgltf.node, vertices: ^[dynamic]VertexDa
     
     // for printing stuff
     builder : strings.Builder
+    // TODO: RENDERING JUST ONE MESH. DELETE THIS LATER AFTER DEBUGGING
+    @static index_count: u32
+    mesh_count, primitive_count: u32
     strings.builder_init_len_cap(&builder, 0, 30)
     defer strings.builder_destroy(&builder)
     
@@ -1277,14 +1280,16 @@ gltf_print_nodes_recurse :: proc(node: ^cgltf.node, vertices: ^[dynamic]VertexDa
             for i in 0..<depth {
                 fmt.sbprintf(&builder,"-")
             }
-            fmt.sbprintf(&builder, "Node name: %v", node_i.name)
+            // fmt.sbprintf(&builder, "Node name: %v", node_i.name)
             
             
             if node_i.mesh != nil {
-                fmt.sbprintf(&builder, " - IS MESH! with %v primitives", len(node_i.mesh.primitives))
+                // fmt.sbprintf(&builder, " - IS MESH! with %v primitives", len(node_i.mesh.primitives))
+                mesh_count += 1
                 
                 // add everything from primitives to our buffers
                 for prim in node_i.mesh.primitives {
+                    primitive_count += 1
                     
                     attr_position: cgltf.attribute
                    	attr_normal: cgltf.attribute
@@ -1323,17 +1328,16 @@ gltf_print_nodes_recurse :: proc(node: ^cgltf.node, vertices: ^[dynamic]VertexDa
                    	}
                                     
                    	for i in 0 ..< prim.indices.count {
-                  		append(indices, u16(cgltf.accessor_read_index(prim.indices, i)))
+                  		append(indices, u32(cgltf.accessor_read_index(prim.indices, i)) + u32(index_count))
                    	}
                     
+                    index_count += u32(attr_position.data.count)
                 }
             }
             
             
-            
-            
-            lprintfln(strings.to_string(builder))
-            strings.builder_reset(&builder)
+            // lprintfln(strings.to_string(builder))
+            // strings.builder_reset(&builder)
             
             // store vertices n stuff somewhere
             
@@ -1375,9 +1379,11 @@ gltf_print_nodes_recurse :: proc(node: ^cgltf.node, vertices: ^[dynamic]VertexDa
             depth += 1
         }
     }
+    
+    return mesh_count, primitive_count
 }
 
-do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u16) {
+do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
 
 	// model_filepath :: "models/teapot.glb"
 	model_filepath :: "models/main_sponza/NewSponza_Main_glTF_003.gltf"
@@ -1407,11 +1413,17 @@ do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u16) {
 	scene := data.scenes[0]
 	
 	vertices_dyn := make([dynamic]VertexData)
-	indices_dyn := make([dynamic]u16)
+	indices_dyn := make([dynamic]u32)
+	
+	mesh_count, primitive_count: u32
 	
 	for root_node in scene.nodes {
-	    gltf_print_nodes_recurse(root_node, &vertices_dyn, &indices_dyn)
+	    mc, pc := gltf_print_nodes_recurse(root_node, &vertices_dyn, &indices_dyn)
+    	mesh_count += mc
+    	primitive_count += pc
 	}
+	
+	lprintfln("Mesh count: %v. Primitive count: %v", mesh_count, primitive_count)
 	
 	return vertices_dyn[:], indices_dyn[:]
 }
