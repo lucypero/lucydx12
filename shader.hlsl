@@ -24,6 +24,7 @@ struct PSInput {
 };
 
 cbuffer ConstantBuffer : register(b0) {
+    float4x4 world;
     float4x4 view;
     float4x4 projection;
     float3 light_pos;
@@ -36,8 +37,11 @@ cbuffer ConstantBuffer : register(b0) {
 PSInput VSMain(VSInput the_input) {
     PSInput result;
 
-    float4x4 world_matrix = float4x4(the_input.worldM0, the_input.worldM1, the_input.worldM2, the_input.worldM3);
-    world_matrix = transpose(world_matrix);
+    // use this for instanced drawing
+    // float4x4 world_matrix = float4x4(the_input.worldM0, the_input.worldM1, the_input.worldM2, the_input.worldM3);
+    // world_matrix = transpose(world_matrix);
+    
+    float4x4 world_matrix = world;
 
     float4 pos = float4(the_input.position, 1.0f);
 
