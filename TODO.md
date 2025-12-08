@@ -3,8 +3,14 @@
 - you need a model matrix for each mesh so you can position them in the scene.
   - read gemini's response. it was great.
 
+- to improve mesh rendering:
+  - use a Structured Buffer that contains all the world matrices. write that once per frame, or less
 
 
+sponza, before deleting duplicates: 
+  mesh count: 115
+sponza, after deleting duplicates: 
+(i haven't done this yet.)
 
 
 - HotSwapState :: struct: 

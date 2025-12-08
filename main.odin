@@ -79,6 +79,7 @@ resources_longterm : DXResourcePool
 
 // constant buffer data
 ConstantBufferData :: struct #align (256) {
+    world: dxm,
 	view: dxm,
 	projection: dxm,
 	light_pos: v3,
@@ -99,18 +100,25 @@ Mesh :: struct {
 // testing
 meshes : []Mesh
 
+Scene :: struct {
+    nodes: []Node,
+    root_nodes: []int,
+}
+
 Node :: struct {
+    name : string,
     
     transform_t: v3,
     transform_r: v4,
     transform_s: v3,
     
-    children: []Node,
+    children: []int,
+    parent: int, // -1 for no parent (root node)
     
     mesh: int,  // mesh index to render. -1 for no mesh
 }
 
-nodes : []Node
+scene : Scene
 
 // struct that holds instance data, for an instance rendering example
 InstanceData :: struct #align (256) {
@@ -118,20 +126,20 @@ InstanceData :: struct #align (256) {
 	color: v3,
 }
 
-cb_update :: proc () {
-
-	// ticking cbv time value
+get_most_of_cbv :: proc() -> ConstantBufferData {
+    
+    // ticking cbv time value
 	thetime := time.diff(start_time, time.now())
 	the_time_sec = f32(thetime) / f32(time.Second)
 	// if the_time_sec > 1 {
 	// 	start_time = time.now()
 	// }
-
+   
 	// sending constant buffer data
 	cam_pos := get_cam_pos()
 	view, projection := get_view_projection(cam_pos)
-
-	cbv_data := ConstantBufferData{
+   
+	return ConstantBufferData{
 		view = view,
 		projection = projection,
 		light_pos = light_pos,
@@ -140,7 +148,12 @@ cb_update :: proc () {
 		time = the_time_sec,
 		place_texture = b32(place_texture)
 	}
+}
 
+cb_update :: proc () {
+    
+    cbv_data := get_most_of_cbv()
+    
 	// sending data to the cpu mapped memory that the gpu can read
 	mem.copy(dx_context.constant_buffer_map, (rawptr)(&cbv_data), size_of(cbv_data))
 }
@@ -812,7 +825,7 @@ update :: proc() {
 	im.Begin("lucydx12")
 
 	im.SliderFloat("camera angle", &dx_context.cam_angle, 0, 1)
-	im.SliderFloat("camera distance", &dx_context.cam_distance, 0.5, 20)
+	im.SliderFloat("camera distance", &dx_context.cam_distance, -200, 200)
 
 	im.DragFloat3("light pos", &light_pos, 0.1, -5, 5)
 	im.DragFloat("light intensity", &light_int, 0.1, 0, 20)
@@ -1348,80 +1361,172 @@ load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indices: 
     return meshes
 }
 
-gltf_print_nodes_recurse :: proc(data:^cgltf.data, node: ^cgltf.node, vertices: ^[dynamic]VertexData, indices: ^[dynamic]u32) {
-    // algorithm state
-    node_i := node
-    cur_child_i : uint = 0
-    depth := 0
-    child_i_levels : [10]uint
-    children_are_explored : bool
+get_node_world_matrix :: proc(node:Node, scene:Scene) -> dxm {
     
-    // for printing stuff
-    builder : strings.Builder
-    // TODO: RENDERING JUST ONE MESH. DELETE THIS LATER AFTER DEBUGGING
-    strings.builder_init_len_cap(&builder, 0, 30)
-    defer strings.builder_destroy(&builder)
+    res : dxm = 1
+    
+    node_i := node
     
     for {
         
-        if !children_are_explored {
-            // do the thing here
-            for i in 0..<depth {
-                fmt.sbprintf(&builder,"-")
-            }
-            // fmt.sbprintf(&builder, "Node name: %v", node_i.name)
-            
-            if node_i.mesh != nil {
-                // it's a mesh. u already loaded meshes before. just store a reference here
-                // mesh_index := cgltf.mesh_index(data, node_i.mesh)
-                // store index
-            } else {
-                // store -1 in node.mesh
-            }
-            
-            
-            // lprintfln(strings.to_string(builder))
-            // strings.builder_reset(&builder)
-            
-            // store vertices n stuff somewhere
-            
-        }
+        boosted_t := node_i.transform_t * 1
+        translation_mat := linalg.matrix4_translate_f32(boosted_t)
         
-        if node_i.children == nil || children_are_explored {
-            children_are_explored = false
+        boosted_s := node_i.transform_s * 1
+        scale_mat := linalg.matrix4_scale_f32(boosted_s)
+        
+        rot_quat : quaternion128 = quaternion(w=node_i.transform_r[0], x=node_i.transform_r[1], y=node_i.transform_r[2], z=node_i.transform_r[3])
+	    rot_mat := linalg.matrix4_from_quaternion_f32(rot_quat)
+        
+        mesh_world : dxm = translation_mat * rot_mat * scale_mat
+        // mesh_world : dxm = scale_mat * rot_mat * translation_mat
+        
+        res = res * mesh_world
+        // res = mesh_world * res
+        
+        if node_i.parent == -1 do break
+        node_i = scene.nodes[node_i.parent]
+    }
+    
+    return res
+}
+
+do_thing_on_node :: proc(node: Node, scene: Scene) {
+    
+    c := &dx_context
+    
+    if node.mesh == -1 {
+        return
+    } 
+    
+    mesh_to_render := meshes[node.mesh]
+    
+    // updating constant buffer (this is awful, change this asap)
+    // TODO improve this. this is super slow
+    {
+        cbv_data := get_most_of_cbv()
+        
+        // calculate mesh world
+        cbv_data.world = get_node_world_matrix(node, scene)
+        
+        // sending data to the cpu mapped memory that the gpu can read
+        mem.copy(dx_context.constant_buffer_map, (rawptr)(&cbv_data), size_of(cbv_data))
+        
+        // do i have to rebind the constant buffer and stuff?
+    }
+    
+    c.cmdlist->DrawIndexedInstanced(mesh_to_render.index_count, 
+        1, mesh_to_render.index_offset, 0, 0)
+}
+
+draw_scene :: proc(scene: Scene) {
+    
+    nodes := scene.nodes
+    
+    for root_node in scene.root_nodes {
+        node_i := scene.nodes[root_node]
+        
+        // algorithm state
+        cur_child_i : uint = 0
+        depth := 0
+        child_i_levels : [10]uint
+        children_are_explored : bool
+        
+        for {
             
-            // go to next sibling
-            cur_child_i += 1
-            
-            if node_i.parent == nil {
-                break
+            if !children_are_explored {
+                
+                // do the stuff here
+                do_thing_on_node(node_i, scene)
+                
             }
             
-            // if there is no next sibling, go up 
-            if cur_child_i >= len(node_i.parent.children) {
+            if node_i.children == nil || children_are_explored {
+                children_are_explored = false
                 
-                depth -= 1
+                // go to next sibling
+                cur_child_i += 1
                 
-                // if the current's node's parent doesn't have a parent, we're done!
-                if node_i.parent.parent == nil {
+                if node_i.parent == -1 {
                     break
                 }
                 
-                // check if this one has a sibling
-                node_i = node_i.parent.parent.children[child_i_levels[depth]]
-                cur_child_i = child_i_levels[depth]
-                children_are_explored = true
-                continue
+                // if there is no next sibling, go up 
+                
+                node_parent := nodes[node_i.parent]
+                
+                if cur_child_i >= len(node_parent.children) {
+                    
+                    depth -= 1
+                    
+                    // if the current's node's parent doesn't have a parent, we're done!
+                    if node_parent.parent == -1 {
+                        break
+                    }
+                    
+                    // check if this one has a sibling
+                    
+                    node_grandparent := nodes[node_parent.parent]
+                    
+                    node_i = nodes[node_grandparent.children[child_i_levels[depth]]]
+                    cur_child_i = child_i_levels[depth]
+                    children_are_explored = true
+                    continue
+                }
+                
+                node_i = nodes[node_parent.children[cur_child_i]]
+            } else {
+                // go to first child
+                child_i_levels[depth] = cur_child_i
+                cur_child_i = 0
+                node_i = nodes[node_i.children[cur_child_i]]
+                depth += 1
             }
-            
-            node_i = node_i.parent.children[cur_child_i]
-        } else {
-            // go to first child
-            child_i_levels[depth] = cur_child_i
-            cur_child_i = 0
-            node_i = node_i.children[cur_child_i]
-            depth += 1
         }
+    }
+}
+
+gltf_load_nodes :: proc(data:^cgltf.data) -> Scene {
+    
+    nodes := make([]Node, len(data.nodes))
+    root_node_count :int = 0
+    
+    for node, i in data.nodes {
+        if node.parent == nil {
+            root_node_count += 1
+        }
+    }
+    
+    root_nodes := make([]int, root_node_count)
+    root_node_i := 0
+    
+    for node, i in data.nodes {
+        
+        node_children := make([]int, len(node.children))
+        
+        for n_child, i in node.children {
+            node_children[i] = int(cgltf.node_index(data, n_child))
+        }
+        
+        nodes[i] = Node {
+            name = string(node.name),
+            transform_t = node.translation,
+            transform_r = node.rotation,
+            transform_s = node.scale,
+            children = node_children,
+            parent = node.parent == nil ? -1 : int(cgltf.node_index(data, node.parent)),
+            mesh = node.mesh == nil ? -1 : int(cgltf.mesh_index(data, node.mesh))
+        }
+        
+        if node.parent == nil {
+            root_nodes[root_node_i] = i
+            root_node_i += 1
+        }
+    }
+    
+    return Scene {
+        nodes = nodes,
+        root_nodes = root_nodes
     }
 }
 
@@ -1429,6 +1534,7 @@ do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
 
 	// model_filepath :: "models/teapot.glb"
 	model_filepath :: "models/main_sponza/NewSponza_Main_glTF_003.gltf"
+	// model_filepath :: "models/main_sponza/sponza_blender.glb"
 	model_filepath_c := strings.clone_to_cstring(model_filepath, context.temp_allocator)
 
 	cgltf_options : cgltf.options
@@ -1452,16 +1558,20 @@ do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
 	
 	assert(len(data.scenes) == 1)
 	
-	scene := data.scenes[0]
+	gltf_scene := data.scenes[0]
 	
 	vertices_dyn := make([dynamic]VertexData)
 	indices_dyn := make([dynamic]u32)
 	
 	meshes = load_meshes(data, &vertices_dyn, &indices_dyn)
 	
-	for root_node in scene.nodes {
-	    gltf_print_nodes_recurse(data, root_node, &vertices_dyn, &indices_dyn)
-	}
+	lprintfln("mesh count: %v", len(meshes))
+	
+	scene = gltf_load_nodes(data)
+	
+	// for root_node in gltf_scene.nodes {
+	//     gltf_load_nodes(data, root_node, &vertices_dyn, &indices_dyn)
+	// }
 	
 	return vertices_dyn[:], indices_dyn[:]
 }
@@ -1689,12 +1799,18 @@ get_world_mat :: proc(pos, scale: v3, rot_rads : f32, rot_vec: v3) -> dxm {
 	scale_mat := linalg.matrix4_scale_f32(scale)
 
 	rot_mat := linalg.matrix4_rotate_f32(rot_rads, rot_vec)
-
-	// TODO: rotation mat.
-
-
+	
 	return translation_mat * scale_mat * rot_mat
-	// return scale_mat * translation_mat
+}
+
+get_world_mat_quat :: proc(pos, scale: v3, rot_quat: quaternion128) -> dxm {
+
+	translation_mat := linalg.matrix4_translate_f32(pos)
+	scale_mat := linalg.matrix4_scale_f32(scale)
+
+	rot_mat := linalg.matrix4_from_quaternion_f32(rot_quat)
+	
+	return translation_mat * scale_mat * rot_mat
 }
 
 // returns a vertex buffer view
@@ -2409,8 +2525,6 @@ render_gbuffer_pass :: proc() {
 		c.cmdlist->RSSetScissorRects(1, &scissor_rect)
 	}
 
-	// TODO: transition the g buffers here instead of the swapchain buffers!!!
-
 	// Transitioning gbuffers from SRVs to render target
 	{
 		res_barriers : [3]dx.RESOURCE_BARRIER
@@ -2478,10 +2592,13 @@ render_gbuffer_pass :: proc() {
 	c.cmdlist->IASetIndexBuffer(&c.index_buffer_view)
 	
 	// rendering each mesh individually
-	for mesh in meshes {
-    	c.cmdlist->DrawIndexedInstanced(mesh.index_count, 
-        	1, mesh.index_offset, 0, 0)
-	}
+	// going through scene tree
+	draw_scene(scene)
+	
+	// for mesh in meshes {
+ //    	c.cmdlist->DrawIndexedInstanced(mesh.index_count, 
+ //        	1, mesh.index_offset, 0, 0)
+	// }
 
 }
 

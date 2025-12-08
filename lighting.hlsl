@@ -11,6 +11,7 @@ SamplerState mySampler : register(s0);
 
 cbuffer ConstantBuffer : register(b0)
 {
+    float4x4 world;
     float4x4 view;
     float4x4 projection;
     float3 light_pos;
