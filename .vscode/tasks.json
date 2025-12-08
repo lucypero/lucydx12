@@ -24,7 +24,7 @@
         {
             "label": "run debug",
             "type": "shell",
-            "command": "odin run . -debug -out:lucydx12.exe",
+            "command": "odin run . -debug -out:lucydx12.exe -keep-executable",
             "problemMatcher": "$msCompile",
             "group": {
                 "kind": "build",
@@ -34,7 +34,7 @@
         {
             "label": "run opt",
             "type": "shell",
-            "command": "odin run . -o:speed -out:lucydx12.exe",
+            "command": "odin run . -o:speed -out:lucydx12.exe -keep-executable",
             "problemMatcher": "$msCompile",
             "group": {
                 "kind": "build",
