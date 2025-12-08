@@ -259,6 +259,7 @@ Context :: struct {
 
 	cam_angle: f32,
 	cam_distance: f32,
+	meshes_to_render: int,
 	
 	// hot swap shader state
 	lighting_hotswap : HotSwapState,
@@ -272,6 +273,7 @@ context_init :: proc(con: ^Context) {
 	light_pos = v3{4.1,3.5,4.5}
 	light_int = 1
 	light_speed = 0.002
+	con.meshes_to_render = len(meshes)
 }
 
 check :: proc(res: dx.HRESULT, message: string) {
@@ -323,7 +325,6 @@ when PROFILE {
 	defer sdl.DestroyWindow(dx_context.window)
 
 	init_dx()
-	context_init(&dx_context)
 
 	device := dx_context.device
 	
@@ -588,6 +589,7 @@ when PROFILE {
 
 	start_time = time.now()
 	
+	context_init(&dx_context)
 	do_main_loop()
 	// cleaning up
     
@@ -821,6 +823,7 @@ update :: proc() {
 	// 
 	
 	// imgui stuff
+	// im.ShowDemoWindow()
 
 	im.Begin("lucydx12")
 
@@ -830,13 +833,17 @@ update :: proc() {
 	im.DragFloat3("light pos", &light_pos, 0.1, -5, 5)
 	im.DragFloat("light intensity", &light_int, 0.1, 0, 20)
 	im.DragFloat("light speed", &light_speed, 0.0001, 0, 20)
+	
+	im.InputInt("mesh count to draw", (^i32)(&c.meshes_to_render))
 
-	im.Checkbox("place texture", &place_texture)
-	if im.Button("Re-roll teapots") {
-		reroll_teapots()
-	}
+	// im.Checkbox("place texture", &place_texture)
+	
+	// if im.Button("Re-roll teapots") {
+	// 	reroll_teapots()
+	// }
 }
 
+mesh_drawn_count : int = 0
 render :: proc() {
 
 	c := &dx_context
@@ -844,6 +851,8 @@ render :: proc() {
 	hr: dx.HRESULT
 
 	cb_update()
+	
+	mesh_drawn_count = 0
 
 	// case .WINDOWEVENT:
 	// This is equivalent to WM_PAINT in win32 API
@@ -1408,15 +1417,20 @@ do_thing_on_node :: proc(node: Node, scene: Scene) {
         
         // calculate mesh world
         cbv_data.world = get_node_world_matrix(node, scene)
+        // cbv_data.world = 1
         
         // sending data to the cpu mapped memory that the gpu can read
         mem.copy(dx_context.constant_buffer_map, (rawptr)(&cbv_data), size_of(cbv_data))
-        
-        // do i have to rebind the constant buffer and stuff?
     }
     
-    c.cmdlist->DrawIndexedInstanced(mesh_to_render.index_count, 
-        1, mesh_to_render.index_offset, 0, 0)
+    if mesh_drawn_count >= c.meshes_to_render {
+        
+    } else {
+        c.cmdlist->DrawIndexedInstanced(mesh_to_render.index_count, 
+            1, mesh_to_render.index_offset, 0, 0)
+    }
+    
+    mesh_drawn_count += 1
 }
 
 draw_scene :: proc(scene: Scene) {
@@ -1509,7 +1523,7 @@ gltf_load_nodes :: proc(data:^cgltf.data) -> Scene {
         }
         
         nodes[i] = Node {
-            name = string(node.name),
+            name = strings.clone_from_cstring(node.name),
             transform_t = node.translation,
             transform_r = node.rotation,
             transform_s = node.scale,
