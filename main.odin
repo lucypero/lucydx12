@@ -77,7 +77,6 @@ exit_app: bool
 // dx resources to be freed at the end of the app
 resources_longterm : DXResourcePool
 
-
 // constant buffer data
 ConstantBufferData :: struct #align (256) {
 	view: dxm,
@@ -88,6 +87,30 @@ ConstantBufferData :: struct #align (256) {
 	time: f32,
 	place_texture: b32
 }
+
+// all meshes use the same index/vertex buffer.
+// so we just have to store the offset and index count to render a specific mesh
+Mesh :: struct {
+    
+    index_offset: u32, 
+    index_count: u32, 
+}
+
+// testing
+meshes : []Mesh
+
+Node :: struct {
+    
+    transform_t: v3,
+    transform_r: v4,
+    transform_s: v3,
+    
+    children: []Node,
+    
+    mesh: int,  // mesh index to render. -1 for no mesh
+}
+
+nodes : []Node
 
 // struct that holds instance data, for an instance rendering example
 InstanceData :: struct #align (256) {
@@ -1256,8 +1279,76 @@ create_gbuffer_pass_root_signature :: proc() {
 }
 
 
+load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indices: ^[dynamic]u32) -> []Mesh {
+    
+    meshes := make_slice([]Mesh, len(data.meshes))
+    index_count: u32
+    index_count_total : u32 = 0
+    
+    for mesh, i in data.meshes {
+        
+        mesh_index_offset := index_count_total
+        
+        mesh_index_count : u32
+        
+        for prim in mesh.primitives {
+            
+            attr_position: cgltf.attribute
+           	attr_normal: cgltf.attribute
+           	attr_texcoord: cgltf.attribute
+           	
+           	for attribute in prim.attributes {
+              		#partial switch attribute.type {
+              		case .position:
+                 			attr_position = attribute
+              		case .normal:
+                 			attr_normal = attribute
+              		case .texcoord:
+                 			attr_texcoord = attribute
+              		case:
+             			// it's outputting "unknown attribute COLOR_0" and it's annoying. 
+             			//  so, i am commenting this error log.
+             			// fmt.eprintfln("Unkown gltf attribute: {}", attribute)
+              		}
+           	}
+            
+            for i in 0 ..< attr_position.data.count {
+          		vertex: VertexData
+          		ok: b32
+          		ok = cgltf.accessor_read_float(attr_position.data, i, &vertex.pos[0], 3)
+          		if !ok do fmt.eprintln("Error reading gltf position")
+          		ok = cgltf.accessor_read_float(attr_normal.data, i, &vertex.normal[0], 3)
+          		if !ok do fmt.eprintln("Error reading gltf normal")
+          		ok = cgltf.accessor_read_float(attr_texcoord.data, i, &vertex.uv[0], 2)
+          		if !ok do fmt.eprintln("Error reading gltf texcoord")
+            
+          		position := v4{vertex.pos.x, vertex.pos.y, vertex.pos.z, 1}
+          		// vertex.pos = (mesh_mat * position).xyz
+          		vertex.pos = (position).xyz
+                append(vertices, vertex)
+          		// vertices[i] = vertex
+           	}
+            
+           	for i in 0 ..< prim.indices.count {
+              		append(indices, u32(cgltf.accessor_read_index(prim.indices, i)) + u32(index_count))
+           	}
+            
+            index_count += u32(attr_position.data.count)
+            
+            index_count_total += u32(prim.indices.count)
+            mesh_index_count += u32(prim.indices.count)
+        }
+        
+        meshes[i] = Mesh {
+            index_offset = mesh_index_offset,
+            index_count = mesh_index_count,
+        }
+    }
+    
+    return meshes
+}
 
-gltf_print_nodes_recurse :: proc(node: ^cgltf.node, vertices: ^[dynamic]VertexData, indices: ^[dynamic]u32) -> (u32, u32){
+gltf_print_nodes_recurse :: proc(data:^cgltf.data, node: ^cgltf.node, vertices: ^[dynamic]VertexData, indices: ^[dynamic]u32) {
     // algorithm state
     node_i := node
     cur_child_i : uint = 0
@@ -1268,8 +1359,6 @@ gltf_print_nodes_recurse :: proc(node: ^cgltf.node, vertices: ^[dynamic]VertexDa
     // for printing stuff
     builder : strings.Builder
     // TODO: RENDERING JUST ONE MESH. DELETE THIS LATER AFTER DEBUGGING
-    @static index_count: u32
-    mesh_count, primitive_count: u32
     strings.builder_init_len_cap(&builder, 0, 30)
     defer strings.builder_destroy(&builder)
     
@@ -1282,57 +1371,12 @@ gltf_print_nodes_recurse :: proc(node: ^cgltf.node, vertices: ^[dynamic]VertexDa
             }
             // fmt.sbprintf(&builder, "Node name: %v", node_i.name)
             
-            
             if node_i.mesh != nil {
-                // fmt.sbprintf(&builder, " - IS MESH! with %v primitives", len(node_i.mesh.primitives))
-                mesh_count += 1
-                
-                // add everything from primitives to our buffers
-                for prim in node_i.mesh.primitives {
-                    primitive_count += 1
-                    
-                    attr_position: cgltf.attribute
-                   	attr_normal: cgltf.attribute
-                   	attr_texcoord: cgltf.attribute
-                   	
-                   	for attribute in prim.attributes {
-                  		#partial switch attribute.type {
-                  		case .position:
-                 			attr_position = attribute
-                  		case .normal:
-                 			attr_normal = attribute
-                  		case .texcoord:
-                 			attr_texcoord = attribute
-                  		case:
-                 			// it's outputting "unknown attribute COLOR_0" and it's annoying. 
-                 			//  so, i am commenting this error log.
-                 			// fmt.eprintfln("Unkown gltf attribute: {}", attribute)
-                  		}
-                   	}
-                    
-                    for i in 0 ..< attr_position.data.count {
-                  		vertex: VertexData
-                  		ok: b32
-                  		ok = cgltf.accessor_read_float(attr_position.data, i, &vertex.pos[0], 3)
-                  		if !ok do fmt.eprintln("Error reading gltf position")
-                  		ok = cgltf.accessor_read_float(attr_normal.data, i, &vertex.normal[0], 3)
-                  		if !ok do fmt.eprintln("Error reading gltf normal")
-                  		ok = cgltf.accessor_read_float(attr_texcoord.data, i, &vertex.uv[0], 2)
-                  		if !ok do fmt.eprintln("Error reading gltf texcoord")
-                                    
-                  		position := v4{vertex.pos.x, vertex.pos.y, vertex.pos.z, 1}
-                  		// vertex.pos = (mesh_mat * position).xyz
-                  		vertex.pos = (position).xyz
-                        append(vertices, vertex)
-                  		// vertices[i] = vertex
-                   	}
-                                    
-                   	for i in 0 ..< prim.indices.count {
-                  		append(indices, u32(cgltf.accessor_read_index(prim.indices, i)) + u32(index_count))
-                   	}
-                    
-                    index_count += u32(attr_position.data.count)
-                }
+                // it's a mesh. u already loaded meshes before. just store a reference here
+                // mesh_index := cgltf.mesh_index(data, node_i.mesh)
+                // store index
+            } else {
+                // store -1 in node.mesh
             }
             
             
@@ -1379,8 +1423,6 @@ gltf_print_nodes_recurse :: proc(node: ^cgltf.node, vertices: ^[dynamic]VertexDa
             depth += 1
         }
     }
-    
-    return mesh_count, primitive_count
 }
 
 do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
@@ -1415,15 +1457,11 @@ do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
 	vertices_dyn := make([dynamic]VertexData)
 	indices_dyn := make([dynamic]u32)
 	
-	mesh_count, primitive_count: u32
+	meshes = load_meshes(data, &vertices_dyn, &indices_dyn)
 	
 	for root_node in scene.nodes {
-	    mc, pc := gltf_print_nodes_recurse(root_node, &vertices_dyn, &indices_dyn)
-    	mesh_count += mc
-    	primitive_count += pc
+	    gltf_print_nodes_recurse(data, root_node, &vertices_dyn, &indices_dyn)
 	}
-	
-	lprintfln("Mesh count: %v. Primitive count: %v", mesh_count, primitive_count)
 	
 	return vertices_dyn[:], indices_dyn[:]
 }
@@ -2438,8 +2476,12 @@ render_gbuffer_pass :: proc() {
 
 	c.cmdlist->IASetVertexBuffers(0, len(vertex_buffers_views), &vertex_buffers_views[0])
 	c.cmdlist->IASetIndexBuffer(&c.index_buffer_view)
-	c.cmdlist->DrawIndexedInstanced(c.index_count, 
-					c.instance_buffer.vertex_count, 0, 0, 0)
+	
+	// rendering each mesh individually
+	for mesh in meshes {
+    	c.cmdlist->DrawIndexedInstanced(mesh.index_count, 
+        	1, mesh.index_offset, 0, 0)
+	}
 
 }
 
