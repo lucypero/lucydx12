@@ -1387,11 +1387,14 @@ get_node_world_matrix :: proc(node:Node, scene:Scene) -> dxm {
         rot_quat : quaternion128 = quaternion(w=node_i.transform_r[0], x=node_i.transform_r[1], y=node_i.transform_r[2], z=node_i.transform_r[3])
 	    rot_mat := linalg.matrix4_from_quaternion_f32(rot_quat)
         
-        mesh_world : dxm = translation_mat * rot_mat * scale_mat
+        // mesh_world : dxm = translation_mat * rot_mat * scale_mat
+        // no rot
+        mesh_world : dxm = translation_mat * scale_mat
         // mesh_world : dxm = scale_mat * rot_mat * translation_mat
         
         res = res * mesh_world
         // res = mesh_world * res
+        // break
         
         if node_i.parent == -1 do break
         node_i = scene.nodes[node_i.parent]
@@ -1400,7 +1403,7 @@ get_node_world_matrix :: proc(node:Node, scene:Scene) -> dxm {
     return res
 }
 
-do_thing_on_node :: proc(node: Node, scene: Scene) {
+draw_node :: proc(node: Node, scene: Scene) {
     
     c := &dx_context
     
@@ -1420,6 +1423,10 @@ do_thing_on_node :: proc(node: Node, scene: Scene) {
         // cbv_data.world = 1
         
         // sending data to the cpu mapped memory that the gpu can read
+        
+        // this will not work. make a structured buffer that contains all the world matrices needed for the frame.
+        // the draw call will use the last data written here (the last mesh)
+        // TODO: fix this part. read gemini response
         mem.copy(dx_context.constant_buffer_map, (rawptr)(&cbv_data), size_of(cbv_data))
     }
     
@@ -1451,7 +1458,7 @@ draw_scene :: proc(scene: Scene) {
             if !children_are_explored {
                 
                 // do the stuff here
-                do_thing_on_node(node_i, scene)
+                draw_node(node_i, scene)
                 
             }
             
@@ -1547,7 +1554,8 @@ gltf_load_nodes :: proc(data:^cgltf.data) -> Scene {
 do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
 
 	// model_filepath :: "models/teapot.glb"
-	model_filepath :: "models/main_sponza/NewSponza_Main_glTF_003.gltf"
+	// model_filepath :: "models/main_sponza/NewSponza_Main_glTF_003.gltf"
+	model_filepath :: "models/test_scene.glb"
 	// model_filepath :: "models/main_sponza/sponza_blender.glb"
 	model_filepath_c := strings.clone_to_cstring(model_filepath, context.temp_allocator)
 
@@ -2010,6 +2018,42 @@ create_gbuffer :: proc() -> GBuffer {
 		rtv_heap = gb_rtv_dh,
 		srv_heap = gb_srv_dh
 	}
+}
+
+create_structured_buffer :: proc(size: u64, pool: ^DXResourcePool) {
+    ct := &dx_context
+   
+	heap_properties := dx.HEAP_PROPERTIES {
+		Type = .DEFAULT,
+	}
+	
+	// what format?
+   
+	buffer_desc := dx.RESOURCE_DESC {
+		Width = size,
+		Height = 1,
+		Dimension = .BUFFER,
+		Layout = .UNKNOWN,
+		Format = .UNKNOWN,
+		DepthOrArraySize = 1,
+		MipLevels = 1,
+		SampleDesc = {Count = 1},
+		Flags = resource_flags,
+	}
+   
+	hr := ct.device->CreateCommittedResource(
+		&heap_properties,
+		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
+		&buffer_desc,
+		initial_state,
+		nil,
+		dx.IResource_UUID,
+		(^rawptr)(&res),
+	)
+	
+	sa.push(pool, res)
+   
+	return res
 }
 
 // helper function that creates a texture resource in its own implicit heap
