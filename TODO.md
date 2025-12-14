@@ -1,5 +1,8 @@
 # current todo
 
+- do vsync. the fps are unlimited now. not good
+- rebind `g t` to "go to type" (it's at `g y`)
+- TODO: find out how to abstract and/or share fences
 - to fix mesh rendering with transforms:
   - use a Structured Buffer that contains all the world matrices. write that once per frame, or less
   

@@ -565,6 +565,8 @@ when PROFILE {
 		mem.copy(gpu_data, &indices[0], index_buffer_size)
 		index_buffer->Unmap(0, nil)
 	}
+	
+	create_structured_buffer(&resources_longterm)
 
 	// This fence is used to wait for frames to finish
 	{
@@ -586,13 +588,18 @@ when PROFILE {
 			return
 		}
 	}
-
-	start_time = time.now()
 	
 	context_init(&dx_context)
+	
+	
+	
+	// looping
+	
+	
+	start_time = time.now()
 	do_main_loop()
+	
 	// cleaning up
-    
 	
 	imgui_destoy()
 
@@ -618,7 +625,6 @@ when PROFILE {
 		dxgi_debug : ^dxgi.IDebug1
 		dxgi.DXGIGetDebugInterface1(0, dxgi.IDebug1_UUID, (^rawptr)(&dxgi_debug))
 		dxgi_debug->ReportLiveObjects(dxgi.DEBUG_ALL, {})
-		// TODO: make a function that prints to the debugger but works just like printfln
 		windows.OutputDebugStringA("=== report end =====\n")
 	}
 }
@@ -937,7 +943,6 @@ create_sample_texture :: proc() {
 
 	ct := &dx_context
 
-
 	// reading from image
 	texture_width, texture_height, channels: c.int
 
@@ -1051,59 +1056,9 @@ create_sample_texture :: proc() {
 	dx_context.cmdlist->Reset(dx_context.command_allocator, ct.pipeline_gbuffer)
 	dx_context.cmdlist->CopyTextureRegion(&copy_location_dst, 0, 0, 0, &copy_location_src, nil)
 
-
-	// TODO: do a fence here, wait for it, then release the upload resource, and change the texture state to generic read
-
-	fence_value: u64
-	fence: ^dx.IFence
-	hr = dx_context.device->CreateFence(fence_value, {}, dx.IFence_UUID, (^rawptr)(&fence))
-	fence_value += 1
-	sa.push(&resources_longterm, fence)
-
-	// you need to set a resource barrier here to transition the texture resource to a generic read state
-	// read gemini answer: https://gemini.google.com/app/b17b9b13fb300d60
-
-	barrier : dx.RESOURCE_BARRIER = {
-		Type = .TRANSITION,
-		Flags = {},
-		Transition = {
-			pResource = ct.texture,
-			StateBefore = {.COPY_DEST},
-			StateAfter = dx.RESOURCE_STATE_GENERIC_READ,
-			Subresource = 0
-		}
-	}
-
-	// run resource barrier
-	dx_context.cmdlist->ResourceBarrier(1, &barrier)
-
-
-	// close command list and execute
-	dx_context.cmdlist->Close()
-	cmdlists := [?]^dx.IGraphicsCommandList{dx_context.cmdlist}
-	dx_context.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
-
-	// we signal only after executing the command list.
-	// otherwise we are not sure that the gpu is done with the upload resource.
-	hr = dx_context.queue->Signal(fence, fence_value)
-
-	// 4. Wait for the GPU to reach the signal point.
-	// First, create an event handle.
-	fence_event := windows.CreateEventW(nil, false, false, nil)
-
-	if fence_event == nil {
-		fmt.println("Failed to create fence event")
-		return
-	}
-
-	completed := fence->GetCompletedValue()
-
-	if completed < fence_value {
-		// the gpu is not finished yet , so we wait
-		fence->SetEventOnCompletion(fence_value, fence_event)
-		windows.WaitForSingleObject(fence_event, windows.INFINITE)
-	}
-
+	transition_resource_from_copy_to_read(ct.texture, ct.cmdlist)
+	
+	execute_command_list_and_wait(ct.cmdlist, ct.queue)
 }
 
 gen_just_one_instance_data :: proc() -> []InstanceData {
@@ -2020,92 +1975,102 @@ create_gbuffer :: proc() -> GBuffer {
 	}
 }
 
-create_structured_buffer :: proc(size: u64, pool: ^DXResourcePool) {
+// this is the same as create_sample_texture
+// it creates an upload heap, copies data to it, then transfers it to the default heap.
+create_structured_buffer :: proc(pool: ^DXResourcePool) {
+    
     ct := &dx_context
-   
+    
+    // make it specific for what u want now.
+    // then we can turn it into a helper function. later.
+    
+    BufferThing :: struct {
+        model_matrix: dxm
+    }
+    
+    matrix_count :: 20
+    
+    buffer_size: u64 = size_of(BufferThing) * matrix_count
+    
 	heap_properties := dx.HEAP_PROPERTIES {
 		Type = .DEFAULT,
 	}
 	
-	// what format?
-   
 	buffer_desc := dx.RESOURCE_DESC {
-		Width = size,
+		Width = buffer_size,
 		Height = 1,
 		Dimension = .BUFFER,
-		Layout = .UNKNOWN,
+		Layout = .ROW_MAJOR,
 		Format = .UNKNOWN,
 		DepthOrArraySize = 1,
 		MipLevels = 1,
 		SampleDesc = {Count = 1},
-		Flags = resource_flags,
+		Flags = {},
 	}
+	
+	default_res : ^dx.IResource
+	
+	// CreateCommittedResource:          proc "system" (this: ^IDevice, 
+	//  pHeapProperties: ^HEAP_PROPERTIES, HeapFlags: HEAP_FLAGS, pDesc: ^RESOURCE_DESC, InitialResourceState: RESOURCE_STATES, 
+	//   pOptimizedClearValue: ^CLEAR_VALUE, riidResource: ^IID, ppvResource: ^rawptr) -> HRESULT,
    
 	hr := ct.device->CreateCommittedResource(
+		pHeapProperties = &heap_properties,
+		HeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
+		pDesc = &buffer_desc,
+		InitialResourceState = {.COPY_DEST},
+		pOptimizedClearValue = nil,
+		riidResource = dx.IResource_UUID,
+		ppvResource = (^rawptr)(&default_res),
+	)
+	
+	check(hr, "failed creating buffer")
+	default_res->SetName("structured buffer - model matrices")
+	sa.push(pool, default_res)
+	
+	// creating UPLOAD resource
+	
+	heap_properties.Type = .UPLOAD
+	
+	upload_res : ^dx.IResource
+	
+	// buffer desc is the same i think.
+	// buffer_desc.
+	
+	hr = ct.device->CreateCommittedResource(
 		&heap_properties,
 		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
 		&buffer_desc,
-		initial_state,
+		dx.RESOURCE_STATE_GENERIC_READ,
 		nil,
 		dx.IResource_UUID,
-		(^rawptr)(&res),
+		(^rawptr)(&upload_res),
 	)
 	
-	sa.push(pool, res)
-   
-	return res
-}
-
-// helper function that creates a texture resource in its own implicit heap
-// TODO: look into creating heap separately
-create_texture :: proc(width: u64, height: u32, format: dxgi.FORMAT, resource_flags:dx.RESOURCE_FLAGS, 
-		initial_state: dx.RESOURCE_STATES,
-		opt_clear_value: dx.CLEAR_VALUE = {},
-		set_clear_value_to_zero : bool = true,
-		pool : ^DXResourcePool
-	) ->
-		(res: ^dx.IResource){
-
-	ct := &dx_context
-
-	opt_clear_value := opt_clear_value
-
-	heap_properties := dx.HEAP_PROPERTIES {
-		Type = .DEFAULT,
-	}
-
-	if set_clear_value_to_zero {
-		opt_clear_value = dx.CLEAR_VALUE {
-			Format = format,
-			Color = {0,0,0,1}
-		}
-	}
-
-	texture_desc := dx.RESOURCE_DESC {
-		Width = width,
-		Height = height,
-		Dimension = .TEXTURE2D,
-		Layout = .UNKNOWN,
-		Format = format,
-		DepthOrArraySize = 1,
-		MipLevels = 1,
-		SampleDesc = {Count = 1},
-		Flags = resource_flags,
-	}
-
-	hr := ct.device->CreateCommittedResource(
-		&heap_properties,
-		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
-		&texture_desc,
-		initial_state,
-		&opt_clear_value,
-		dx.IResource_UUID,
-		(^rawptr)(&res),
-	)
+	check(hr, "failed creating upload buffer")
+	upload_res->SetName("upload buffer for matrices")
+	defer upload_res->Release()
 	
-	sa.push(pool, res)
-
-	return res
+	// Copying data from cpu to upload resource
+	
+	sample_matrix_data := make([]BufferThing, matrix_count, allocator = context.temp_allocator)
+	
+	for &mat, i in sample_matrix_data {
+	    mat.model_matrix = f32(i)
+	}
+	
+	// TODO: check if this works.
+	// if it works, make a helper method that just takes a slice. friendlier API
+	copy_to_buffer(upload_res, &sample_matrix_data[0], size_of(sample_matrix_data))
+	
+	dx_context.cmdlist->Reset(ct.command_allocator, ct.pipeline_gbuffer)
+	dx_context.cmdlist->CopyResource(default_res, upload_res)
+	
+	// transition resource to shader readable.
+	
+	transition_resource_from_copy_to_read(default_res, ct.cmdlist)
+	
+	execute_command_list_and_wait(ct.cmdlist, ct.queue)
 }
 
 create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3dc.ID3D10Blob) -> ^dx.IPipelineState {
@@ -2295,73 +2260,6 @@ create_lighting_root_signature :: proc() {
 	check(hr, "Failed creating root signature")
 	sa.push(&resources_longterm, c.lighting_pass_root_signature)
 	serialized_desc->Release()
-}
-
-// compiles vertex and pixel shader
-compile_shader :: proc(shader_filename: string) -> (vs, ps: ^d3dc.ID3D10Blob, ok: bool) {
-
-	c := &dx_context
-
-	data, ok_f := os.read_entire_file(shader_filename)
-
-	if !ok_f {
-		lprintfln("could not read file")
-		os.exit(1)
-	}
-
-	defer(delete(data))
-	data_size: uint = len(data)
-
-	compile_flags: u32 = 0
-	when ODIN_DEBUG {
-		compile_flags |= u32(d3dc.D3DCOMPILE.DEBUG)
-		compile_flags |= u32(d3dc.D3DCOMPILE.SKIP_OPTIMIZATION)
-	}
-
-	// errors
-	vs_res: ^d3dc.ID3DBlob
-	ps_res: ^d3dc.ID3DBlob
-
-	hr := d3dc.Compile(
-		rawptr(&data[0]), data_size, nil, nil, nil, "VSMain", "vs_4_0",
-		compile_flags, 0, &vs, &vs_res,
-	)
-
-	if (vs_res != nil) {
-		// errors in shader compilation
-		a := strings.string_from_ptr(
-			(^u8)(vs_res->GetBufferPointer()),
-			int(vs_res->GetBufferSize()),
-		)
-		lprintfln("DXC VS ERRORS in %s: %s", shader_filename, a)
-	}
-
-	if (hr < 0) {
-	    // vertex shader is worng
-	    // something went wrong
-	    return vs, ps, false
-	}
-
-	hr = d3dc.Compile(
-		rawptr(&data[0]), data_size, nil, nil, nil, "PSMain", "ps_4_0",
-		compile_flags, 0, &ps, &ps_res
-	)
-
-	if (ps_res != nil) {
-		// errors in shader compilation
-		a := strings.string_from_ptr(
-			(^u8)(ps_res->GetBufferPointer()),
-			int(ps_res->GetBufferSize()),
-		)
-		lprintfln("DXC PS ERRORS in %s: %s", shader_filename, a)
-	}
-	
-	if (hr < 0) {
-	    // pixel shader is wrong
-	    return vs, ps, false
-	}
-
-	return vs, ps, true
 }
 
 create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3dc.ID3D10Blob) -> ^dx.IPipelineState {
@@ -2711,8 +2609,6 @@ render_lighting_pass :: proc() {
 
 		c.cmdlist->ResourceBarrier(1, &to_render_target_barrier)
 	}
-
-	// TODO: bind and draw here!!!
 
 	// This state is reset everytime the cmd list is reset, so we need to rebind it
 	c.cmdlist->SetGraphicsRootSignature(c.lighting_pass_root_signature)
