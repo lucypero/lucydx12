@@ -1,0 +1,252 @@
+// raddbg 0.9.24 user file
+
+recent_project: path: "lucydx12.radproject"
+recent_project: path: project
+recent_project: path: "C:/Users/Lucy/AppData/Roaming/raddbg/default.raddbg_user/default.raddbg_project"
+window:
+{
+  size: 2048.000000 1128.000000
+  panels:
+  {
+    0.799492:
+    {
+      0.687734:
+      {
+        0.355881:
+        {
+          watch:
+          {
+            selected
+            expression: ""
+            watch: index_count
+            watch: node_i
+            watch: data
+            watch: nodes
+            watch: res
+            watch: mesh_to_render
+            watch: "cbv_data.world"
+          }
+          watch: expression: "query:call_stack"
+          watch: expression: "query:watch_pins"
+          memory: expression: ""
+        }
+        0.644119:
+        {
+          selected
+          getting_started
+          text:
+          {
+            expression: "file:\"E:\\\\dev/dx12/main.odin\".data"
+            project: "C:/Users/Lucy/AppData/Roaming/raddbg/default.raddbg_user/default.raddbg_project"
+            query:
+            {
+              input: main
+              cmd: search
+            }
+            cursor_line: 234
+            cursor_column: 1
+            mark_line: 234
+            mark_column: 1
+          }
+          text:
+          {
+            expression: "file:\"E:\\\\dev/dx12/main.odin\".data"
+            project: "E:/dev/dx12/project"
+            query:
+            {
+              input: ""
+              cmd: search
+            }
+            cursor_line: 2074
+            cursor_column: 1
+            mark_line: 2074
+            mark_column: 1
+          }
+          text:
+          {
+            expression: "file:\"D:/a/_work/1/s/src/vctools/crt/vcruntime/src/string/amd64/memcpy.asm\".data"
+            auto: 1
+            cursor_line: 1
+            cursor_column: 1
+            mark_line: 1
+            mark_column: 1
+            query: input: ""
+          }
+          text:
+          {
+            selected
+            expression: "file:\"E:\\\\dev/dx12/main.odin\".data"
+            project: "E:\\dev/dx12/lucydx12.radproject"
+            query: input: ""
+            cursor_line: 33
+            cursor_column: 1
+            mark_line: 33
+            mark_column: 1
+          }
+        }
+      }
+      0.312266:
+      {
+        text:
+        {
+          selected
+          expression: output
+          query: input: ""
+          cursor_line: 7
+          cursor_column: 1
+          mark_line: 7
+          mark_column: 1
+          font_size: 11
+          scroll_to_bottom_on_change: 1
+        }
+        watch: expression: "query:locals"
+        watch: expression: "query:registers"
+        watch: expression: "query:globals"
+        watch: expression: "query:thread_locals"
+        watch: expression: "query:types"
+        watch: expression: "query:procedures"
+        watch: expression: "query:modules"
+        tabs_on_bottom
+      }
+    }
+    0.200508:
+    {
+      0.50:
+      {
+        watch: expression: "query:targets"
+        watch: selected expression: "query:breakpoints"
+      }
+      0.50:
+      {
+        watch: expression: "query:threads"
+        watch: selected expression: "query:call_stack"
+        watch: expression: "query:processes"
+        watch: expression: "query:machines"
+      }
+    }
+  }
+  split_x
+  pos: 256 141
+  monitor: "\\\\.\\DISPLAY1"
+  maximized
+}
+keybindings:
+{
+  { kill_all f5 shift }
+  { step_into_inst f11 alt }
+  { step_over_inst f10 alt }
+  { step_out f11 shift }
+  { halt x ctrl shift }
+  { halt pause }
+  { run f5 }
+  { restart f5 ctrl shift }
+  { step_into f11 }
+  { step_over f10 }
+  { run_to_line f10 ctrl }
+  { set_next_statement f10 ctrl shift }
+  { inc_window_font_size equal alt }
+  { dec_window_font_size minus alt }
+  { window n ctrl shift }
+  { toggle_fullscreen return ctrl }
+  { new_panel_right p ctrl }
+  { new_panel_down minus ctrl }
+  { rotate_panel_columns 2 ctrl }
+  { next_panel comma ctrl }
+  { prev_panel comma ctrl shift }
+  { focus_panel_right right ctrl alt }
+  { focus_panel_left left ctrl alt }
+  { focus_panel_up up ctrl alt }
+  { focus_panel_down down ctrl alt }
+  { undo z ctrl }
+  { redo y ctrl }
+  { go_back left alt }
+  { go_forward right alt }
+  { close_panel p ctrl shift alt }
+  { next_tab page_down ctrl }
+  { prev_tab page_up ctrl }
+  { next_tab tab ctrl }
+  { prev_tab tab ctrl shift }
+  { move_tab_right page_down ctrl shift }
+  { move_tab_left page_up ctrl shift }
+  { close_tab w ctrl }
+  { tab_bar_top up ctrl shift alt }
+  { tab_bar_bottom down ctrl shift alt }
+  { open_tab t ctrl }
+  { open o ctrl }
+  { switch i ctrl }
+  { switch_to_partner_file o alt }
+  { open_user n ctrl shift alt }
+  { open_project n ctrl alt }
+  { open_user o ctrl shift alt }
+  { open_project o ctrl alt }
+  { save_user s ctrl shift alt }
+  { save_project s ctrl shift }
+  { edit f2 }
+  { accept return }
+  { accept space }
+  { cancel esc }
+  { move_left left }
+  { move_right right }
+  { move_up up }
+  { move_down down }
+  { move_left_select left shift }
+  { move_right_select right shift }
+  { move_up_select up shift }
+  { move_down_select down shift }
+  { move_left_chunk left ctrl }
+  { move_right_chunk right ctrl }
+  { move_up_chunk up ctrl }
+  { move_down_chunk down ctrl }
+  { move_up_page page_up }
+  { move_down_page page_down }
+  { move_up_whole home ctrl }
+  { move_down_whole end ctrl }
+  { move_left_chunk_select left ctrl shift }
+  { move_right_chunk_select right ctrl shift }
+  { move_up_chunk_select up ctrl shift }
+  { move_down_chunk_select down ctrl shift }
+  { move_up_page_select page_up shift }
+  { move_down_page_select page_down shift }
+  { move_up_whole_select home ctrl shift }
+  { move_down_whole_select end ctrl shift }
+  { move_up_reorder up alt }
+  { move_down_reorder down alt }
+  { move_home home }
+  { move_end end }
+  { move_home_select home shift }
+  { move_end_select end shift }
+  { select_all a ctrl }
+  { delete_single delete }
+  { delete_chunk delete ctrl }
+  { backspace_single backspace }
+  { backspace_chunk backspace ctrl }
+  { copy c ctrl }
+  { copy insert ctrl }
+  { cut x ctrl }
+  { paste v ctrl }
+  { paste insert shift }
+  { insert_text null }
+  { move_next tab }
+  { move_prev tab shift }
+  { goto_line g ctrl }
+  { goto_address g alt }
+  { search f ctrl }
+  { search_backwards r ctrl }
+  { find_next f3 }
+  { find_prev f3 ctrl }
+  { find_selected_thread f4 }
+  { goto_name j ctrl }
+  { goto_name_at_cursor f12 }
+  { toggle_watch_expr_at_cursor w alt }
+  { toggle_watch_expr_at_mouse d ctrl }
+  { toggle_watch_pin f9 ctrl }
+  { toggle_breakpoint f9 }
+  { add_address_breakpoint f9 shift }
+  { add_function_breakpoint f9 ctrl shift }
+  { attach f6 shift }
+  { open_palette f1 }
+  { open_palette p ctrl shift }
+  { log_marker m ctrl shift alt }
+  { toggle_dev_menu d ctrl shift alt }
+}
+current_path: "E:\\dev/dx12"

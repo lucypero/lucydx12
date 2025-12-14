@@ -1,0 +1,43 @@
+// raddbg 0.9.24 project file
+
+recent_file: path: "main.odin"
+recent_file: path: "D:/a/_work/1/s/src/vctools/crt/vcruntime/src/string/amd64/memcpy.asm"
+recent_file: path: "C:/Users/Lucy/bin/Odin/core/math/linalg/specific.odin"
+recent_file: path: "d:/os/obj/amd64fre/minkernel/crts/ucrt/src/appcrt/startup/mt/objfre/amd64/minkernel/crts/ucrt/src/appcrt/startup/abort.cpp"
+recent_file: path: "C:/Users/Lucy/bin/Odin/base/runtime/error_checks.odin"
+recent_file: path: "d:/os/obj/amd64fre/minkernel/crts/ucrt/src/appcrt/startup/mt/objfre/amd64/minkernel/crts/ucrt/src/appcrt/startup/assert.cpp"
+recent_file: path: "C:/Users/Lucy/bin/Odin/base/runtime/entry_windows.odin"
+target:
+{
+  executable: "lucydx12.exe"
+  working_directory: "../dx12"
+  enabled: 1
+  label: "lucy dx12"
+}
+debug_info:
+{
+  path: "E:/dev/dx12/lucydx12.pdb"
+  timestamp: 66201123215927
+}
+debug_info:
+{
+  path: "C:/VulkanSDK/1.3.290.0/Bin/SDL2.pdb"
+  timestamp: 66155286538091
+}
+breakpoint:
+{
+  source_location: "main.odin:1424:1"
+  enabled: 0
+  hit_count: 0
+}
+breakpoint:
+{
+  source_location: "main.odin:1419:1"
+  hit_count: 0
+  enabled: 0
+}
+breakpoint:
+{
+  source_location: "main.odin:1982:1"
+  hit_count: 1
+}
