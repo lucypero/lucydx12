@@ -2811,7 +2811,6 @@ hotswap_watch :: proc(hs: ^HotSwapState, root_signature: ^dx.IRootSignature, sha
 		game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(shader_filename)
 		if game_dll_mod_err == os.ERROR_NONE {
 			hs.last_write_time = game_dll_mod
-			
 		}
 		hs.pso_index = index_in_free_queue
 	}
