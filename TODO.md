@@ -1,5 +1,6 @@
 # current todo
 
+- fork odinfmt and remove that thing it does with struct fields.
 - run profiler to see why the startup is so slow
 - switch to the new compiler (dxc). u are using the old one.
    -  vendor:directx/dxc
