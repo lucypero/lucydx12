@@ -55,8 +55,8 @@ gbuffer_count :: 3
 // profiling stuff
 
 when PROFILE {
-    spall_ctx: spall.Context
-    @(thread_local) spall_buffer: spall.Buffer
+	spall_ctx: spall.Context
+	@(thread_local) spall_buffer: spall.Buffer
 }
 
 // window dimensions
@@ -79,7 +79,7 @@ resources_longterm : DXResourcePool
 
 // constant buffer data
 ConstantBufferData :: struct #align (256) {
-    world: dxm,
+	world: dxm,
 	view: dxm,
 	projection: dxm,
 	light_pos: v3,
@@ -92,31 +92,31 @@ ConstantBufferData :: struct #align (256) {
 // all meshes use the same index/vertex buffer.
 // so we just have to store the offset and index count to render a specific mesh
 Mesh :: struct {
-    
-    index_offset: u32, 
-    index_count: u32, 
+	
+	index_offset: u32, 
+	index_count: u32, 
 }
 
 // testing
 meshes : []Mesh
 
 Scene :: struct {
-    nodes: []Node,
-    root_nodes: []int,
-    mesh_count: uint
+	nodes: []Node,
+	root_nodes: []int,
+	mesh_count: uint
 }
 
 Node :: struct {
-    name : string,
-    
-    transform_t: v3,
-    transform_r: v4,
-    transform_s: v3,
-    
-    children: []int,
-    parent: int, // -1 for no parent (root node)
-    
-    mesh: int,  // mesh index to render. -1 for no mesh
+	name : string,
+	
+	transform_t: v3,
+	transform_r: v4,
+	transform_s: v3,
+	
+	children: []int,
+	parent: int, // -1 for no parent (root node)
+	
+	mesh: int,  // mesh index to render. -1 for no mesh
 }
 
 scene : Scene
@@ -128,18 +128,18 @@ InstanceData :: struct #align (256) {
 }
 
 get_most_of_cbv :: proc() -> ConstantBufferData {
-    
-    // ticking cbv time value
+	
+	// ticking cbv time value
 	thetime := time.diff(start_time, time.now())
 	the_time_sec = f32(thetime) / f32(time.Second)
 	// if the_time_sec > 1 {
 	// 	start_time = time.now()
 	// }
-   
+	
 	// sending constant buffer data
 	cam_pos := get_cam_pos()
 	view, projection := get_view_projection(cam_pos)
-   
+	
 	return ConstantBufferData{
 		view = view,
 		projection = projection,
@@ -152,9 +152,9 @@ get_most_of_cbv :: proc() -> ConstantBufferData {
 }
 
 cb_update :: proc () {
-    
-    cbv_data := get_most_of_cbv()
-    
+	
+	cbv_data := get_most_of_cbv()
+	
 	// sending data to the cpu mapped memory that the gpu can read
 	mem.copy(dx_context.constant_buffer_map, (rawptr)(&cbv_data), size_of(cbv_data))
 }
@@ -192,9 +192,9 @@ GBuffer :: struct {
 }
 
 HotSwapState :: struct {
-    // TODO: store more data here so u don't have to pass the data around in the hotswap methods
-    last_write_time : os.File_Time,
-    pso_swap: ^dx.IPipelineState,
+	// TODO: store more data here so u don't have to pass the data around in the hotswap methods
+	last_write_time : os.File_Time,
+	pso_swap: ^dx.IPipelineState,
 	
 	// index in the queue array to free the resource
 	// i use this to swap the pointer when the pso gets hot swapped
@@ -290,21 +290,21 @@ check :: proc(res: dx.HRESULT, message: string) {
 }
 
 main :: proc() {
-    
-// setting up profiling
-when PROFILE {
-    spall_ctx = spall.context_create("trace_test.spall")
-   	defer spall.context_destroy(&spall_ctx)
-    
-   	buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
-   	defer delete(buffer_backing)
-    
-   	spall_buffer = spall.buffer_create(buffer_backing, u32(sync.current_thread_id()))
-   	defer spall.buffer_destroy(&spall_ctx, &spall_buffer)
-    
-   	spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, #procedure)
-}
-    
+	
+	// setting up profiling
+	when PROFILE {
+		spall_ctx = spall.context_create("trace_test.spall")
+		defer spall.context_destroy(&spall_ctx)
+		
+		buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
+		defer delete(buffer_backing)
+		
+		spall_buffer = spall.buffer_create(buffer_backing, u32(sync.current_thread_id()))
+		defer spall.buffer_destroy(&spall_ctx, &spall_buffer)
+		
+		spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, #procedure)
+	}
+	
 	// Init SDL and create window
 	if err := sdl.Init(sdl.InitFlags{.TIMER, .AUDIO, .VIDEO, .EVENTS}); err != 0 {
 		fmt.eprintln(err)
@@ -446,9 +446,9 @@ when PROFILE {
 	/* 
 	From https://docs.microsoft.com/en-us/windows/win32/direct3d12/root-signatures-overview:
 	
-		A root signature is configured by the app and links command lists to the resources the shaders require.
-		The graphics command list has both a graphics and compute root signature. A compute command list will
-		simply have one compute root signature. These root signatures are independent of each other.
+	A root signature is configured by the app and links command lists to the resources the shaders require.
+	The graphics command list has both a graphics and compute root signature. A compute command list will
+	simply have one compute root signature. These root signatures are independent of each other.
 	*/
 
 	create_gbuffer_pass_root_signature()
@@ -614,10 +614,10 @@ when PROFILE {
 	sdl.DestroyWindow(dx_context.window)
 	
 	when ODIN_DEBUG {
-	    windows.OutputDebugStringA("=== report start =====\n")
+  windows.OutputDebugStringA("=== report start =====\n")
 		debug_device : ^dx.IDebugDevice2
 		dx_context.device->QueryInterface(dx.IDebugDevice2_UUID,
-					(^rawptr)(&debug_device))
+			(^rawptr)(&debug_device))
 		// Finally, release the device (it is not in any pool)
 		// The device will be freed after we release the debug device
 		dx_context.device->Release()
@@ -633,12 +633,12 @@ when PROFILE {
 }
 
 do_main_loop :: proc() {
-    main_loop: for {
-        when PROFILE do spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, name="main loop")
+	main_loop: for {
+		when PROFILE do spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, name="main loop")
 		for e: sdl.Event; sdl.PollEvent(&e); {
-   
+			
 			imgui_impl_sdl2.ProcessEvent(&e)
-   
+			
 			#partial switch e.type {
 			case .QUIT:
 				break main_loop
@@ -648,7 +648,7 @@ do_main_loop :: proc() {
 				}
 			}
 		}
-   
+		
 		imgui_impl_dx12.NewFrame()
 		imgui_impl_sdl2.NewFrame()
 		im.NewFrame()
@@ -657,7 +657,7 @@ do_main_loop :: proc() {
 		im.Render()
 		render()
 		free_all(context.temp_allocator)
-   
+		
 		if exit_app {
 			break main_loop
 		}
@@ -769,16 +769,16 @@ init_dx :: proc() {
 }
 
 get_projection_matrix :: proc(fov_rad: f32, screenWidth: i32, screenHeight: i32, near: f32, far: f32) -> dxm {
-    f := math.tan_f32(fov_rad * 0.5)
+	f := math.tan_f32(fov_rad * 0.5)
 
-    aspect := f32(screenWidth) / f32(screenHeight)
+	aspect := f32(screenWidth) / f32(screenHeight)
 
 	return dxm {
-        aspect / f, 0.0, 0.0, 0.0,
-        0.0, 1 / f, 0.0, 0.0,
-        0.0, 0.0, far / (far - near), - (near * far) / (far - near),
-        0.0, 0.0, 1.0, 0.0,
-    }
+		aspect / f, 0.0, 0.0, 0.0,
+		0.0, 1 / f, 0.0, 0.0,
+		0.0, 0.0, far / (far - near), - (near * far) / (far - near),
+		0.0, 0.0, 1.0, 0.0,
+	}
 }
 
 get_cam_pos :: proc() -> v3 {
@@ -798,7 +798,7 @@ get_view_projection :: proc(cam_pos: v3) -> (dxm, dxm) {
 	view := linalg.matrix4_look_at_f32(cam_pos, {0,0,0}, {0,1,0}, false)
 
 	fov := linalg.to_radians(f32(90.0))
-    aspect := f32(wx) / f32(wy)
+	aspect := f32(wx) / f32(wy)
 	proj := linalg.matrix4_perspective_f32(fov, aspect, 0.1, 100, false)
 
 	// this function is supposedly more correct
@@ -810,8 +810,8 @@ get_view_projection :: proc(cam_pos: v3) -> (dxm, dxm) {
 }
 
 update :: proc() {
-    
-    c := &dx_context
+	
+	c := &dx_context
 
 	sdl.PumpEvents()
 	keyboard := sdl.GetKeyboardStateAsSlice()
@@ -824,10 +824,10 @@ update :: proc() {
 	}
 	
 	hotswap_watch(&c.lighting_hotswap, c.lighting_pass_root_signature, lighting_shader_filename,
-	   pso_creation_proc = create_new_lighting_pso)
+  pso_creation_proc = create_new_lighting_pso)
 	
 	hotswap_watch(&c.gbuffer_hotswap, c.gbuffer_pass_root_signature, gbuffer_shader_filename,
-	    pso_creation_proc = create_new_gbuffer_pso)
+  pso_creation_proc = create_new_gbuffer_pso)
 	
 	// im.End()
 	// 
@@ -907,7 +907,7 @@ render :: proc() {
 
 	// present
 	{
-	    when PROFILE do spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, name="Present")
+  when PROFILE do spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, name="Present")
 		flags: dxgi.PRESENT
 		params: dxgi.PRESENT_PARAMETERS
 		hr = dx_context.swapchain->Present1(1, flags, &params)
@@ -916,8 +916,8 @@ render :: proc() {
 
 	// wait for frame to finish
 	{
-	    when PROFILE do spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, name="v-sync wait")
-					
+  when PROFILE do spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, name="v-sync wait")
+		
 		current_fence_value := dx_context.fence_value
 
 		hr = dx_context.queue->Signal(dx_context.fence, current_fence_value)
@@ -1040,8 +1040,8 @@ create_sample_texture :: proc() {
 
 	for row in 0..<texture_height {
 		mem.copy(texture_map_start_mp[u32(text_footprint.Footprint.RowPitch) * u32(row):],
-				 img_data[texture_width * channels * row:],
-				  int(texture_width * channels))
+		 img_data[texture_width * channels * row:],
+	  int(texture_width * channels))
 	}
 
 	// here you send the gpu command to copy the data to the texture resource.
@@ -1067,21 +1067,21 @@ create_sample_texture :: proc() {
 }
 
 gen_just_one_instance_data :: proc() -> []InstanceData {
-    // returning one instance with no transformations
-    // we're rendering sponza now. we only want one.
-    
-    
-    instance_data := make([]InstanceData, 1, context.temp_allocator)
-    
-    world_mat : dxm
-    world_mat = 1
-    
+	// returning one instance with no transformations
+	// we're rendering sponza now. we only want one.
+	
+	
+	instance_data := make([]InstanceData, 1, context.temp_allocator)
+	
+	world_mat : dxm
+	world_mat = 1
+	
 	instance_data[0] = InstanceData {
 		world_mat = world_mat,
 		color = v3{1,1,1},
 	}
-    
-    return instance_data
+	
+	return instance_data
 }
 
 gen_teapot_instance_data :: proc() -> []InstanceData {
@@ -1104,7 +1104,7 @@ gen_teapot_instance_data :: proc() -> []InstanceData {
 
 		rot_val := rand.float32_range(0, math.TAU)
 		rot_vec := v3{rand.float32_range(-rot_fac, rot_fac), 
-						rand.float32_range(-rot_fac, rot_fac), rand.float32_range(-rot_fac, rot_fac)}
+			rand.float32_range(-rot_fac, rot_fac), rand.float32_range(-rot_fac, rot_fac)}
 
 		rot_vec = linalg.vector_normalize(rot_vec)
 
@@ -1166,7 +1166,7 @@ create_descriptor_heap_cbv_srv_uav :: proc() {
 	}
 
 	hr := c.device->CreateDescriptorHeap(&cbv_heap_desc, dx.IDescriptorHeap_UUID,
-		 (^rawptr)(&c.descriptor_heap_cbv_srv_uav))
+	 (^rawptr)(&c.descriptor_heap_cbv_srv_uav))
 	check(hr, "failed creating descriptor heap")
 	sa.push(&resources_longterm, c.descriptor_heap_cbv_srv_uav)
 
@@ -1187,15 +1187,15 @@ create_descriptor_heap_cbv_srv_uav :: proc() {
 	
 	// creating SRV (structured buffer) (index 2)
 	srv_desc := dx.SHADER_RESOURCE_VIEW_DESC {
-        Format = .UNKNOWN,
-        ViewDimension = .BUFFER,
-        Shader4ComponentMapping = dx.ENCODE_SHADER_4_COMPONENT_MAPPING(0,1,2,3), // this is the default mapping
-        Buffer = {
-            FirstElement = 0,
-            NumElements = u32(scene.mesh_count),
-            StructureByteStride = size_of(BufferThing),
-            Flags = {}
-        }
+		Format = .UNKNOWN,
+		ViewDimension = .BUFFER,
+		Shader4ComponentMapping = dx.ENCODE_SHADER_4_COMPONENT_MAPPING(0,1,2,3), // this is the default mapping
+		Buffer = {
+			FirstElement = 0,
+			NumElements = u32(scene.mesh_count),
+			StructureByteStride = size_of(BufferThing),
+			Flags = {}
+		}
 	}
 	
 	c.device->CreateShaderResourceView(c.res_structured_buffer, &srv_desc, 
@@ -1216,34 +1216,34 @@ create_gbuffer_pass_root_signature :: proc() {
 	}
 	
 	{
-    	// We'll define a descriptor range for our SRVs
-    	srv_range := dx.DESCRIPTOR_RANGE {
-    		RangeType = .SRV,
-    		NumDescriptors = 2,
-    		BaseShaderRegister = 1,
-    		RegisterSpace = 0,
-    		OffsetInDescriptorsFromTableStart = dx.DESCRIPTOR_RANGE_OFFSET_APPEND,
-    	}
-    
-    	// our descriptor table for the texture
-    	root_parameters[1] = {
-    		ParameterType = .DESCRIPTOR_TABLE,
-    		DescriptorTable = {
-    			NumDescriptorRanges = 1,
-    			pDescriptorRanges = &srv_range
-    		},
-    		ShaderVisibility = .ALL // TODO: look into separating them. one parameter for vertex. another for pixel.
-    	}
+		// We'll define a descriptor range for our SRVs
+		srv_range := dx.DESCRIPTOR_RANGE {
+			RangeType = .SRV,
+			NumDescriptors = 2,
+			BaseShaderRegister = 1,
+			RegisterSpace = 0,
+			OffsetInDescriptorsFromTableStart = dx.DESCRIPTOR_RANGE_OFFSET_APPEND,
+		}
+		
+		// our descriptor table for the texture
+		root_parameters[1] = {
+			ParameterType = .DESCRIPTOR_TABLE,
+			DescriptorTable = {
+				NumDescriptorRanges = 1,
+				pDescriptorRanges = &srv_range
+			},
+			ShaderVisibility = .ALL // TODO: look into separating them. one parameter for vertex. another for pixel.
+		}
 	}
 	
 	root_parameters[2] = {
-        ParameterType = ._32BIT_CONSTANTS,
-        Constants = {
-            ShaderRegister = 1,
-           	RegisterSpace = 0,
-           	Num32BitValues = 1
-        },
-        ShaderVisibility = .VERTEX
+		ParameterType = ._32BIT_CONSTANTS,
+		Constants = {
+			ShaderRegister = 1,
+			RegisterSpace = 0,
+			Num32BitValues = 1
+		},
+		ShaderVisibility = .VERTEX
 	}
 
 	// our static sampler
@@ -1294,225 +1294,225 @@ create_gbuffer_pass_root_signature :: proc() {
 
 
 load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indices: ^[dynamic]u32) -> []Mesh {
-    
-    meshes := make_slice([]Mesh, len(data.meshes))
-    index_count: u32
-    index_count_total : u32 = 0
-    
-    for mesh, i in data.meshes {
-        
-        mesh_index_offset := index_count_total
-        
-        mesh_index_count : u32
-        
-        for prim in mesh.primitives {
-            
-            attr_position: cgltf.attribute
-           	attr_normal: cgltf.attribute
-           	attr_texcoord: cgltf.attribute
-           	
-           	for attribute in prim.attributes {
-              		#partial switch attribute.type {
-              		case .position:
-                 			attr_position = attribute
-              		case .normal:
-                 			attr_normal = attribute
-              		case .texcoord:
-                 			attr_texcoord = attribute
-              		case:
-             			// it's outputting "unknown attribute COLOR_0" and it's annoying. 
-             			//  so, i am commenting this error log.
-             			// fmt.eprintfln("Unkown gltf attribute: {}", attribute)
-              		}
-           	}
-            
-            for i in 0 ..< attr_position.data.count {
-          		vertex: VertexData
-          		ok: b32
-          		ok = cgltf.accessor_read_float(attr_position.data, i, &vertex.pos[0], 3)
-          		if !ok do fmt.eprintln("Error reading gltf position")
-          		ok = cgltf.accessor_read_float(attr_normal.data, i, &vertex.normal[0], 3)
-          		if !ok do fmt.eprintln("Error reading gltf normal")
-          		ok = cgltf.accessor_read_float(attr_texcoord.data, i, &vertex.uv[0], 2)
-          		if !ok do fmt.eprintln("Error reading gltf texcoord")
-            
-          		position := v4{vertex.pos.x, vertex.pos.y, vertex.pos.z, 1}
-          		// vertex.pos = (mesh_mat * position).xyz
-          		vertex.pos = (position).xyz
-                append(vertices, vertex)
-          		// vertices[i] = vertex
-           	}
-            
-           	for i in 0 ..< prim.indices.count {
-              		append(indices, u32(cgltf.accessor_read_index(prim.indices, i)) + u32(index_count))
-           	}
-            
-            index_count += u32(attr_position.data.count)
-            
-            index_count_total += u32(prim.indices.count)
-            mesh_index_count += u32(prim.indices.count)
-        }
-        
-        meshes[i] = Mesh {
-            index_offset = mesh_index_offset,
-            index_count = mesh_index_count,
-        }
-    }
-    
-    return meshes
+	
+	meshes := make_slice([]Mesh, len(data.meshes))
+	index_count: u32
+	index_count_total : u32 = 0
+	
+	for mesh, i in data.meshes {
+		
+		mesh_index_offset := index_count_total
+		
+		mesh_index_count : u32
+		
+		for prim in mesh.primitives {
+			
+			attr_position: cgltf.attribute
+			attr_normal: cgltf.attribute
+			attr_texcoord: cgltf.attribute
+			
+			for attribute in prim.attributes {
+				#partial switch attribute.type {
+				case .position:
+					attr_position = attribute
+				case .normal:
+					attr_normal = attribute
+				case .texcoord:
+					attr_texcoord = attribute
+				case:
+				// it's outputting "unknown attribute COLOR_0" and it's annoying. 
+				//  so, i am commenting this error log.
+				// fmt.eprintfln("Unkown gltf attribute: {}", attribute)
+				}
+			}
+			
+			for i in 0 ..< attr_position.data.count {
+				vertex: VertexData
+				ok: b32
+				ok = cgltf.accessor_read_float(attr_position.data, i, &vertex.pos[0], 3)
+				if !ok do fmt.eprintln("Error reading gltf position")
+				ok = cgltf.accessor_read_float(attr_normal.data, i, &vertex.normal[0], 3)
+				if !ok do fmt.eprintln("Error reading gltf normal")
+				ok = cgltf.accessor_read_float(attr_texcoord.data, i, &vertex.uv[0], 2)
+				if !ok do fmt.eprintln("Error reading gltf texcoord")
+				
+				position := v4{vertex.pos.x, vertex.pos.y, vertex.pos.z, 1}
+				// vertex.pos = (mesh_mat * position).xyz
+				vertex.pos = (position).xyz
+				append(vertices, vertex)
+				// vertices[i] = vertex
+			}
+			
+			for i in 0 ..< prim.indices.count {
+				append(indices, u32(cgltf.accessor_read_index(prim.indices, i)) + u32(index_count))
+			}
+			
+			index_count += u32(attr_position.data.count)
+			
+			index_count_total += u32(prim.indices.count)
+			mesh_index_count += u32(prim.indices.count)
+		}
+		
+		meshes[i] = Mesh {
+			index_offset = mesh_index_offset,
+			index_count = mesh_index_count,
+		}
+	}
+	
+	return meshes
 }
 
 get_node_world_matrix :: proc(node:Node, scene:Scene) -> dxm {
-    
-    res : dxm = 1
-    
-    node_i := node
-    
-    for {
-        
-        boosted_t := node_i.transform_t * 1
-        translation_mat := linalg.matrix4_translate_f32(boosted_t)
-        
-        boosted_s := node_i.transform_s * 1
-        scale_mat := linalg.matrix4_scale_f32(boosted_s)
-        
-        rot_quat : quaternion128 = quaternion(w=node_i.transform_r[0], x=node_i.transform_r[1], y=node_i.transform_r[2], z=node_i.transform_r[3])
-	    rot_mat := linalg.matrix4_from_quaternion_f32(rot_quat)
-        
-        // mesh_world : dxm = translation_mat * rot_mat * scale_mat
-        // no rot
-        mesh_world : dxm = translation_mat * scale_mat
-        // mesh_world : dxm = scale_mat * rot_mat * translation_mat
-        
-        res = res * mesh_world
-        // res = mesh_world * res
-        // break
-        
-        if node_i.parent == -1 do break
-        node_i = scene.nodes[node_i.parent]
-    }
-    
-    return res
+	
+	res : dxm = 1
+	
+	node_i := node
+	
+	for {
+		
+		boosted_t := node_i.transform_t * 1
+		translation_mat := linalg.matrix4_translate_f32(boosted_t)
+		
+		boosted_s := node_i.transform_s * 1
+		scale_mat := linalg.matrix4_scale_f32(boosted_s)
+		
+		rot_quat : quaternion128 = quaternion(w=node_i.transform_r[0], x=node_i.transform_r[1], y=node_i.transform_r[2], z=node_i.transform_r[3])
+  rot_mat := linalg.matrix4_from_quaternion_f32(rot_quat)
+		
+		// mesh_world : dxm = translation_mat * rot_mat * scale_mat
+		// no rot
+		mesh_world : dxm = translation_mat * scale_mat
+		// mesh_world : dxm = scale_mat * rot_mat * translation_mat
+		
+		res = res * mesh_world
+		// res = mesh_world * res
+		// break
+		
+		if node_i.parent == -1 do break
+		node_i = scene.nodes[node_i.parent]
+	}
+	
+	return res
 }
 
 proc_walk :: proc(node: Node, scene: Scene, data: rawptr)
 
 // Walks through the scene tree and runs a proc per node
 scene_walk :: proc(scene: Scene, data: rawptr, thing_to_do: proc_walk) {
-    nodes := scene.nodes
-    
-    for root_node in scene.root_nodes {
-        node_i := scene.nodes[root_node]
-        
-        // algorithm state
-        cur_child_i : uint = 0
-        depth := 0
-        child_i_levels : [10]uint
-        children_are_explored : bool
-        
-        for {
-            
-            if !children_are_explored {
-                
-                // do the stuff here
-                thing_to_do(node_i, scene, data)
-            }
-            
-            if node_i.children == nil || children_are_explored {
-                children_are_explored = false
-                
-                // go to next sibling
-                cur_child_i += 1
-                
-                if node_i.parent == -1 {
-                    break
-                }
-                
-                // if there is no next sibling, go up 
-                
-                node_parent := nodes[node_i.parent]
-                
-                if cur_child_i >= len(node_parent.children) {
-                    
-                    depth -= 1
-                    
-                    // if the current's node's parent doesn't have a parent, we're done!
-                    if node_parent.parent == -1 {
-                        break
-                    }
-                    
-                    // check if this one has a sibling
-                    
-                    node_grandparent := nodes[node_parent.parent]
-                    
-                    node_i = nodes[node_grandparent.children[child_i_levels[depth]]]
-                    cur_child_i = child_i_levels[depth]
-                    children_are_explored = true
-                    continue
-                }
-                
-                node_i = nodes[node_parent.children[cur_child_i]]
-            } else {
-                // go to first child
-                child_i_levels[depth] = cur_child_i
-                cur_child_i = 0
-                node_i = nodes[node_i.children[cur_child_i]]
-                depth += 1
-            }
-        }
-    }
+	nodes := scene.nodes
+	
+	for root_node in scene.root_nodes {
+		node_i := scene.nodes[root_node]
+		
+		// algorithm state
+		cur_child_i : uint = 0
+		depth := 0
+		child_i_levels : [10]uint
+		children_are_explored : bool
+		
+		for {
+			
+			if !children_are_explored {
+				
+				// do the stuff here
+				thing_to_do(node_i, scene, data)
+			}
+			
+			if node_i.children == nil || children_are_explored {
+				children_are_explored = false
+				
+				// go to next sibling
+				cur_child_i += 1
+				
+				if node_i.parent == -1 {
+					break
+				}
+				
+				// if there is no next sibling, go up 
+				
+				node_parent := nodes[node_i.parent]
+				
+				if cur_child_i >= len(node_parent.children) {
+					
+					depth -= 1
+					
+					// if the current's node's parent doesn't have a parent, we're done!
+					if node_parent.parent == -1 {
+						break
+					}
+					
+					// check if this one has a sibling
+					
+					node_grandparent := nodes[node_parent.parent]
+					
+					node_i = nodes[node_grandparent.children[child_i_levels[depth]]]
+					cur_child_i = child_i_levels[depth]
+					children_are_explored = true
+					continue
+				}
+				
+				node_i = nodes[node_parent.children[cur_child_i]]
+			} else {
+				// go to first child
+				child_i_levels[depth] = cur_child_i
+				cur_child_i = 0
+				node_i = nodes[node_i.children[cur_child_i]]
+				depth += 1
+			}
+		}
+	}
 }
 
 gltf_load_nodes :: proc(data:^cgltf.data) -> Scene {
-    
-    // TODO: don't leak this
-    nodes := make([]Node, len(data.nodes))
-    root_node_count :int = 0
-    
-    for node, i in data.nodes {
-        if node.parent == nil {
-            root_node_count += 1
-        }
-    }
-    
-    // TODO: don't leak this
-    root_nodes := make([]int, root_node_count)
-    root_node_i := 0
-    mesh_count : uint
-    
-    for node, i in data.nodes {
-        // TODO: don't leak this
-        node_children := make([]int, len(node.children))
-        
-        for n_child, i in node.children {
-            node_children[i] = int(cgltf.node_index(data, n_child))
-        }
-        
-        if node.mesh != nil {
-            mesh_count += 1
-        }
-        
-        nodes[i] = Node {
-            name = strings.clone_from_cstring(node.name),
-            transform_t = node.translation,
-            transform_r = node.rotation,
-            transform_s = node.scale,
-            children = node_children,
-            parent = node.parent == nil ? -1 : int(cgltf.node_index(data, node.parent)),
-            mesh = node.mesh == nil ? -1 : int(cgltf.mesh_index(data, node.mesh))
-        }
-        
-        if node.parent == nil {
-            root_nodes[root_node_i] = i
-            root_node_i += 1
-        }
-    }
-    
-    return Scene {
-        nodes = nodes,
-        root_nodes = root_nodes,
-        mesh_count = mesh_count
-    }
+	
+	// TODO: don't leak this
+	nodes := make([]Node, len(data.nodes))
+	root_node_count :int = 0
+	
+	for node, i in data.nodes {
+		if node.parent == nil {
+			root_node_count += 1
+		}
+	}
+	
+	// TODO: don't leak this
+	root_nodes := make([]int, root_node_count)
+	root_node_i := 0
+	mesh_count : uint
+	
+	for node, i in data.nodes {
+		// TODO: don't leak this
+		node_children := make([]int, len(node.children))
+		
+		for n_child, i in node.children {
+			node_children[i] = int(cgltf.node_index(data, n_child))
+		}
+		
+		if node.mesh != nil {
+			mesh_count += 1
+		}
+		
+		nodes[i] = Node {
+			name = strings.clone_from_cstring(node.name),
+			transform_t = node.translation,
+			transform_r = node.rotation,
+			transform_s = node.scale,
+			children = node_children,
+			parent = node.parent == nil ? -1 : int(cgltf.node_index(data, node.parent)),
+			mesh = node.mesh == nil ? -1 : int(cgltf.mesh_index(data, node.mesh))
+		}
+		
+		if node.parent == nil {
+			root_nodes[root_node_i] = i
+			root_node_i += 1
+		}
+	}
+	
+	return Scene {
+		nodes = nodes,
+		root_nodes = root_nodes,
+		mesh_count = mesh_count
+	}
 }
 
 do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
@@ -1666,21 +1666,21 @@ imgui_init :: proc() {
 
 
 
-// // Initialization data, for ImGui_ImplDX12_Init()
-// InitInfo :: struct {
-// 	Device:            ^d3d12.IDevice,
-// 	CommandQueue:      ^d3d12.ICommandQueue,
-// 	NumFramesInFlight: i32,
-// 	RTVFormat:         dxgi.FORMAT,          // RenderTarget format.
-// 	DSVFormat:         dxgi.FORMAT,          // DepthStencilView format.
-// 	UserData:          rawptr,
+	// // Initialization data, for ImGui_ImplDX12_Init()
+	// InitInfo :: struct {
+	// 	Device:            ^d3d12.IDevice,
+	// 	CommandQueue:      ^d3d12.ICommandQueue,
+	// 	NumFramesInFlight: i32,
+	// 	RTVFormat:         dxgi.FORMAT,          // RenderTarget format.
+	// 	DSVFormat:         dxgi.FORMAT,          // DepthStencilView format.
+	// 	UserData:          rawptr,
 
-// 	// Allocating SRV descriptors for textures is up to the application, so we provide callbacks.
-// 	// (current version of the backend will only allocate one descriptor, future versions will need to allocate more)
-// 	SrvDescriptorHeap:    ^d3d12.IDescriptorHeap,
-// 	SrvDescriptorAllocFn: proc "c" (info: ^InitInfo, out_cpu_desc_handle: ^d3d12.CPU_DESCRIPTOR_HANDLE, out_gpu_desc_handle: ^d3d12.GPU_DESCRIPTOR_HANDLE),
-// 	SrvDescriptorFreeFn:  proc "c" (info: ^InitInfo, cpu_desc_handle: d3d12.CPU_DESCRIPTOR_HANDLE, gpu_desc_handle: d3d12.GPU_DESCRIPTOR_HANDLE),
-// }
+	// 	// Allocating SRV descriptors for textures is up to the application, so we provide callbacks.
+	// 	// (current version of the backend will only allocate one descriptor, future versions will need to allocate more)
+	// 	SrvDescriptorHeap:    ^d3d12.IDescriptorHeap,
+	// 	SrvDescriptorAllocFn: proc "c" (info: ^InitInfo, out_cpu_desc_handle: ^d3d12.CPU_DESCRIPTOR_HANDLE, out_gpu_desc_handle: ^d3d12.GPU_DESCRIPTOR_HANDLE),
+	// 	SrvDescriptorFreeFn:  proc "c" (info: ^InitInfo, cpu_desc_handle: d3d12.CPU_DESCRIPTOR_HANDLE, gpu_desc_handle: d3d12.GPU_DESCRIPTOR_HANDLE),
+	// }
 
 	// create a shader resource view  heap (srv)
 
@@ -1697,7 +1697,7 @@ imgui_init :: proc() {
 	}
 
 	hr := c.device->CreateDescriptorHeap(&srv_descriptor_heap_desc,
-		 dx.IDescriptorHeap_UUID, (^rawptr)(&dx_context.imgui_descriptor_heap))
+	 dx.IDescriptorHeap_UUID, (^rawptr)(&dx_context.imgui_descriptor_heap))
 	check(hr, "could ont create imgui descriptor heap")
 	dx_context.imgui_descriptor_heap->SetName("imgui's cbv srv uav descriptor heap")
 	sa.push(&resources_longterm, dx_context.imgui_descriptor_heap)
@@ -1761,7 +1761,7 @@ imgui_update_after :: proc() {
 // helpers
 
 get_descriptor_heap_gpu_address :: proc(heap: ^dx.IDescriptorHeap, offset: u32 = 0) -> 
-		(gpu_descriptor_handle : dx.GPU_DESCRIPTOR_HANDLE){
+		(gpu_descriptor_handle : dx.GPU_DESCRIPTOR_HANDLE) {
 	heap->GetGPUDescriptorHandleForHeapStart(&gpu_descriptor_handle)
 	desc : dx.DESCRIPTOR_HEAP_DESC
 	heap->GetDesc(&desc)
@@ -1772,7 +1772,7 @@ get_descriptor_heap_gpu_address :: proc(heap: ^dx.IDescriptorHeap, offset: u32 =
 
 
 get_descriptor_heap_cpu_address :: proc(heap: ^dx.IDescriptorHeap, offset: u32 = 0) -> 
-		(cpu_descriptor_handle : dx.CPU_DESCRIPTOR_HANDLE){
+		(cpu_descriptor_handle : dx.CPU_DESCRIPTOR_HANDLE) {
 	heap->GetCPUDescriptorHandleForHeapStart(&cpu_descriptor_handle)
 	desc : dx.DESCRIPTOR_HEAP_DESC
 	heap->GetDesc(&desc)
@@ -1923,8 +1923,8 @@ create_gbuffer :: proc() -> GBuffer {
 
 	// albedo color and specular
 	gb_1_res := create_texture(u64(wx), u32(wy), gb_albedo_format, {.ALLOW_RENDER_TARGET}, 
-			initial_state = {.PIXEL_SHADER_RESOURCE},
-			pool = &resources_longterm)
+		initial_state = {.PIXEL_SHADER_RESOURCE},
+		pool = &resources_longterm)
 
 	gb_1_res->SetName("gbuffer unit 0: ALBEDO + SPECULAR")
 
@@ -1991,22 +1991,22 @@ create_gbuffer :: proc() -> GBuffer {
 
 // TODO organize this
 BufferThing :: struct {
-    model_matrix: dxm
+	model_matrix: dxm
 }
 
 
 // this is the same as create_sample_texture
 // it creates an upload heap, copies data to it, then transfers it to the default heap.
 create_structured_buffer :: proc(pool: ^DXResourcePool) {
-    
-    ct := &dx_context
-    
-    // make it specific for what u want now.
-    // then we can turn it into a helper function. later.
-    
-    
-    buffer_size: u64 = size_of(BufferThing) * u64(scene.mesh_count)
-    
+	
+	ct := &dx_context
+	
+	// make it specific for what u want now.
+	// then we can turn it into a helper function. later.
+	
+	
+	buffer_size: u64 = size_of(BufferThing) * u64(scene.mesh_count)
+	
 	heap_properties := dx.HEAP_PROPERTIES {
 		Type = .DEFAULT,
 	}
@@ -2028,7 +2028,7 @@ create_structured_buffer :: proc(pool: ^DXResourcePool) {
 	// CreateCommittedResource:          proc "system" (this: ^IDevice, 
 	//  pHeapProperties: ^HEAP_PROPERTIES, HeapFlags: HEAP_FLAGS, pDesc: ^RESOURCE_DESC, InitialResourceState: RESOURCE_STATES, 
 	//   pOptimizedClearValue: ^CLEAR_VALUE, riidResource: ^IID, ppvResource: ^rawptr) -> HRESULT,
-   
+	
 	hr := ct.device->CreateCommittedResource(
 		pHeapProperties = &heap_properties,
 		HeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
@@ -2069,19 +2069,19 @@ create_structured_buffer :: proc(pool: ^DXResourcePool) {
 	// Copying data from cpu to upload resource
 	
 	Data :: struct {
-    	sample_matrix_data : []BufferThing,
-    	mesh_i : uint,
+		sample_matrix_data : []BufferThing,
+		mesh_i : uint,
 	}
 	
 	data := Data {
-    	sample_matrix_data = make([]BufferThing, scene.mesh_count, allocator = context.temp_allocator),
-    	mesh_i = 0,
+		sample_matrix_data = make([]BufferThing, scene.mesh_count, allocator = context.temp_allocator),
+		mesh_i = 0,
 	}
 	
 	scene_walk(scene, &data, proc(node: Node, scene: Scene, data: rawptr) {
-	    if node.mesh == -1  do return
+  if node.mesh == -1  do return
 		data := cast(^Data)data
-	    data.sample_matrix_data[data.mesh_i].model_matrix = get_node_world_matrix(node, scene)
+  data.sample_matrix_data[data.mesh_i].model_matrix = get_node_world_matrix(node, scene)
 		data.mesh_i += 1
 	})
 	
@@ -2102,10 +2102,10 @@ create_structured_buffer :: proc(pool: ^DXResourcePool) {
 }
 
 create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3dc.ID3D10Blob) -> ^dx.IPipelineState {
-    
-    c := &dx_context
-    
-    default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
+	
+	c := &dx_context
+	
+	default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
 		BlendEnable           = false,
 		LogicOpEnable         = false,
 		SrcBlend              = .ONE,
@@ -2117,13 +2117,13 @@ create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3d
 		LogicOp               = .NOOP,
 		RenderTargetWriteMask = u8(dx.COLOR_WRITE_ENABLE_ALL),
 	}
-   
+	
 	// the swapchain rtv
 	rtv_formats := [8]dxgi.FORMAT {
 		0 =.R8G8B8A8_UNORM,
 		1..<7 = .UNKNOWN,
 	}
-   
+	
 	pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
 		pRootSignature = root_signature,
 		VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
@@ -2168,7 +2168,7 @@ create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3d
 	}
 	
 	pso : ^dx.IPipelineState
-   
+	
 	hr :=
 	c.device->CreateGraphicsPipelineState(
 		&pipeline_state_desc,
@@ -2189,8 +2189,8 @@ create_lighting_pso_initial :: proc() {
 	vs, ps, ok := compile_shader(lighting_shader_filename)
 	
 	if !ok {
-        lprintfln("could not compile shader!! check logs")
-        os.exit(1)
+		lprintfln("could not compile shader!! check logs")
+		os.exit(1)
 	}
 	
 	// create root signature
@@ -2290,10 +2290,10 @@ create_lighting_root_signature :: proc() {
 }
 
 create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3dc.ID3D10Blob) -> ^dx.IPipelineState {
-    
-    c := &dx_context
-    
-    // This layout matches the vertices data defined further down
+	
+	c := &dx_context
+	
+	// This layout matches the vertices data defined further down
 	// this has to include the instance data!!
 	vertex_format :=  [?]dx.INPUT_ELEMENT_DESC {
 		{
@@ -2361,7 +2361,7 @@ create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3dc
 			InstanceDataStepRate = 1
 		},
 	}
-   
+	
 	default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
 		BlendEnable           = false,
 		LogicOpEnable         = false,
@@ -2374,7 +2374,7 @@ create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3dc
 		LogicOp               = .NOOP,
 		RenderTargetWriteMask = u8(dx.COLOR_WRITE_ENABLE_ALL),
 	}
-   
+	
 	// all formats of the g buffers
 	// HERE
 	rtv_formats := [8]dxgi.FORMAT {
@@ -2383,7 +2383,7 @@ create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3dc
 		2 = dx_context.gbuffer.gb_position.format,
 		3 ..< 7 = .UNKNOWN,
 	}
-   
+	
 	pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
 		pRootSignature = root_signature,
 		VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
@@ -2427,7 +2427,7 @@ create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3dc
 	}
 	
 	pso : ^dx.IPipelineState
-   
+	
 	hr :=
 	c.device->CreateGraphicsPipelineState(
 		&pipeline_state_desc,
@@ -2447,13 +2447,13 @@ create_gbuffer_pso_initial :: proc() {
 
 	vs, ps, ok := compile_shader(gbuffer_shader_filename)
 	if !ok {
-        lprintfln("could not compile shader!! check logs")
-        os.exit(1)
+		lprintfln("could not compile shader!! check logs")
+		os.exit(1)
 	}
 
-    c.pipeline_gbuffer = create_new_gbuffer_pso(c.gbuffer_pass_root_signature, vs, ps)
-    
-    pso_index := sa.len(resources_longterm)
+	c.pipeline_gbuffer = create_new_gbuffer_pso(c.gbuffer_pass_root_signature, vs, ps)
+	
+	pso_index := sa.len(resources_longterm)
 	sa.push(&resources_longterm, c.pipeline_gbuffer)
 	
 	hotswap_init(&c.gbuffer_hotswap, gbuffer_shader_filename, pso_index)
@@ -2518,10 +2518,10 @@ render_gbuffer_pass :: proc() {
 			Type  = .TRANSITION,
 			Flags = {},
 			Transition = {
-					pResource   = nil,
-					StateBefore = {.PIXEL_SHADER_RESOURCE},
-					StateAfter  = {.RENDER_TARGET},
-					Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
+				pResource   = nil,
+				StateBefore = {.PIXEL_SHADER_RESOURCE},
+				StateAfter  = {.RENDER_TARGET},
+				Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
 			}
 		}
 
@@ -2580,21 +2580,21 @@ render_gbuffer_pass :: proc() {
 	// drawing scene
 	
 	scene_walk(scene, nil, proc(node: Node, scene: Scene, data: rawptr) {
-        ct := &dx_context
-        
-        if node.mesh == -1 {
-            return
-        } 
-        
-        mesh_to_render := meshes[node.mesh]
-        
-        if mesh_drawn_count < ct.meshes_to_render {
-            ct.cmdlist->SetGraphicsRoot32BitConstant(2, u32(mesh_drawn_count), 0)
-            ct.cmdlist->DrawIndexedInstanced(mesh_to_render.index_count, 
-                1, mesh_to_render.index_offset, 0, 0)
-        }
-        
-        mesh_drawn_count += 1
+		ct := &dx_context
+		
+		if node.mesh == -1 {
+			return
+		} 
+		
+		mesh_to_render := meshes[node.mesh]
+		
+		if mesh_drawn_count < ct.meshes_to_render {
+			ct.cmdlist->SetGraphicsRoot32BitConstant(2, u32(mesh_drawn_count), 0)
+			ct.cmdlist->DrawIndexedInstanced(mesh_to_render.index_count, 
+				1, mesh_to_render.index_offset, 0, 0)
+		}
+		
+		mesh_drawn_count += 1
 	})
 }
 
@@ -2614,10 +2614,10 @@ render_lighting_pass :: proc() {
 			Type  = .TRANSITION,
 			Flags = {},
 			Transition = {
-					pResource   = nil,
-					StateBefore  = {.RENDER_TARGET},
-					StateAfter = {.PIXEL_SHADER_RESOURCE},
-					Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
+				pResource   = nil,
+				StateBefore  = {.RENDER_TARGET},
+				StateAfter = {.PIXEL_SHADER_RESOURCE},
+				Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
 			}
 		}
 
@@ -2634,7 +2634,7 @@ render_lighting_pass :: proc() {
 		c.cmdlist->ResourceBarrier(3, &res_barriers[0])
 	}
 
-// here u have to transition the swapchain buffer so it is a RT
+	// here u have to transition the swapchain buffer so it is a RT
 	{
 		to_render_target_barrier := dx.RESOURCE_BARRIER {
 			Type  = .TRANSITION,
@@ -2726,9 +2726,9 @@ render_lighting_pass :: proc() {
 }
 
 print_ref_count :: proc(obj: ^dx.IUnknown) {
-    obj->AddRef()
-    count := obj->Release()
-    fmt.printfln("count: %v", count)
+	obj->AddRef()
+	count := obj->Release()
+	fmt.printfln("count: %v", count)
 }
 
 // Prints to windows debug, with a fmt.println() interface
@@ -2739,21 +2739,21 @@ lprintln :: proc(args: ..any, sep := " ") {
 	final_string_c, err := strings.to_cstring(&str)
 	
 	if err != .None {
-	    os.exit(1)
+		os.exit(1)
 	}
 	
-	 windows.OutputDebugStringA(final_string_c)
+	windows.OutputDebugStringA(final_string_c)
 }
 
 lprintfln :: proc(fmt_s: string, args: ..any) {
-    str: strings.Builder
+	str: strings.Builder
 	strings.builder_init(&str, context.temp_allocator)
 	final_string := fmt.sbprintf(&str, fmt_s, ..args, newline=true)
 	
 	final_string_c, err := strings.to_cstring(&str)
 	
 	if err != .None {
-	    os.exit(1)
+		os.exit(1)
 	}
 	
 	windows.OutputDebugStringA(final_string_c)
@@ -2762,16 +2762,16 @@ lprintfln :: proc(fmt_s: string, args: ..any) {
 // Automatic profiling of every procedure:
 
 when PROFILE {
-    
-@(instrumentation_enter)
-spall_enter :: proc "contextless" (proc_address, call_site_return_address: rawptr, loc: runtime.Source_Code_Location) {
-	spall._buffer_begin(&spall_ctx, &spall_buffer, "", "", loc)
-}
+	
+	@(instrumentation_enter)
+	spall_enter :: proc "contextless" (proc_address, call_site_return_address: rawptr, loc: runtime.Source_Code_Location) {
+		spall._buffer_begin(&spall_ctx, &spall_buffer, "", "", loc)
+	}
 
-@(instrumentation_exit)
-spall_exit :: proc "contextless" (proc_address, call_site_return_address: rawptr, loc: runtime.Source_Code_Location) {
-	spall._buffer_end(&spall_ctx, &spall_buffer)
-}
+	@(instrumentation_exit)
+	spall_exit :: proc "contextless" (proc_address, call_site_return_address: rawptr, loc: runtime.Source_Code_Location) {
+		spall._buffer_end(&spall_ctx, &spall_buffer)
+	}
 
 }
 
@@ -2780,49 +2780,49 @@ pso_creation_signature :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3dc
 // checks if it should rebuild a shader
 // if it should then compiles the new shader and makes a new PSO with it
 hotswap_watch :: proc(hs: ^HotSwapState, root_signature: ^dx.IRootSignature, shader_name: string,
-    pso_creation_proc : pso_creation_signature) {
-        
-    // watch for shader change
-	game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(shader_name)
-	
-	reload := false
-	
-	if game_dll_mod_err == os.ERROR_NONE && hs.last_write_time != game_dll_mod {
-	    hs.last_write_time = game_dll_mod
-		reload = true
-	}
-	
-	if reload {
-		lprintfln("Recompiling shader...")
-		// handle releasing resources
-		vs, ps, ok := compile_shader(shader_name)
-		if !ok {
-               lprintfln("Could not compile new shader!! check logs")
-		} else {
-			// create the new PSO to be swapped later
-    	    hs.pso_swap = pso_creation_proc(root_signature, vs, ps)
-			vs->Release()
-			ps->Release()
+	pso_creation_proc : pso_creation_signature) {
+		
+		// watch for shader change
+		game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(shader_name)
+		
+		reload := false
+		
+		if game_dll_mod_err == os.ERROR_NONE && hs.last_write_time != game_dll_mod {
+   hs.last_write_time = game_dll_mod
+			reload = true
+		}
+		
+		if reload {
+			lprintfln("Recompiling shader...")
+			// handle releasing resources
+			vs, ps, ok := compile_shader(shader_name)
+			if !ok {
+				lprintfln("Could not compile new shader!! check logs")
+			} else {
+				// create the new PSO to be swapped later
+				hs.pso_swap = pso_creation_proc(root_signature, vs, ps)
+				vs->Release()
+				ps->Release()
+			}
 		}
 	}
-}
 
-hotswap_init :: proc(hs: ^HotSwapState, shader_filename: string, index_in_free_queue: int) {
-    game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(shader_filename)
-	if game_dll_mod_err == os.ERROR_NONE {
-           hs.last_write_time = game_dll_mod
-           
+	hotswap_init :: proc(hs: ^HotSwapState, shader_filename: string, index_in_free_queue: int) {
+		game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(shader_filename)
+		if game_dll_mod_err == os.ERROR_NONE {
+			hs.last_write_time = game_dll_mod
+			
+		}
+		hs.pso_index = index_in_free_queue
 	}
-	hs.pso_index = index_in_free_queue
-}
 
-hotswap_swap :: proc(hs: ^HotSwapState, pso: ^^dx.IPipelineState) {
-    if hs.pso_swap != nil {
-  		pso^->Release()
-  		pso^ = hs.pso_swap
-        // replace pointer from freeing queue
-        pso_pointer := sa.get_ptr(&resources_longterm, hs.pso_index)
-        pso_pointer^ = pso^
-  		hs.pso_swap = nil
-    }
-}
+	hotswap_swap :: proc(hs: ^HotSwapState, pso: ^^dx.IPipelineState) {
+		if hs.pso_swap != nil {
+			pso^->Release()
+			pso^ = hs.pso_swap
+			// replace pointer from freeing queue
+			pso_pointer := sa.get_ptr(&resources_longterm, hs.pso_index)
+			pso_pointer^ = pso^
+			hs.pso_swap = nil
+		}
+	}
