@@ -143,7 +143,7 @@ compile_shader :: proc(shader_filename: string) -> (vs, ps: ^d3dc.ID3D10Blob, ok
 	ps_res: ^d3dc.ID3DBlob
 
 	hr := d3dc.Compile(
-		rawptr(&data[0]), data_size, nil, nil, nil, "VSMain", "vs_4_0",
+		rawptr(&data[0]), data_size, nil, nil, nil, "VSMain", "vs_5_0",
 		compile_flags, 0, &vs, &vs_res,
 	)
 
@@ -163,7 +163,7 @@ compile_shader :: proc(shader_filename: string) -> (vs, ps: ^d3dc.ID3D10Blob, ok
 	}
 
 	hr = d3dc.Compile(
-		rawptr(&data[0]), data_size, nil, nil, nil, "PSMain", "ps_4_0",
+		rawptr(&data[0]), data_size, nil, nil, nil, "PSMain", "ps_5_0",
 		compile_flags, 0, &ps, &ps_res
 	)
 

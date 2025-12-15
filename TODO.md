@@ -1,5 +1,8 @@
 # current todo
 
+- run profiler to see why the startup is so slow
+- switch to the new compiler (dxc). u are using the old one.
+   -  vendor:directx/dxc
 - do vsync. the fps are unlimited now. not good
 - rebind `g t` to "go to type" (it's at `g y`)
 - TODO: find out how to abstract and/or share fences

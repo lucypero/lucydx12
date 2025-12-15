@@ -34,6 +34,22 @@ cbuffer ConstantBuffer : register(b0) {
     bool place_texture;
 };
 
+Texture2D<float4> myTexture : register(t1);
+
+struct MeshTransform
+{
+    float4x4 model; 
+};
+
+StructuredBuffer<MeshTransform> mesh_transforms : register(t2);
+
+
+SamplerState mySampler : register(s0);
+
+cbuffer DrawConstants : register(b1) {
+    uint mesh_index;
+};
+
 PSInput VSMain(VSInput the_input) {
     PSInput result;
 
@@ -41,7 +57,7 @@ PSInput VSMain(VSInput the_input) {
     // float4x4 world_matrix = float4x4(the_input.worldM0, the_input.worldM1, the_input.worldM2, the_input.worldM3);
     // world_matrix = transpose(world_matrix);
     
-    float4x4 world_matrix = world;
+    float4x4 world_matrix = mesh_transforms[mesh_index].model;
 
     float4 pos = float4(the_input.position, 1.0f);
 
@@ -59,9 +75,6 @@ PSInput VSMain(VSInput the_input) {
     result.color = the_input.color;
     return result;
 }
-
-Texture2D<float4> myTexture : register(t1);
-SamplerState mySampler : register(s0);
 
 struct PSOutput {
     // Target 0: Albedo Color (RGB) and Specular Intensity (A)
