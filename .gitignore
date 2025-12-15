@@ -4,3 +4,5 @@
 models/
 .obsidian/
 imgui.ini
+*.raduser
+*.radproject

@@ -103,6 +103,7 @@ meshes : []Mesh
 Scene :: struct {
     nodes: []Node,
     root_nodes: []int,
+    mesh_count: uint
 }
 
 Node :: struct {
@@ -238,8 +239,9 @@ Context :: struct {
 	fence_value:         u64,
 	fence_event:         windows.HANDLE,
 
-	// texture
+	// resources
 	texture : ^dx.IResource,
+	res_structured_buffer: ^dx.IResource,
 
 	// descriptor heap for our cbv and srv (texture)
 	descriptor_heap_cbv_srv_uav: ^dx.IDescriptorHeap,
@@ -258,6 +260,7 @@ Context :: struct {
 	// app data
 
 	cam_angle: f32,
+	cam_y: f32,
 	cam_distance: f32,
 	meshes_to_render: int,
 	
@@ -268,8 +271,9 @@ Context :: struct {
 
 // initializes app data in Context struct
 context_init :: proc(con: ^Context) {
-	con.cam_angle = 0.080
-	con.cam_distance = 2.320
+	con.cam_angle = 0.252
+	con.cam_y = -7.082
+	con.cam_distance = -7.365
 	light_pos = v3{4.1,3.5,4.5}
 	light_int = 1
 	light_speed = 0.002
@@ -469,10 +473,6 @@ when PROFILE {
 	check(hr, "Failed to close command list")
 	sa.push(&resources_longterm, dx_context.cmdlist)
 
-	// texture test
-	create_sample_texture()
-
-	create_descriptor_heap_cbv_srv_uav()
 
 	vertex_buffer: ^dx.IResource
 	index_buffer: ^dx.IResource
@@ -566,7 +566,10 @@ when PROFILE {
 		index_buffer->Unmap(0, nil)
 	}
 	
+	create_sample_texture()
 	create_structured_buffer(&resources_longterm)
+	
+	create_descriptor_heap_cbv_srv_uav()
 
 	// This fence is used to wait for frames to finish
 	{
@@ -781,6 +784,7 @@ get_projection_matrix :: proc(fov_rad: f32, screenWidth: i32, screenHeight: i32,
 get_cam_pos :: proc() -> v3 {
 	cam_pos : v3
 
+	cam_pos.y = dx_context.cam_y
 	cam_pos.z = -dx_context.cam_distance
 
 	// rotate on Y axis
@@ -834,6 +838,7 @@ update :: proc() {
 	im.Begin("lucydx12")
 
 	im.SliderFloat("camera angle", &dx_context.cam_angle, 0, 1)
+	im.SliderFloat("camera y", &dx_context.cam_y, -500, 500)
 	im.SliderFloat("camera distance", &dx_context.cam_distance, -200, 200)
 
 	im.DragFloat3("light pos", &light_pos, 0.1, -5, 5)
@@ -842,7 +847,7 @@ update :: proc() {
 	
 	im.InputInt("mesh count to draw", (^i32)(&c.meshes_to_render))
 
-	// im.Checkbox("place texture", &place_texture)
+	im.Checkbox("place texture", &place_texture)
 	
 	// if im.Button("Re-roll teapots") {
 	// 	reroll_teapots()
@@ -1145,13 +1150,17 @@ reroll_teapots :: proc() {
 }
 
 // creates the descriptor heap that will hold all our cbv's srv's and uav's
+// List of descriptors in it:
+// - 0 - A test constant buffer (CBV). It has things like Time
+// - 1 - A test texture (SRV). now, it's astrobot
+// - 2 - A structured buffer (SRV). containing model matrices
 create_descriptor_heap_cbv_srv_uav :: proc() {
 
 	c := &dx_context
 
 	// creating descriptor heap
 	cbv_heap_desc := dx.DESCRIPTOR_HEAP_DESC {
-		NumDescriptors = 2,
+		NumDescriptors = 3,
 		Type           = .CBV_SRV_UAV,
 		Flags          = {.SHADER_VISIBLE},
 	}
@@ -1175,20 +1184,27 @@ create_descriptor_heap_cbv_srv_uav :: proc() {
 	// creating SRV (my texture) (AT INDEX 1)
 	c.device->CreateShaderResourceView(c.texture, nil, 
 		get_descriptor_heap_cpu_address(c.descriptor_heap_cbv_srv_uav, 1))
+	
+	// creating SRV (structured buffer) (index 2)
+	srv_desc := dx.SHADER_RESOURCE_VIEW_DESC {
+        Format = .UNKNOWN,
+        ViewDimension = .BUFFER,
+        Shader4ComponentMapping = dx.ENCODE_SHADER_4_COMPONENT_MAPPING(0,1,2,3), // this is the default mapping
+        Buffer = {
+            FirstElement = 0,
+            NumElements = u32(scene.mesh_count),
+            StructureByteStride = size_of(BufferThing),
+            Flags = {}
+        }
+	}
+	
+	c.device->CreateShaderResourceView(c.res_structured_buffer, &srv_desc, 
+		get_descriptor_heap_cpu_address(c.descriptor_heap_cbv_srv_uav, 2))
 }
 
 create_gbuffer_pass_root_signature :: proc() {
 
-	// We'll define a descriptor range for our texture SRV
-	texture_range := dx.DESCRIPTOR_RANGE {
-		RangeType = .SRV,
-		NumDescriptors = 1, // Only one texture
-		BaseShaderRegister = 1, // Corresponds to t1 in the shader
-		RegisterSpace = 0,
-		OffsetInDescriptorsFromTableStart = dx.DESCRIPTOR_RANGE_OFFSET_APPEND,
-	}
-
-	root_parameters_len :: 2
+	root_parameters_len :: 3
 
 	root_parameters: [root_parameters_len]dx.ROOT_PARAMETER
 
@@ -1198,15 +1214,36 @@ create_gbuffer_pass_root_signature :: proc() {
 		Descriptor = {ShaderRegister = 0, RegisterSpace = 0},
 		ShaderVisibility = .ALL, // vertex, pixel, or both (all)
 	}
-
-	// our descriptor table for the texture
-	root_parameters[1] = {
-		ParameterType = .DESCRIPTOR_TABLE,
-		DescriptorTable = {
-			NumDescriptorRanges = 1,
-			pDescriptorRanges = &texture_range
-		},
-		ShaderVisibility = .PIXEL
+	
+	{
+    	// We'll define a descriptor range for our SRVs
+    	srv_range := dx.DESCRIPTOR_RANGE {
+    		RangeType = .SRV,
+    		NumDescriptors = 2,
+    		BaseShaderRegister = 1,
+    		RegisterSpace = 0,
+    		OffsetInDescriptorsFromTableStart = dx.DESCRIPTOR_RANGE_OFFSET_APPEND,
+    	}
+    
+    	// our descriptor table for the texture
+    	root_parameters[1] = {
+    		ParameterType = .DESCRIPTOR_TABLE,
+    		DescriptorTable = {
+    			NumDescriptorRanges = 1,
+    			pDescriptorRanges = &srv_range
+    		},
+    		ShaderVisibility = .ALL // TODO: look into separating them. one parameter for vertex. another for pixel.
+    	}
+	}
+	
+	root_parameters[2] = {
+        ParameterType = ._32BIT_CONSTANTS,
+        Constants = {
+            ShaderRegister = 1,
+           	RegisterSpace = 0,
+           	Num32BitValues = 1
+        },
+        ShaderVisibility = .VERTEX
 	}
 
 	// our static sampler
@@ -1358,45 +1395,10 @@ get_node_world_matrix :: proc(node:Node, scene:Scene) -> dxm {
     return res
 }
 
-draw_node :: proc(node: Node, scene: Scene) {
-    
-    c := &dx_context
-    
-    if node.mesh == -1 {
-        return
-    } 
-    
-    mesh_to_render := meshes[node.mesh]
-    
-    // updating constant buffer (this is awful, change this asap)
-    // TODO improve this. this is super slow
-    {
-        cbv_data := get_most_of_cbv()
-        
-        // calculate mesh world
-        cbv_data.world = get_node_world_matrix(node, scene)
-        // cbv_data.world = 1
-        
-        // sending data to the cpu mapped memory that the gpu can read
-        
-        // this will not work. make a structured buffer that contains all the world matrices needed for the frame.
-        // the draw call will use the last data written here (the last mesh)
-        // TODO: fix this part. read gemini response
-        mem.copy(dx_context.constant_buffer_map, (rawptr)(&cbv_data), size_of(cbv_data))
-    }
-    
-    if mesh_drawn_count >= c.meshes_to_render {
-        
-    } else {
-        c.cmdlist->DrawIndexedInstanced(mesh_to_render.index_count, 
-            1, mesh_to_render.index_offset, 0, 0)
-    }
-    
-    mesh_drawn_count += 1
-}
+proc_walk :: proc(node: Node, scene: Scene, data: rawptr)
 
-draw_scene :: proc(scene: Scene) {
-    
+// Walks through the scene tree and runs a proc per node
+scene_walk :: proc(scene: Scene, data: rawptr, thing_to_do: proc_walk) {
     nodes := scene.nodes
     
     for root_node in scene.root_nodes {
@@ -1413,8 +1415,7 @@ draw_scene :: proc(scene: Scene) {
             if !children_are_explored {
                 
                 // do the stuff here
-                draw_node(node_i, scene)
-                
+                thing_to_do(node_i, scene, data)
             }
             
             if node_i.children == nil || children_are_explored {
@@ -1464,6 +1465,7 @@ draw_scene :: proc(scene: Scene) {
 
 gltf_load_nodes :: proc(data:^cgltf.data) -> Scene {
     
+    // TODO: don't leak this
     nodes := make([]Node, len(data.nodes))
     root_node_count :int = 0
     
@@ -1473,15 +1475,21 @@ gltf_load_nodes :: proc(data:^cgltf.data) -> Scene {
         }
     }
     
+    // TODO: don't leak this
     root_nodes := make([]int, root_node_count)
     root_node_i := 0
+    mesh_count : uint
     
     for node, i in data.nodes {
-        
+        // TODO: don't leak this
         node_children := make([]int, len(node.children))
         
         for n_child, i in node.children {
             node_children[i] = int(cgltf.node_index(data, n_child))
+        }
+        
+        if node.mesh != nil {
+            mesh_count += 1
         }
         
         nodes[i] = Node {
@@ -1502,7 +1510,8 @@ gltf_load_nodes :: proc(data:^cgltf.data) -> Scene {
     
     return Scene {
         nodes = nodes,
-        root_nodes = root_nodes
+        root_nodes = root_nodes,
+        mesh_count = mesh_count
     }
 }
 
@@ -1510,8 +1519,8 @@ do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
 
 	// model_filepath :: "models/teapot.glb"
 	// model_filepath :: "models/main_sponza/NewSponza_Main_glTF_003.gltf"
-	model_filepath :: "models/test_scene.glb"
-	// model_filepath :: "models/main_sponza/sponza_blender.glb"
+	// model_filepath :: "models/test_scene.glb"
+	model_filepath :: "models/main_sponza/sponza_blender.glb"
 	model_filepath_c := strings.clone_to_cstring(model_filepath, context.temp_allocator)
 
 	cgltf_options : cgltf.options
@@ -1545,6 +1554,11 @@ do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
 	lprintfln("mesh count: %v", len(meshes))
 	
 	scene = gltf_load_nodes(data)
+	
+	// printing nodes
+	// scene_walk(scene, nil, proc(node: Node, scene: Scene, data: rawptr) {
+	//     lprintfln("node name: %v", node.name)
+	// })
 	
 	// for root_node in gltf_scene.nodes {
 	//     gltf_load_nodes(data, root_node, &vertices_dyn, &indices_dyn)
@@ -1769,7 +1783,7 @@ get_descriptor_heap_cpu_address :: proc(heap: ^dx.IDescriptorHeap, offset: u32 =
 
 
 // gives you a transformation matrix given a position and scale and rot
-get_world_mat :: proc(pos, scale: v3, rot_rads : f32, rot_vec: v3) -> dxm {
+get_world_mat :: proc(pos, scale: v3, rot_rads : f32 = 0, rot_vec: v3 = {1, 0, 0}) -> dxm {
 
 
 	translation_mat := linalg.matrix4_translate_f32(pos)
@@ -1975,6 +1989,12 @@ create_gbuffer :: proc() -> GBuffer {
 	}
 }
 
+// TODO organize this
+BufferThing :: struct {
+    model_matrix: dxm
+}
+
+
 // this is the same as create_sample_texture
 // it creates an upload heap, copies data to it, then transfers it to the default heap.
 create_structured_buffer :: proc(pool: ^DXResourcePool) {
@@ -1984,13 +2004,8 @@ create_structured_buffer :: proc(pool: ^DXResourcePool) {
     // make it specific for what u want now.
     // then we can turn it into a helper function. later.
     
-    BufferThing :: struct {
-        model_matrix: dxm
-    }
     
-    matrix_count :: 20
-    
-    buffer_size: u64 = size_of(BufferThing) * matrix_count
+    buffer_size: u64 = size_of(BufferThing) * u64(scene.mesh_count)
     
 	heap_properties := dx.HEAP_PROPERTIES {
 		Type = .DEFAULT,
@@ -2018,7 +2033,7 @@ create_structured_buffer :: proc(pool: ^DXResourcePool) {
 		pHeapProperties = &heap_properties,
 		HeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
 		pDesc = &buffer_desc,
-		InitialResourceState = {.COPY_DEST},
+		InitialResourceState = dx.RESOURCE_STATE_COMMON, // it will promote to copy_dest automatically later
 		pOptimizedClearValue = nil,
 		riidResource = dx.IResource_UUID,
 		ppvResource = (^rawptr)(&default_res),
@@ -2053,15 +2068,26 @@ create_structured_buffer :: proc(pool: ^DXResourcePool) {
 	
 	// Copying data from cpu to upload resource
 	
-	sample_matrix_data := make([]BufferThing, matrix_count, allocator = context.temp_allocator)
-	
-	for &mat, i in sample_matrix_data {
-	    mat.model_matrix = f32(i)
+	Data :: struct {
+    	sample_matrix_data : []BufferThing,
+    	mesh_i : uint,
 	}
+	
+	data := Data {
+    	sample_matrix_data = make([]BufferThing, scene.mesh_count, allocator = context.temp_allocator),
+    	mesh_i = 0,
+	}
+	
+	scene_walk(scene, &data, proc(node: Node, scene: Scene, data: rawptr) {
+	    if node.mesh == -1  do return
+		data := cast(^Data)data
+	    data.sample_matrix_data[data.mesh_i].model_matrix = get_node_world_matrix(node, scene)
+		data.mesh_i += 1
+	})
 	
 	// TODO: check if this works.
 	// if it works, make a helper method that just takes a slice. friendlier API
-	copy_to_buffer(upload_res, &sample_matrix_data[0], size_of(sample_matrix_data))
+	copy_to_buffer(upload_res, &data.sample_matrix_data[0], size_of(data.sample_matrix_data[0]) * len(data.sample_matrix_data))
 	
 	dx_context.cmdlist->Reset(ct.command_allocator, ct.pipeline_gbuffer)
 	dx_context.cmdlist->CopyResource(default_res, upload_res)
@@ -2071,12 +2097,13 @@ create_structured_buffer :: proc(pool: ^DXResourcePool) {
 	transition_resource_from_copy_to_read(default_res, ct.cmdlist)
 	
 	execute_command_list_and_wait(ct.cmdlist, ct.queue)
+	
+	ct.res_structured_buffer = default_res
 }
 
 create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3dc.ID3D10Blob) -> ^dx.IPipelineState {
     
     c := &dx_context
-    
     
     default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
 		BlendEnable           = false,
@@ -2549,13 +2576,26 @@ render_gbuffer_pass :: proc() {
 	
 	// rendering each mesh individually
 	// going through scene tree
-	draw_scene(scene)
 	
-	// for mesh in meshes {
- //    	c.cmdlist->DrawIndexedInstanced(mesh.index_count, 
- //        	1, mesh.index_offset, 0, 0)
-	// }
-
+	// drawing scene
+	
+	scene_walk(scene, nil, proc(node: Node, scene: Scene, data: rawptr) {
+        ct := &dx_context
+        
+        if node.mesh == -1 {
+            return
+        } 
+        
+        mesh_to_render := meshes[node.mesh]
+        
+        if mesh_drawn_count < ct.meshes_to_render {
+            ct.cmdlist->SetGraphicsRoot32BitConstant(2, u32(mesh_drawn_count), 0)
+            ct.cmdlist->DrawIndexedInstanced(mesh_to_render.index_count, 
+                1, mesh_to_render.index_offset, 0, 0)
+        }
+        
+        mesh_drawn_count += 1
+	})
 }
 
 render_lighting_pass :: proc() {
