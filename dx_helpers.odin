@@ -1,8 +1,9 @@
 package main
 
 import dx "vendor:directx/d3d12"
-import d3dc "vendor:directx/d3d_compiler"
 import dxgi "vendor:directx/dxgi"
+import d3dc "vendor:directx/d3d_compiler"
+import dxc "vendor:directx/dxc"
 import sa "core:container/small_array"
 import "core:strings"
 import "core:os"
@@ -121,8 +122,66 @@ create_texture :: proc(width: u64, height: u32, format: dxgi.FORMAT, resource_fl
 compile_shader :: proc(shader_filename: string) -> (vs, ps: ^d3dc.ID3D10Blob, ok: bool) {
 
 	c := &dx_context
-
+	
 	data, ok_f := os.read_entire_file(shader_filename)
+	
+	// dxc stuff
+	
+	// 1. Initialize DXC helper objects
+	
+	p_utils : dxc.IUtils
+	p_compiler : dxc.ICompiler3
+	
+	dxc.CreateInstance(dxc.Utils_CLSID, dxc.IUtils_UUID, (^rawptr)(&p_utils))
+	dxc.CreateInstance(dxc.Compiler_CLSID, dxc.ICompiler3_UUID, (^rawptr)(&p_compiler))
+	
+	source_buffer := dxc.Buffer {
+		Ptr = &data[0],
+		Size = len(data),
+		Encoding = dxc.CP_ACP
+	}
+	
+	
+	// DxcBuffer sourceBuffer;
+	//    sourceBuffer.Ptr = shaderSource;
+	//    sourceBuffer.Size = strlen(shaderSource);
+	//    sourceBuffer.Encoding = DXC_CP_ACP; // Standard ANSI/UTF-8 code page
+	
+	// todo investigate how to handle wstring in odin
+	
+	arguments := [?]string {
+		"-E", "main", // Entry point
+		"-T", "vs_6_0", // target profile (pixel shader 6)
+		"-Zi", // enable debug info
+		"-O3", // Optimization level 3
+	}
+	
+	arguments_wide : [len(arguments)]windows.wstring
+	
+	for arg, i in arguments {
+		arguments_wide[i] = windows.utf8_to_wstring_alloc(arg, allocator = context.temp_allocator)
+	}
+	
+	// // 3. Set up compilation arguments
+ //    std::vector<LPCWSTR> arguments = {
+ //        L"myshader.hlsl",    // Optional: shader name
+ //        L"-E", L"main",      // Entry point
+ //        L"-T", L"ps_6_0",    // Target profile (Pixel Shader 6.0)
+ //        L"-Zi",              // Enable debug information
+ //        L"-Qstrip_reflect",  // Strip reflection into a separate blob
+ //        L"-O3"               // Optimization level 3
+ //    };
+	
+	
+ // Compile:     proc "system" (this: ^ICompiler3, pSource: ^Buffer,
+	// pArguments: [^]wstring, argCount: u32, pIncludeHandler: ^IIncludeHandler, riid: ^IID, ppResult: rawptr) -> HRESULT,
+	
+	p_compiler->Compile(&source_buffer, &arguments_wide[0], len(arguments_wide))
+	
+	// dxc stuff
+	
+	
+
 
 	if !ok_f {
 		lprintfln("could not read file")

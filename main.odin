@@ -2079,9 +2079,9 @@ create_structured_buffer :: proc(pool: ^DXResourcePool) {
 	}
 	
 	scene_walk(scene, &data, proc(node: Node, scene: Scene, data: rawptr) {
-  if node.mesh == -1  do return
+		if node.mesh == -1  do return
 		data := cast(^Data)data
-  data.sample_matrix_data[data.mesh_i].model_matrix = get_node_world_matrix(node, scene)
+		data.sample_matrix_data[data.mesh_i].model_matrix = get_node_world_matrix(node, scene)
 		data.mesh_i += 1
 	})
 	
