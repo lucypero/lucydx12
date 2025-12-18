@@ -709,7 +709,6 @@ create_swapchain :: proc(
 // inits dx factory device
 init_dx :: proc() {
 	hr: dx.HRESULT
-	ct := &dx_context
 
 	// Init DXGI factory. DXGI is the link between the window and DirectX
 	factory: ^dxgi.IFactory4
@@ -770,7 +769,7 @@ init_dx :: proc() {
 		return
 	}
 	
-	ct.dxc_compiler = dxc_init()
+	dx_context.dxc_compiler = dxc_init()
 }
 
 get_projection_matrix :: proc(fov_rad: f32, screenWidth: i32, screenHeight: i32, near: f32, far: f32) -> dxm {
@@ -2106,7 +2105,7 @@ create_structured_buffer :: proc(pool: ^DXResourcePool) {
 	ct.res_structured_buffer = default_res
 }
 
-create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState {
+create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3dc.ID3D10Blob) -> ^dx.IPipelineState {
 	
 	c := &dx_context
 	
