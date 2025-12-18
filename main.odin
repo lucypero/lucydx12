@@ -2106,6 +2106,9 @@ create_structured_buffer :: proc(pool: ^DXResourcePool) {
 }
 
 create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3dc.ID3D10Blob) -> ^dx.IPipelineState {
+// this line causes odin compiler crash.
+// replace signature above with this to trigger the crash.
+// create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState {
 	
 	c := &dx_context
 	
