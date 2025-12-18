@@ -21,6 +21,7 @@ import "base:runtime"
 import "core:math/rand"
 import "core:prof/spall"
 import "core:sync"
+import dxc "vendor:directx/dxc"
 
 // imgui
 import im "../odin-imgui"
@@ -215,6 +216,7 @@ Context :: struct {
 	queue:               ^dx.ICommandQueue,
 	swapchain:           ^dxgi.ISwapChain3,
 	command_allocator:   ^dx.ICommandAllocator,
+	dxc_compiler : ^dxc.ICompiler3,
 
 	pipeline_gbuffer:            ^dx.IPipelineState,
 
@@ -707,6 +709,7 @@ create_swapchain :: proc(
 // inits dx factory device
 init_dx :: proc() {
 	hr: dx.HRESULT
+	ct := &dx_context
 
 	// Init DXGI factory. DXGI is the link between the window and DirectX
 	factory: ^dxgi.IFactory4
@@ -766,6 +769,8 @@ init_dx :: proc() {
 		fmt.eprintln("Could not find hardware adapter")
 		return
 	}
+	
+	ct.dxc_compiler = dxc_init()
 }
 
 get_projection_matrix :: proc(fov_rad: f32, screenWidth: i32, screenHeight: i32, near: f32, far: f32) -> dxm {
@@ -2101,7 +2106,7 @@ create_structured_buffer :: proc(pool: ^DXResourcePool) {
 	ct.res_structured_buffer = default_res
 }
 
-create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3dc.ID3D10Blob) -> ^dx.IPipelineState {
+create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState {
 	
 	c := &dx_context
 	
@@ -2186,7 +2191,7 @@ create_lighting_pso_initial :: proc() {
 	
 	c := &dx_context
 
-	vs, ps, ok := compile_shader(lighting_shader_filename)
+	vs, ps, ok := compile_shader(c.dxc_compiler, lighting_shader_filename)
 	
 	if !ok {
 		lprintfln("could not compile shader!! check logs")
