@@ -148,10 +148,15 @@ compile_shader :: proc(compiler: ^dxc.ICompiler3, shader_filename: string) -> (v
 		Encoding = dxc.CP_ACP
 	}
 	
-	vs = compile_individual_shader(&source_buffer, compiler, .Vertex)
-	ps = compile_individual_shader(&source_buffer, compiler, .Pixel)
+	vs, ok = compile_individual_shader(&source_buffer, compiler, .Vertex)
 	
-	return
+	if !ok do return vs, ps, false
+	
+	ps, ok = compile_individual_shader(&source_buffer, compiler, .Pixel)
+	
+	if !ok do return vs, ps, false
+	
+	return vs, ps, true
 }
 
 ShaderKind :: enum {
@@ -159,7 +164,7 @@ ShaderKind :: enum {
 	Pixel
 }
 
-compile_individual_shader :: proc(source_buffer: ^dxc.Buffer, compiler: ^dxc.ICompiler3, shader_kind: ShaderKind) -> ^dxc.IBlob {
+compile_individual_shader :: proc(source_buffer: ^dxc.Buffer, compiler: ^dxc.ICompiler3, shader_kind: ShaderKind) -> (res:^dxc.IBlob, ok: bool) {
 	
 	arguments := [?]string {
 		"-E", "VSMain", // Entry point
@@ -197,5 +202,5 @@ compile_individual_shader :: proc(source_buffer: ^dxc.Buffer, compiler: ^dxc.ICo
 	
 	output_blob : ^dxc.IBlob
 	results->GetOutput(.OBJECT, dxc.IBlob_UUID, (^rawptr)(&output_blob), nil)
-	return output_blob
+	return output_blob, true
 }
