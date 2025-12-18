@@ -168,14 +168,14 @@ compile_individual_shader :: proc(source_buffer: ^dxc.Buffer, compiler: ^dxc.ICo
 	
 	arguments := [?]string {
 		"-E", "VSMain", // Entry point
-		"-T", "vs_6_0", // target profile (pixel shader 6)
+		"-T", "vs_6_6", // target profile (pixel shader 6)
 		"-Zi", // enable debug info
 		"-O3", // Optimization level 3
 	}
 	
 	if shader_kind == .Pixel {
 		arguments[1] = "PSMain"
-		arguments[3] = "ps_6_0"
+		arguments[3] = "ps_6_6"
 	}
 	
 	arguments_wide : [len(arguments)]windows.wstring
