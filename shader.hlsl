@@ -23,7 +23,7 @@ struct PSInput {
     float3 color: COLOR;
 };
 
-cbuffer ConstantBuffer : register(b0) {
+struct GeneralConstants {
     float4x4 world;
     float4x4 view;
     float4x4 projection;
@@ -34,6 +34,8 @@ cbuffer ConstantBuffer : register(b0) {
     bool place_texture;
 };
 
+ConstantBuffer<GeneralConstants> general_constants : register(b0);
+
 Texture2D<float4> myTexture : register(t1);
 
 struct MeshTransform
@@ -43,12 +45,13 @@ struct MeshTransform
 
 StructuredBuffer<MeshTransform> mesh_transforms : register(t2);
 
-
 SamplerState mySampler : register(s0);
 
-cbuffer DrawConstants : register(b1) {
+struct DrawConstants {
     uint mesh_index;
 };
+
+ConstantBuffer<DrawConstants> draw_constants : register(b1);
 
 PSInput VSMain(VSInput the_input) {
     PSInput result;
@@ -57,17 +60,17 @@ PSInput VSMain(VSInput the_input) {
     // float4x4 world_matrix = float4x4(the_input.worldM0, the_input.worldM1, the_input.worldM2, the_input.worldM3);
     // world_matrix = transpose(world_matrix);
     
-    float4x4 world_matrix = mesh_transforms[mesh_index].model;
+    float4x4 world_matrix = mesh_transforms[draw_constants.mesh_index].model;
 
     float4 pos = float4(the_input.position, 1.0f);
 
     float4 world_position = mul(world_matrix, pos);
     // float4x4 world_position = mul(wvp, world_matrix);
 
-    float4 view_position = mul(view, world_position);
+    float4 view_position = mul(general_constants.view, world_position);
 
     // result.position = mul(pos, world_position);
-    result.position = mul(projection, view_position);
+    result.position = mul(general_constants.projection, view_position);
 
     result.frag_pos_world = world_position.xyz;
     result.frag_normal = the_input.normal;
@@ -96,7 +99,7 @@ PSOutput PSMain(PSInput input) {
 
     float4 pixelColor = float4(input.color, 1.0);
 
-    if(place_texture) {
+    if(general_constants.place_texture) {
         pixelColor = myTexture.Sample(mySampler, input.uvs);
     }
 
@@ -114,20 +117,19 @@ PSOutput PSMain(PSInput input) {
     output.positionRT.a = 1.0f;
 
     // lighting: we won't use
-    float3 light_dir = normalize(light_pos - input.frag_pos_world);
+    float3 light_dir = normalize(general_constants.light_pos - input.frag_pos_world);
 
     float diff = max(dot(norm, light_dir), 0.0f);
-    float3 diffuse = diff * light_int;
+    float3 diffuse = diff * general_constants.light_int;
 
     float amb_val = 0.05;
 
     float3 ambient = float3(amb_val, amb_val, amb_val);
 
     // Specular calculation
-
     float specularStrength = 0.5;
 
-    float3 viewDir = normalize(view_pos - input.frag_pos_world);
+    float3 viewDir = normalize(general_constants.view_pos - input.frag_pos_world);
     float3 reflectDir = reflect(light_dir, norm);  
 
     float3 spec_color = float3(1,1,1);
