@@ -118,22 +118,29 @@ create_texture :: proc(width: u64, height: u32, format: dxgi.FORMAT, resource_fl
 	return res
 }
 
+dxc_init :: proc() -> ^dxc.ICompiler3 {
+	// todo here
+	utils : ^dxc.IUtils
+	compiler : ^dxc.ICompiler3
+	
+	dxc.CreateInstance(dxc.Utils_CLSID, dxc.IUtils_UUID, (^rawptr)(&utils))
+	dxc.CreateInstance(dxc.Compiler_CLSID, dxc.ICompiler3_UUID, (^rawptr)(&compiler))
+	return compiler
+}
+
 // compiles vertex and pixel shader
-compile_shader :: proc(shader_filename: string) -> (vs, ps: ^d3dc.ID3D10Blob, ok: bool) {
+compile_shader :: proc(compiler: ^dxc.ICompiler3, shader_filename: string) -> (vs, ps: ^dxc.IBlob, ok: bool) {
 
 	c := &dx_context
 	
 	data, ok_f := os.read_entire_file(shader_filename)
 	
-	// dxc stuff
-	
-	// 1. Initialize DXC helper objects
-	
-	p_utils : dxc.IUtils
-	p_compiler : dxc.ICompiler3
-	
-	dxc.CreateInstance(dxc.Utils_CLSID, dxc.IUtils_UUID, (^rawptr)(&p_utils))
-	dxc.CreateInstance(dxc.Compiler_CLSID, dxc.ICompiler3_UUID, (^rawptr)(&p_compiler))
+	if !ok_f {
+		lprintfln("could not read file")
+		os.exit(1)
+	}
+
+	defer(delete(data))
 	
 	source_buffer := dxc.Buffer {
 		Ptr = &data[0],
@@ -141,19 +148,29 @@ compile_shader :: proc(shader_filename: string) -> (vs, ps: ^d3dc.ID3D10Blob, ok
 		Encoding = dxc.CP_ACP
 	}
 	
+	vs = compile_individual_shader(&source_buffer, compiler, .Vertex)
+	ps = compile_individual_shader(&source_buffer, compiler, .Pixel)
 	
-	// DxcBuffer sourceBuffer;
-	//    sourceBuffer.Ptr = shaderSource;
-	//    sourceBuffer.Size = strlen(shaderSource);
-	//    sourceBuffer.Encoding = DXC_CP_ACP; // Standard ANSI/UTF-8 code page
-	
-	// todo investigate how to handle wstring in odin
+	return
+}
+
+ShaderKind :: enum {
+	Vertex,
+	Pixel
+}
+
+compile_individual_shader :: proc(source_buffer: ^dxc.Buffer, compiler: ^dxc.ICompiler3, shader_kind: ShaderKind) -> ^dxc.IBlob {
 	
 	arguments := [?]string {
-		"-E", "main", // Entry point
+		"-E", "VSMain", // Entry point
 		"-T", "vs_6_0", // target profile (pixel shader 6)
 		"-Zi", // enable debug info
 		"-O3", // Optimization level 3
+	}
+	
+	if shader_kind == .Pixel {
+		arguments[1] = "PSMain"
+		arguments[3] = "ps_6_0"
 	}
 	
 	arguments_wide : [len(arguments)]windows.wstring
@@ -162,83 +179,23 @@ compile_shader :: proc(shader_filename: string) -> (vs, ps: ^d3dc.ID3D10Blob, ok
 		arguments_wide[i] = windows.utf8_to_wstring_alloc(arg, allocator = context.temp_allocator)
 	}
 	
-	// // 3. Set up compilation arguments
- //    std::vector<LPCWSTR> arguments = {
- //        L"myshader.hlsl",    // Optional: shader name
- //        L"-E", L"main",      // Entry point
- //        L"-T", L"ps_6_0",    // Target profile (Pixel Shader 6.0)
- //        L"-Zi",              // Enable debug information
- //        L"-Qstrip_reflect",  // Strip reflection into a separate blob
- //        L"-O3"               // Optimization level 3
- //    };
+	results : ^dxc.IResult
+	compiler->Compile(source_buffer, &arguments_wide[0], len(arguments_wide), nil, dxc.IOperationResult_UUID, (^rawptr)(&results))
 	
+	errors : ^dxc.IBlobUtf8
+	results->GetOutput(.ERRORS, dxc.IBlobUtf8_UUID, (^rawptr)(&errors), nil)
+	if errors != nil && errors->GetStringLength() > 0 {
+		error_str := strings.string_from_ptr((^u8)(errors->GetBufferPointer()), int(errors->GetBufferSize()))
+		lprintfln("dxc: errors: %v", error_str)
+	}
 	
- // Compile:     proc "system" (this: ^ICompiler3, pSource: ^Buffer,
-	// pArguments: [^]wstring, argCount: u32, pIncludeHandler: ^IIncludeHandler, riid: ^IID, ppResult: rawptr) -> HRESULT,
-	
-	p_compiler->Compile(&source_buffer, &arguments_wide[0], len(arguments_wide))
-	
-	// dxc stuff
-	
-	
-
-
-	if !ok_f {
-		lprintfln("could not read file")
+	hr : dxc.HRESULT
+	results->GetStatus(&hr)
+	if hr < 0 {
 		os.exit(1)
 	}
-
-	defer(delete(data))
-	data_size: uint = len(data)
-
-	compile_flags: u32 = 0
-	when ODIN_DEBUG {
-		compile_flags |= u32(d3dc.D3DCOMPILE.DEBUG)
-		compile_flags |= u32(d3dc.D3DCOMPILE.SKIP_OPTIMIZATION)
-	}
-
-	// errors
-	vs_res: ^d3dc.ID3DBlob
-	ps_res: ^d3dc.ID3DBlob
-
-	hr := d3dc.Compile(
-		rawptr(&data[0]), data_size, nil, nil, nil, "VSMain", "vs_5_0",
-		compile_flags, 0, &vs, &vs_res,
-	)
-
-	if (vs_res != nil) {
-		// errors in shader compilation
-		a := strings.string_from_ptr(
-			(^u8)(vs_res->GetBufferPointer()),
-			int(vs_res->GetBufferSize()),
-		)
-		lprintfln("DXC VS ERRORS in %s: %s", shader_filename, a)
-	}
-
-	if (hr < 0) {
-		// vertex shader is worng
-		// something went wrong
-		return vs, ps, false
-	}
-
-	hr = d3dc.Compile(
-		rawptr(&data[0]), data_size, nil, nil, nil, "PSMain", "ps_5_0",
-		compile_flags, 0, &ps, &ps_res
-	)
-
-	if (ps_res != nil) {
-		// errors in shader compilation
-		a := strings.string_from_ptr(
-			(^u8)(ps_res->GetBufferPointer()),
-			int(ps_res->GetBufferSize()),
-		)
-		lprintfln("DXC PS ERRORS in %s: %s", shader_filename, a)
-	}
 	
-	if (hr < 0) {
-		// pixel shader is wrong
-		return vs, ps, false
-	}
-
-	return vs, ps, true
+	output_blob : ^dxc.IBlob
+	results->GetOutput(.OBJECT, dxc.IBlob_UUID, (^rawptr)(&output_blob), nil)
+	return output_blob
 }
