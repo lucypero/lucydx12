@@ -8,7 +8,6 @@ import "core:strings"
 import "core:sys/windows"
 import "core:time"
 import dx "vendor:directx/d3d12"
-import d3dc "vendor:directx/d3d_compiler"
 import dxgi "vendor:directx/dxgi"
 import sdl "vendor:sdl2"
 import img "vendor:stb/image"
@@ -828,10 +827,10 @@ update :: proc() {
 	}
 	
 	hotswap_watch(&c.lighting_hotswap, c.lighting_pass_root_signature, lighting_shader_filename,
-  pso_creation_proc = create_new_lighting_pso)
+		pso_creation_proc = create_new_lighting_pso)
 	
 	hotswap_watch(&c.gbuffer_hotswap, c.gbuffer_pass_root_signature, gbuffer_shader_filename,
-  pso_creation_proc = create_new_gbuffer_pso)
+		pso_creation_proc = create_new_gbuffer_pso)
 	
 	// im.End()
 	// 
@@ -2105,10 +2104,7 @@ create_structured_buffer :: proc(pool: ^DXResourcePool) {
 	ct.res_structured_buffer = default_res
 }
 
-create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3dc.ID3D10Blob) -> ^dx.IPipelineState {
-// this line causes odin compiler crash.
-// replace signature above with this to trigger the crash.
-// create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState {
+create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState {
 	
 	c := &dx_context
 	
@@ -2296,7 +2292,7 @@ create_lighting_root_signature :: proc() {
 	serialized_desc->Release()
 }
 
-create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3dc.ID3D10Blob) -> ^dx.IPipelineState {
+create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState {
 	
 	c := &dx_context
 	
@@ -2452,7 +2448,7 @@ create_gbuffer_pso_initial :: proc() {
 
 	c := &dx_context
 
-	vs, ps, ok := compile_shader(gbuffer_shader_filename)
+	vs, ps, ok := compile_shader(c.dxc_compiler, gbuffer_shader_filename)
 	if !ok {
 		lprintfln("could not compile shader!! check logs")
 		os.exit(1)
@@ -2782,7 +2778,7 @@ when PROFILE {
 
 }
 
-pso_creation_signature :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^d3dc.ID3D10Blob) -> ^dx.IPipelineState
+pso_creation_signature :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState
 
 // checks if it should rebuild a shader
 // if it should then compiles the new shader and makes a new PSO with it
@@ -2802,7 +2798,7 @@ hotswap_watch :: proc(hs: ^HotSwapState, root_signature: ^dx.IRootSignature, sha
 		if reload {
 			lprintfln("Recompiling shader...")
 			// handle releasing resources
-			vs, ps, ok := compile_shader(shader_name)
+			vs, ps, ok := compile_shader(dx_context.dxc_compiler, shader_name)
 			if !ok {
 				lprintfln("Could not compile new shader!! check logs")
 			} else {
