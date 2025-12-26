@@ -1,0 +1,16 @@
+[
+  {
+    // The label for the debug configuration and used to identify the debug session inside the debug panel & new process modal
+    "label": "Example Start debugger config",
+    // The debug adapter that Zed should use to debug the program
+    "adapter": "CodeLLDB",
+    // Request:
+    //  - launch: Zed will launch the program if specified, or show a debug terminal with the right configuration
+    //  - attach: Zed will attach to a running program to debug it, or when the process_id is not specified, will show a process picker (only supported for node currently)
+    "request": "launch",
+    // The program to debug. This field supports path resolution with ~ or . symbols.
+    "program": "lucydx12.exe",
+    // cwd: defaults to the current working directory of your project ($ZED_WORKTREE_ROOT)
+    "cwd": "$ZED_WORKTREE_ROOT"
+  }
+]

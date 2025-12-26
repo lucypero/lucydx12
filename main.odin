@@ -876,6 +876,8 @@ update :: proc() {
 	// if im.Button("Re-roll teapots") {
 	// 	reroll_teapots()
 	// }
+	
+	camera_tick()
 }
 
 mesh_drawn_count : int = 0
