@@ -136,7 +136,7 @@ compile_shader :: proc(compiler: ^dxc.ICompiler3, shader_filename: string) -> (v
 	data, ok_f := os.read_entire_file(shader_filename)
 	
 	if !ok_f {
-		lprintfln("could not read file")
+		fmt.printfln("could not read file")
 		os.exit(1)
 	}
 
@@ -191,7 +191,7 @@ compile_individual_shader :: proc(source_buffer: ^dxc.Buffer, compiler: ^dxc.ICo
 	results->GetOutput(.ERRORS, dxc.IBlobUtf8_UUID, (^rawptr)(&errors), nil)
 	if errors != nil && errors->GetStringLength() > 0 {
 		error_str := strings.string_from_ptr((^u8)(errors->GetBufferPointer()), int(errors->GetBufferSize()))
-		lprintfln("dxc: errors: %v", error_str)
+		fmt.printfln("dxc: errors: %v", error_str)
 	}
 	
 	hr : dxc.HRESULT

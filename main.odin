@@ -1,5 +1,6 @@
 package main
 
+import "core:reflect"
 import "core:fmt"
 import "core:mem"
 import "core:os"
@@ -615,7 +616,7 @@ main :: proc() {
 	sdl.DestroyWindow(dx_context.window)
 	
 	when ODIN_DEBUG {
-  windows.OutputDebugStringA("=== report start =====\n")
+  		fmt.println("=== live object report start =====")
 		debug_device : ^dx.IDebugDevice2
 		dx_context.device->QueryInterface(dx.IDebugDevice2_UUID,
 			(^rawptr)(&debug_device))
@@ -629,7 +630,7 @@ main :: proc() {
 		dxgi_debug : ^dxgi.IDebug1
 		dxgi.DXGIGetDebugInterface1(0, dxgi.IDebug1_UUID, (^rawptr)(&dxgi_debug))
 		dxgi_debug->ReportLiveObjects(dxgi.DEBUG_ALL, {})
-		windows.OutputDebugStringA("=== report end =====\n")
+		fmt.println("=== report end =====")
 	}
 }
 
@@ -768,7 +769,27 @@ init_dx :: proc() {
 		return
 	}
 	
+	// set up logging callback
+	when ODIN_DEBUG {
+		info_queue : ^dx.IInfoQueue1
+		dx_context.device->QueryInterface(dx.IInfoQueue1_UUID, (^rawptr)(&info_queue))
+		cb_cookie : u32
+		hr = info_queue->RegisterMessageCallback(lucy_log_callback, {}, nil, &cb_cookie)
+		check(hr, "failed to register")
+		info_queue->Release()
+	}
+	
 	dx_context.dxc_compiler = dxc_init()
+}
+
+lucy_log_callback :: proc "c" (category: dx.MESSAGE_CATEGORY, severity: dx.MESSAGE_SEVERITY, id: dx.MESSAGE_ID, description: cstring, ctx: rawptr) {
+	context = runtime.default_context()
+	
+	severity, ok_2 := reflect.enum_name_from_value(severity)
+	cat, ok := reflect.enum_name_from_value(category)
+	msg := string(description)
+	
+	fmt.printfln("%v: (%v) %v", severity, cat, msg)
 }
 
 get_projection_matrix :: proc(fov_rad: f32, screenWidth: i32, screenHeight: i32, near: f32, far: f32) -> dxm {
@@ -1554,7 +1575,7 @@ do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
 	
 	meshes = load_meshes(data, &vertices_dyn, &indices_dyn)
 	
-	lprintfln("mesh count: %v", len(meshes))
+	fmt.printfln("mesh count: %v", len(meshes))
 	
 	scene = gltf_load_nodes(data)
 	
@@ -2192,7 +2213,7 @@ create_lighting_pso_initial :: proc() {
 	vs, ps, ok := compile_shader(c.dxc_compiler, lighting_shader_filename)
 	
 	if !ok {
-		lprintfln("could not compile shader!! check logs")
+		fmt.printfln("could not compile shader!! check logs")
 		os.exit(1)
 	}
 	
@@ -2450,7 +2471,7 @@ create_gbuffer_pso_initial :: proc() {
 
 	vs, ps, ok := compile_shader(c.dxc_compiler, gbuffer_shader_filename)
 	if !ok {
-		lprintfln("could not compile shader!! check logs")
+		fmt.printfln("could not compile shader!! check logs")
 		os.exit(1)
 	}
 
@@ -2735,7 +2756,7 @@ print_ref_count :: proc(obj: ^dx.IUnknown) {
 }
 
 // Prints to windows debug, with a fmt.println() interface
-lprintln :: proc(args: ..any, sep := " ") {
+lprintln_donotuse :: proc(args: ..any, sep := " ") {
 	str: strings.Builder
 	strings.builder_init(&str, context.temp_allocator)
 	final_string := fmt.sbprintln(&str, ..args, sep=sep)
@@ -2748,7 +2769,7 @@ lprintln :: proc(args: ..any, sep := " ") {
 	windows.OutputDebugStringA(final_string_c)
 }
 
-lprintfln :: proc(fmt_s: string, args: ..any) {
+lprintfln_donotuse :: proc(fmt_s: string, args: ..any) {
 	str: strings.Builder
 	strings.builder_init(&str, context.temp_allocator)
 	final_string := fmt.sbprintf(&str, fmt_s, ..args, newline=true)
@@ -2785,46 +2806,46 @@ pso_creation_signature :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.
 hotswap_watch :: proc(hs: ^HotSwapState, root_signature: ^dx.IRootSignature, shader_name: string,
 	pso_creation_proc : pso_creation_signature) {
 		
-		// watch for shader change
-		game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(shader_name)
-		
-		reload := false
-		
-		if game_dll_mod_err == os.ERROR_NONE && hs.last_write_time != game_dll_mod {
-   hs.last_write_time = game_dll_mod
-			reload = true
-		}
-		
-		if reload {
-			lprintfln("Recompiling shader...")
-			// handle releasing resources
-			vs, ps, ok := compile_shader(dx_context.dxc_compiler, shader_name)
-			if !ok {
-				lprintfln("Could not compile new shader!! check logs")
-			} else {
-				// create the new PSO to be swapped later
-				hs.pso_swap = pso_creation_proc(root_signature, vs, ps)
-				vs->Release()
-				ps->Release()
-			}
+	// watch for shader change
+	game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(shader_name)
+	
+	reload := false
+	
+	if game_dll_mod_err == os.ERROR_NONE && hs.last_write_time != game_dll_mod {
+hs.last_write_time = game_dll_mod
+		reload = true
+	}
+	
+	if reload {
+		fmt.println("Recompiling shader...")
+		// handle releasing resources
+		vs, ps, ok := compile_shader(dx_context.dxc_compiler, shader_name)
+		if !ok {
+			fmt.println("Could not compile new shader!! check logs")
+		} else {
+			// create the new PSO to be swapped later
+			hs.pso_swap = pso_creation_proc(root_signature, vs, ps)
+			vs->Release()
+			ps->Release()
 		}
 	}
+}
 
-	hotswap_init :: proc(hs: ^HotSwapState, shader_filename: string, index_in_free_queue: int) {
-		game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(shader_filename)
-		if game_dll_mod_err == os.ERROR_NONE {
-			hs.last_write_time = game_dll_mod
-		}
-		hs.pso_index = index_in_free_queue
+hotswap_init :: proc(hs: ^HotSwapState, shader_filename: string, index_in_free_queue: int) {
+	game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(shader_filename)
+	if game_dll_mod_err == os.ERROR_NONE {
+		hs.last_write_time = game_dll_mod
 	}
+	hs.pso_index = index_in_free_queue
+}
 
-	hotswap_swap :: proc(hs: ^HotSwapState, pso: ^^dx.IPipelineState) {
-		if hs.pso_swap != nil {
-			pso^->Release()
-			pso^ = hs.pso_swap
-			// replace pointer from freeing queue
-			pso_pointer := sa.get_ptr(&resources_longterm, hs.pso_index)
-			pso_pointer^ = pso^
-			hs.pso_swap = nil
-		}
+hotswap_swap :: proc(hs: ^HotSwapState, pso: ^^dx.IPipelineState) {
+	if hs.pso_swap != nil {
+		pso^->Release()
+		pso^ = hs.pso_swap
+		// replace pointer from freeing queue
+		pso_pointer := sa.get_ptr(&resources_longterm, hs.pso_index)
+		pso_pointer^ = pso^
+		hs.pso_swap = nil
 	}
+}
