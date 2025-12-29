@@ -2,7 +2,6 @@ package main
 
 import dx "vendor:directx/d3d12"
 import dxgi "vendor:directx/dxgi"
-import d3dc "vendor:directx/d3d_compiler"
 import dxc "vendor:directx/dxc"
 import sa "core:container/small_array"
 import "core:strings"
@@ -103,7 +102,7 @@ create_texture :: proc(width: u64, height: u32, format: dxgi.FORMAT, resource_fl
 		Flags = resource_flags,
 	}
 
-	hr := ct.device->CreateCommittedResource(
+	ct.device->CreateCommittedResource(
 		&heap_properties,
 		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
 		&texture_desc,
@@ -131,8 +130,6 @@ dxc_init :: proc() -> ^dxc.ICompiler3 {
 // compiles vertex and pixel shader
 compile_shader :: proc(compiler: ^dxc.ICompiler3, shader_filename: string) -> (vs, ps: ^dxc.IBlob, ok: bool) {
 
-	c := &dx_context
-	
 	data, ok_f := os.read_entire_file(shader_filename)
 	
 	if !ok_f {
