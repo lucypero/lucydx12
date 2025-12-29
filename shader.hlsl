@@ -24,7 +24,6 @@ struct PSInput {
 };
 
 struct GeneralConstants {
-    float4x4 world;
     float4x4 view;
     float4x4 projection;
     float3 light_pos;
