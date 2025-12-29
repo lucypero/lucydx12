@@ -1,7 +1,6 @@
 package main
 
 import "core:math"
-import "core:fmt"
 import sdl "vendor:sdl2"
 import "core:math/linalg"
 // modes

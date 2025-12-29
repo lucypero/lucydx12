@@ -3,8 +3,8 @@ package main
 import "core:reflect"
 import "core:fmt"
 import "core:mem"
-import "core:os"
 import "core:slice"
+import "core:os"
 import "core:strings"
 import "core:sys/windows"
 import "core:time"
@@ -19,9 +19,9 @@ import "vendor:cgltf"
 import sa "core:container/small_array"
 import "base:runtime"
 import "core:math/rand"
-import "core:prof/spall"
 import "core:sync"
 import dxc "vendor:directx/dxc"
+import "core:prof/spall"
 
 // imgui
 import im "../odin-imgui"
@@ -1295,7 +1295,7 @@ create_gbuffer_pass_root_signature :: proc() {
 
 load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indices: ^[dynamic]u32) -> []Mesh {
 
-	meshes := make_slice([]Mesh, len(data.meshes))
+	the_meshes := make_slice([]Mesh, len(data.meshes))
 	index_count: u32
 	index_count_total: u32 = 0
 
@@ -1353,13 +1353,13 @@ load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indices: 
 			mesh_index_count += u32(prim.indices.count)
 		}
 
-		meshes[i] = Mesh {
+		the_meshes[i] = Mesh {
 			index_offset = mesh_index_offset,
 			index_count = mesh_index_count,
 		}
 	}
 
-	return meshes
+	return the_meshes
 }
 
 get_node_world_matrix :: proc(node: Node, scene: Scene) -> dxm {
