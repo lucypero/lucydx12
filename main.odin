@@ -602,7 +602,12 @@ main :: proc() {
 	}
 }
 
+g_frame_dt : f64 = 0.2 // in ms
+
 do_main_loop :: proc() {
+	
+	last_time := time.now()
+	
 	main_loop: for {
 		when PROFILE do spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, name = "main loop")
 		for e: sdl.Event; sdl.PollEvent(&e); {
@@ -627,6 +632,11 @@ do_main_loop :: proc() {
 		im.Render()
 		render()
 		free_all(context.temp_allocator)
+		
+		new_time := time.now()
+		dur := time.diff(last_time, new_time)
+		g_frame_dt = time.duration_milliseconds(dur)
+		last_time = new_time
 
 		if exit_app {
 			break main_loop
@@ -840,6 +850,7 @@ update :: proc() {
 	// }
 
 	camera_tick(keyboard)
+	// fmt.printfln("%v", g_frame_dt)
 }
 
 mesh_drawn_count: int = 0
