@@ -1397,7 +1397,7 @@ get_node_world_matrix :: proc(node: Node, scene: Scene) -> dxm {
 
 		// mesh_world : dxm = translation_mat * rot_mat * scale_mat
 		// no rot
-		mesh_world: dxm = translation_mat * scale_mat
+		mesh_world: dxm = translation_mat * rot_mat * scale_mat
 		// mesh_world : dxm = scale_mat * rot_mat * translation_mat
 
 		res = res * mesh_world
@@ -2006,12 +2006,12 @@ BufferThing :: struct {
 
 // this is the same as create_sample_texture
 // it creates an upload heap, copies data to it, then transfers it to the default heap.
+// make it specific for what u want now.
+// then we can turn it into a helper function. later.
 create_structured_buffer :: proc(pool: ^DXResourcePool) {
 
 	ct := &dx_context
 
-	// make it specific for what u want now.
-	// then we can turn it into a helper function. later.
 
 
 	buffer_size: u64 = size_of(BufferThing) * u64(scene.mesh_count)

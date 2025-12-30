@@ -72,7 +72,12 @@ PSInput VSMain(VSInput the_input) {
     result.position = mul(general_constants.projection, view_position);
 
     result.frag_pos_world = world_position.xyz;
-    result.frag_normal = the_input.normal;
+    
+    // transforming normals by the normal matrix (a transformed world matrix)
+    // this does not handle non-uniform scaling
+    // TODO deal with that.
+    result.frag_normal = mul((float3x3)world_matrix, the_input.normal);
+    
     result.uvs = the_input.uvs.xy;
     result.color = the_input.color;
     return result;
