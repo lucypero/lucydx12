@@ -1,14 +1,12 @@
 # current todo
 
-- make better camera controls.
+- sponza looks bad because you are rendering decal meshes as solid.
+	- deal with the decal meshes.
+
 - run profiler to see why the startup is so slow
-- do vsync. the fps are unlimited now. not good
 - rebind `g t` to "go to type" (it's at `g y`)
 - TODO: find out how to abstract and/or share fences
   
-  
-
-
 - HotSwapState :: struct: 
     // TODO: store more data here so u don't have to pass the data around in the hotswap methods
 
