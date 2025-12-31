@@ -1,10 +1,8 @@
 # current todo
 
-- sponza looks bad because you are rendering decal meshes as solid.
-	- deal with the decal meshes.
-
 - run profiler to see why the startup is so slow
 - rebind `g t` to "go to type" (it's at `g y`)
+
 - TODO: find out how to abstract and/or share fences
   
 - HotSwapState :: struct: 
@@ -13,25 +11,8 @@
 - set up some basic allocator stuff
     - set up a tracking allocator for lasting allocations.
 
-- experiment with `setpipelinestate`. see what u can delete after using that.
-  - (not much). you are already calling that by passing your pipeline to the command list reset() call.
-
 - check this out. p cool. about memory management.
 https://github.com/microsoft/DirectX-Graphics-Samples/tree/master/TechniqueDemos/D3D12MemoryManagement
-
-
-# parsing gltf, for real
-
-## basic idea:
-
-go through every root node hierarchically. 
-  - filter out non meshes.
-  - apply transforms to the vertices (this part will be the hard one)
-  - add all vertices to one huge buffer
-  
-## where are we rn?
-
-- store mesh data properly. go to the buffers directly in the gltf file.
 
 # possible cool goals:
 
@@ -43,9 +24,7 @@ go through every root node hierarchically.
 - some sort of scene structure so you can render multiple things
 
 
-
 # references
-
 
 - seems like a general dx12 guide. check it out:
 
@@ -53,81 +32,6 @@ https://www.youtube.com/watch?v=foG5_BegCzU&list=PLD3tf_aBsga1A9B7UoDkM-yObxlLh9
 
 
 - [Scene Samples](https://www.intel.com/content/www/us/en/developer/topic-technology/graphics-research/samples.html)
-
-# code by kamwithk for deleting stuff
-
-```odin
-
-flush_allocation_queue :: proc(queue: ^Allocation_Queue) {
-    #reverse for resource in queue {
-        switch handle in resource {
-        case vk.Device:
-            vk.DestroyDevice(g.device, nil)
-        case vk.Instance:
-            vk.DestroyInstance(g.instance, nil)
-        case vk.DebugUtilsMessengerEXT:
-            vk.DestroyDebugUtilsMessengerEXT(g.instance, handle, nil)
-        case vk.CommandPool:
-            vk.DestroyCommandPool(g.device, handle, nil)
-        case vk.DescriptorPool:
-            vk.DestroyDescriptorPool(g.device, handle, nil)
-        case vk.DescriptorSetLayout:
-            vk.DestroyDescriptorSetLayout(g.device, handle, nil)
-        case vk.Fence:
-            vk.DestroyFence(g.device, handle, nil)
-        case vk.Semaphore:
-            vk.DestroySemaphore(g.device, handle, nil)
-        case vk.Image:
-            vk.DestroyImage(g.device, handle, nil)
-        case vk.ImageView:
-            vk.DestroyImageView(g.device, handle, nil)
-        case vk.Pipeline:
-            vk.DestroyPipeline(g.device, handle, nil)
-        case vk.PipelineLayout:
-            vk.DestroyPipelineLayout(g.device, handle, nil)
-        case vk.Sampler:
-            vk.DestroySampler(g.device, handle, nil)
-        case vk.ShaderEXT:
-            vk.DestroyShaderEXT(g.device, handle, nil)
-        case vk.SurfaceKHR:
-            vk.DestroySurfaceKHR(g.instance, g.surface, nil)
-        case vk.Buffer:
-            vk.DestroyBuffer(g.device, handle, nil)
-        case vk.DeviceMemory:
-            vk.FreeMemory(g.device, handle, nil)
-        }
-    }
-
-    clear(queue)
-}
-
-// section b
-// 
-// 
-Allocation_Queue :: [dynamic]Resource_Handle
-Resource_Handle :: union {
-    vk.DebugUtilsMessengerEXT,
-    vk.Device,
-    vk.Instance,
-    vk.CommandPool,
-    vk.DescriptorPool,
-    vk.DescriptorSetLayout,
-    vk.Fence,
-    vk.Semaphore,
-    vk.Image,
-    vk.ImageView,
-    vk.Pipeline,
-    vk.PipelineLayout,
-    vk.Sampler,
-    vk.ShaderEXT,
-    vk.SurfaceKHR,
-    vk.Buffer,
-    vk.DeviceMemory,
-}
-
-append(&g.immediate_resources.allocation_queue, g.model_buffers.scene_buffer)
-
-```
 
 # devaniti on memory management system
 

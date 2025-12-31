@@ -834,7 +834,17 @@ update :: proc() {
 
 	// imgui stuff
 	// im.ShowDemoWindow()
+	
+	draw_gui()
 
+
+	camera_tick(keyboard)
+	// fmt.printfln("%v", g_frame_dt)
+}
+
+draw_gui :: proc() {
+	
+	c := &dx_context
 	im.Begin("lucydx12")
 
 	im.DragFloat3("light pos", &light_pos, 0.1, -5, 5)
@@ -844,16 +854,21 @@ update :: proc() {
 	im.InputInt("mesh count to draw", (^i32)(&c.meshes_to_render))
 
 	im.Checkbox("place texture", &place_texture)
-
+	
+	// Drawing delta time
+	{
+		sb := strings.builder_make_len_cap(0, 30, allocator = context.temp_allocator)
+		fmt.sbprintfln(&sb, "DT: %.2f", g_frame_dt)
+		dt_cstring := strings.to_cstring(&sb)
+		im.Text(dt_cstring)
+	}
+	
 	// if im.Button("Re-roll teapots") {
 	// 	reroll_teapots()
 	// }
-
-	camera_tick(keyboard)
-	// fmt.printfln("%v", g_frame_dt)
 }
 
-mesh_drawn_count: int = 0
+g_mesh_drawn_count: int = 0
 render :: proc() {
 
 	c := &dx_context
@@ -862,7 +877,7 @@ render :: proc() {
 
 	cb_update()
 
-	mesh_drawn_count = 0
+	g_mesh_drawn_count = 0
 
 	// case .WINDOWEVENT:
 	// This is equivalent to WM_PAINT in win32 API
@@ -1532,7 +1547,11 @@ do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
 	// model_filepath :: "models/teapot.glb"
 	// model_filepath :: "models/main_sponza/NewSponza_Main_glTF_003.gltf"
 	// model_filepath :: "models/test_scene.glb"
-	model_filepath :: "models/main_sponza/sponza_blender.glb"
+	// model_filepath :: "models/main_sponza/sponza_blender.glb"
+	
+	// no decals (ruins solid rendering)
+	model_filepath :: "models/main_sponza/sponza_blender_no_decals.glb"
+	
 	model_filepath_c := strings.clone_to_cstring(model_filepath, context.temp_allocator)
 
 	cgltf_options: cgltf.options
@@ -2566,12 +2585,12 @@ render_gbuffer_pass :: proc() {
 
 		mesh_to_render := meshes[node.mesh]
 
-		if mesh_drawn_count < ct.meshes_to_render {
-			ct.cmdlist->SetGraphicsRoot32BitConstant(2, u32(mesh_drawn_count), 0)
+		if g_mesh_drawn_count < ct.meshes_to_render {
+			ct.cmdlist->SetGraphicsRoot32BitConstant(2, u32(g_mesh_drawn_count), 0)
 			ct.cmdlist->DrawIndexedInstanced(mesh_to_render.index_count, 1, mesh_to_render.index_offset, 0, 0)
 		}
 
-		mesh_drawn_count += 1
+		g_mesh_drawn_count += 1
 	})
 }
 
