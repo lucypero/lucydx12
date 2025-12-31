@@ -6,3 +6,4 @@ models/
 imgui.ini
 *.raduser
 *.radproject
+*.spall
