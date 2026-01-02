@@ -29,7 +29,6 @@ struct GeneralConstants {
     float light_int;
     float3 view_pos;
     float time;
-    bool place_texture;
 };
 
 struct MeshTransform
@@ -103,8 +102,8 @@ PSOutput PSMain(PSInput input) {
     PSOutput output;
 
     float4 pixelColor = float4(input.color, 1.0);
-    // Texture2D<float4> someTexture = ResourceDescriptorHeap[9];
-    // pixelColor = someTexture.Sample(mySampler, input.uvs);
+    Texture2D<float4> someTexture = ResourceDescriptorHeap[101];
+    pixelColor = someTexture.Sample(mySampler, input.uvs);
 
     float3 norm = normalize(input.frag_normal);
 

@@ -70,7 +70,6 @@ start_time: time.Time
 light_pos: v3
 light_int: f32
 light_speed: f32
-place_texture: bool
 the_time_sec: f32
 exit_app: bool
 
@@ -87,7 +86,6 @@ ConstantBufferData :: struct #align (256) {
 	light_int: f32,
 	view_pos: v3,
 	time: f32,
-	place_texture: b32,
 }
 
 // all meshes use the same index/vertex buffer.
@@ -143,7 +141,6 @@ get_most_of_cbv :: proc() -> ConstantBufferData {
 		light_int = light_int,
 		view_pos = cur_cam.pos,
 		time = the_time_sec,
-		place_texture = b32(place_texture),
 	}
 }
 
@@ -869,8 +866,6 @@ draw_gui :: proc() {
 	im.DragFloat("light speed", &light_speed, 0.0001, 0, 20)
 
 	im.InputInt("mesh count to draw", (^i32)(&c.meshes_to_render))
-
-	im.Checkbox("place texture", &place_texture)
 	
 	// Drawing delta time
 	{
@@ -1419,7 +1414,7 @@ do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
 
 	g_meshes = load_meshes(data, &vertices_dyn, &indices_dyn)
 	
-	// load_textures_from_gltf(data)
+	load_textures_from_gltf(data)
 
 	fmt.printfln("mesh count: %v", len(g_meshes))
 
@@ -2628,7 +2623,9 @@ load_textures_from_gltf :: proc(data : ^cgltf.data) {
 	
 	dx_context.cmdlist->Reset(dx_context.command_allocator, ct.pipeline_gbuffer)
 	
-	for image in data.images {
+	textures_srv_index : u32 = 100 // starting at 100 to not interfere with other views
+	
+	for image, i in data.images {
 		fmt.printfln("loading image %v", image.name)
 		assert(image.mime_type == "image/png")
 		
@@ -2644,7 +2641,12 @@ load_textures_from_gltf :: proc(data : ^cgltf.data) {
 		texture_res := create_texture_with_data(image_data, u64(w), u32(h), u32(channels), .R8G8B8A8_UNORM, 
 			&resources_longterm, &upload_resources, ct.cmdlist, string(image.name))
 		
-		create_srv_on_uber_heap(texture_res)
+		// creating srv on uber heap
+		ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, textures_srv_index))
+		textures_srv_index += 1
+		
+		// enforcing a limit bc it's so slow
+		if i > 5 do break
 	}
 	
 	// execute command list
@@ -2654,9 +2656,6 @@ load_textures_from_gltf :: proc(data : ^cgltf.data) {
 	for res in upload_resources {
 		res->Release()
 	}
-	
-	// create descriptor heap
-	
 }
 
 // creates a SRV for the resource on the uber SRV heap
