@@ -233,15 +233,11 @@ Context :: struct {
 	fence_event: windows.HANDLE,
 
 	// resources
-	texture: ^dx.IResource,
 	res_structured_buffer: ^dx.IResource,
 
 	// descriptor heap for ALL our resources
 	cbv_srv_uav_heap: ^dx.IDescriptorHeap,
 	descriptor_count : u32, // count for how many descriptors are in the srv heap
-	
-	// TODO delete this one later. combine it into the heap above.
-	descriptor_heap_cbv_srv_uav: ^dx.IDescriptorHeap,
 
 	// vertex count
 	vertex_count: u32,
@@ -562,10 +558,8 @@ main :: proc() {
 		index_buffer->Unmap(0, nil)
 	}
 
-	create_sample_texture()
 	create_structured_buffer(&resources_longterm)
-
-	create_descriptor_heap_cbv_srv_uav()
+	create_cbv_and_structured_buffer()
 
 	// This fence is used to wait for frames to finish
 	{
@@ -979,131 +973,6 @@ render :: proc() {
 	}
 }
 
-// creating resource and uploading it to the gpu
-create_sample_texture :: proc() {
-
-	ct := &dx_context
-
-	// reading from image
-	texture_width, texture_height, channels: c.int
-
-	img_data := img.load("astrobot.png", &texture_width, &texture_height, &channels, 0)
-	defer (img.image_free(img_data))
-
-	if img_data == nil {
-		fmt.eprintln("error reading image")
-		os.exit(1)
-	}
-
-	// default heap (this is where the final texture will reside)
-
-	heap_properties := dx.HEAP_PROPERTIES {
-		Type = .DEFAULT,
-	}
-	texture_desc := dx.RESOURCE_DESC {
-		Width = (u64)(texture_width),
-		Height = (u32)(texture_height),
-		Dimension = .TEXTURE2D,
-		Layout = .UNKNOWN,
-		Format = .R8G8B8A8_UNORM,
-		DepthOrArraySize = 1,
-		MipLevels = 1,
-		SampleDesc = {Count = 1},
-	}
-
-	hr := dx_context.device->CreateCommittedResource(
-		&heap_properties,
-		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
-		&texture_desc,
-		{.COPY_DEST},
-		nil,
-		dx.IResource_UUID,
-		(^rawptr)(&ct.texture),
-	)
-
-	check(hr, "failed creating texture")
-	ct.texture->SetName("lucy's sample texture (it's now astrobot)")
-	sa.push(&resources_longterm, ct.texture)
-
-	// getting data from texture that we'll use later
-	text_footprint: dx.PLACED_SUBRESOURCE_FOOTPRINT
-	text_bytes: u64
-	num_rows: u32
-	row_size: u64
-
-	dx_context.device->GetCopyableFootprints(&texture_desc, 0, 1, 0, &text_footprint, &num_rows, 
-		&row_size, &text_bytes)
-
-	// creating upload heap and resource (needed to upload texture data from cpu to the default heap)
-
-	heap_properties = dx.HEAP_PROPERTIES {
-		Type = .UPLOAD,
-	}
-
-	texture_upload: ^dx.IResource
-	upload_desc := dx.RESOURCE_DESC {
-		Dimension = .BUFFER,
-		Alignment = 0,
-		Width = text_bytes, // size of the texture in bytes
-		Height = 1,
-		MipLevels = 1,
-		Format = .UNKNOWN,
-		Layout = .ROW_MAJOR,
-		DepthOrArraySize = 1,
-		SampleDesc = {Count = 1},
-	}
-
-	hr = dx_context.device->CreateCommittedResource(
-		&heap_properties,
-		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
-		&upload_desc,
-		dx.RESOURCE_STATE_GENERIC_READ,
-		nil,
-		dx.IResource_UUID,
-		(^rawptr)(&texture_upload),
-	)
-
-	check(hr, "failed creating upload texture")
-	texture_upload->SetName("lucy's texture upload resource, for tx uploading")
-	defer texture_upload->Release()
-
-	// here you do a Map and you memcpy the data to the upload resource.
-	// you'll have to use an image library here to get the pixel data of an image.
-
-	texture_map_start: rawptr
-	texture_upload->Map(0, &dx.RANGE{}, &texture_map_start)
-	texture_map_start_mp: [^]u8 = auto_cast texture_map_start
-
-	for row in 0 ..< texture_height {
-		mem.copy(
-			texture_map_start_mp[u32(text_footprint.Footprint.RowPitch) * u32(row):],
-			img_data[texture_width * channels * row:],
-			int(texture_width * channels),
-		)
-	}
-
-	// here you send the gpu command to copy the data to the texture resource.
-
-	copy_location_src := dx.TEXTURE_COPY_LOCATION {
-		pResource = texture_upload,
-		Type = .PLACED_FOOTPRINT,
-		PlacedFootprint = text_footprint,
-	}
-
-	copy_location_dst := dx.TEXTURE_COPY_LOCATION {
-		pResource = ct.texture,
-		Type = .SUBRESOURCE_INDEX,
-		SubresourceIndex = 0,
-	}
-
-	dx_context.cmdlist->Reset(dx_context.command_allocator, ct.pipeline_gbuffer)
-	dx_context.cmdlist->CopyTextureRegion(&copy_location_dst, 0, 0, 0, &copy_location_src, nil)
-
-	transition_resource_from_copy_to_read(ct.texture, ct.cmdlist)
-
-	execute_command_list_and_wait(ct.cmdlist, ct.queue)
-}
-
 gen_just_one_instance_data :: proc() -> []InstanceData {
 	// returning one instance with no transformations
 	// we're rendering sponza now. we only want one.
@@ -1190,46 +1059,23 @@ reroll_teapots :: proc() {
 	copy_to_buffer(dx_context.instance_buffer.buffer, &instance_data[0], instance_data_size)
 }
 
-// creates the descriptor heap that will hold all our cbv's srv's and uav's
-// List of descriptors in it:
-// - 0 - A test constant buffer (CBV). It has things like Time
-// - 1 - A test texture (SRV). now, it's astrobot
-// - 2 - A structured buffer (SRV). containing model matrices
-create_descriptor_heap_cbv_srv_uav :: proc() {
+// creates:
+// - constant buffer with some global info
+// - structured buffer SRV containing all model matrices.
+// they are placed in the uber srv heap.
+create_cbv_and_structured_buffer :: proc() {
 
 	c := &dx_context
-
-	// creating descriptor heap
-	cbv_heap_desc := dx.DESCRIPTOR_HEAP_DESC {
-		NumDescriptors = 3,
-		Type = .CBV_SRV_UAV,
-		Flags = {.SHADER_VISIBLE},
-	}
-
-	hr := c.device->CreateDescriptorHeap(
-		&cbv_heap_desc,
-		dx.IDescriptorHeap_UUID,
-		(^rawptr)(&c.descriptor_heap_cbv_srv_uav),
-	)
-	check(hr, "failed creating descriptor heap")
-	sa.push(&resources_longterm, c.descriptor_heap_cbv_srv_uav)
-
-	c.descriptor_heap_cbv_srv_uav->SetName("lucy's cbv srv uav descriptor heap")
 
 	// creating CBV for my test constant buffer (AT INDEX 0)
 	cbv_desc := dx.CONSTANT_BUFFER_VIEW_DESC {
 		BufferLocation = dx_context.constant_buffer->GetGPUVirtualAddress(),
 		SizeInBytes = size_of(ConstantBufferData),
 	}
-
-	c.device->CreateConstantBufferView(&cbv_desc, get_descriptor_heap_cpu_address(c.descriptor_heap_cbv_srv_uav, 0))
-
-	// creating SRV (my texture) (AT INDEX 1)
-	c.device->CreateShaderResourceView(
-		c.texture,
-		nil,
-		get_descriptor_heap_cpu_address(c.descriptor_heap_cbv_srv_uav, 1),
-	)
+	
+	c.device->CreateConstantBufferView(&cbv_desc, get_descriptor_heap_cpu_address(c.cbv_srv_uav_heap, c.descriptor_count))
+	fmt.printfln("cbv index is %v", c.descriptor_count)
+	c.descriptor_count += 1
 
 	// creating SRV (structured buffer) (index 2)
 	srv_desc := dx.SHADER_RESOURCE_VIEW_DESC {
@@ -1247,43 +1093,20 @@ create_descriptor_heap_cbv_srv_uav :: proc() {
 	c.device->CreateShaderResourceView(
 		c.res_structured_buffer,
 		&srv_desc,
-		get_descriptor_heap_cpu_address(c.descriptor_heap_cbv_srv_uav, 2),
+		get_descriptor_heap_cpu_address(c.cbv_srv_uav_heap, c.descriptor_count),
 	)
+	fmt.printfln("structured buffer index is %v", c.descriptor_count)
+	c.descriptor_count += 1
 }
 
 create_gbuffer_pass_root_signature :: proc() {
 
-	root_parameters_len :: 3
+	root_parameters_len :: 1
 
 	root_parameters: [root_parameters_len]dx.ROOT_PARAMETER
 
-	// our test constant buffer
-	root_parameters[0] = {
-		ParameterType = .CBV,
-		Descriptor = {ShaderRegister = 0, RegisterSpace = 0},
-		ShaderVisibility = .ALL, // vertex, pixel, or both (all)
-	}
-
-	{
-		// We'll define a descriptor range for our SRVs
-		srv_range := dx.DESCRIPTOR_RANGE {
-			RangeType = .SRV,
-			NumDescriptors = 2,
-			BaseShaderRegister = 1,
-			RegisterSpace = 0,
-			OffsetInDescriptorsFromTableStart = dx.DESCRIPTOR_RANGE_OFFSET_APPEND,
-		}
-
-		// our descriptor table for the texture
-		root_parameters[1] = {
-			ParameterType = .DESCRIPTOR_TABLE,
-			DescriptorTable = {NumDescriptorRanges = 1, pDescriptorRanges = &srv_range},
-			ShaderVisibility = .ALL, // TODO: look into separating them. one parameter for vertex. another for pixel.
-		}
-	}
-
 	// Root constant: the index to the right model matrix of the draw call.
-	root_parameters[2] = {
+	root_parameters[0] = {
 		ParameterType = ._32BIT_CONSTANTS,
 		Constants = {ShaderRegister = 1, RegisterSpace = 0, Num32BitValues = 1},
 		ShaderVisibility = .VERTEX,
@@ -1318,7 +1141,7 @@ create_gbuffer_pass_root_signature :: proc() {
 		},
 	}
 
-	desc.Desc_1_0.Flags = {.ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT}
+	desc.Desc_1_0.Flags = {.ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT, .CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED}
 	serialized_desc: ^dx.IBlob
 	hr := dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
 	check(hr, "Failed to serialize root signature")
@@ -1973,8 +1796,7 @@ create_gbuffer :: proc() -> GBuffer {
 	rtv_descriptor_handle_1: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
 	rtv_descriptor_handle_1.ptr += uint(rtv_descriptor_size) * 0
 	ct.device->CreateRenderTargetView(gb_1_res, nil, rtv_descriptor_handle_1)
-	ct.device->CreateShaderResourceView(gb_1_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, ct.descriptor_count))
-	ct.descriptor_count += 1
+	create_srv_on_uber_heap(gb_1_res)
 	
 	// u gotta release the whole heap
 
@@ -1992,8 +1814,7 @@ create_gbuffer :: proc() -> GBuffer {
 	rtv_descriptor_handle_2: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
 	rtv_descriptor_handle_2.ptr += uint(rtv_descriptor_size) * 1
 	ct.device->CreateRenderTargetView(gb_2_res, nil, rtv_descriptor_handle_2)
-	ct.device->CreateShaderResourceView(gb_2_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, ct.descriptor_count))
-	ct.descriptor_count += 1
+	create_srv_on_uber_heap(gb_2_res)
 
 	// world space position
 	gb_3_res := create_texture(
@@ -2009,8 +1830,7 @@ create_gbuffer :: proc() -> GBuffer {
 	rtv_descriptor_handle_3: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
 	rtv_descriptor_handle_3.ptr += uint(rtv_descriptor_size) * 2
 	ct.device->CreateRenderTargetView(gb_3_res, nil, rtv_descriptor_handle_3)
-	ct.device->CreateShaderResourceView(gb_3_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, ct.descriptor_count))
-	ct.descriptor_count += 1
+	create_srv_on_uber_heap(gb_3_res)
 
 	sa.push(&resources_longterm, gb_rtv_dh)
 
@@ -2456,26 +2276,11 @@ render_gbuffer_pass :: proc() {
 
 	c := &dx_context
 
-
+	// setting descriptor heap for our cbv srv uav's
+	c.cmdlist->SetDescriptorHeaps(1, &c.cbv_srv_uav_heap)
+	
 	// This state is reset everytime the cmd list is reset, so we need to rebind it
 	c.cmdlist->SetGraphicsRootSignature(dx_context.gbuffer_pass_root_signature)
-
-	// setting descriptor heap for our cbv srv uav's
-	c.cmdlist->SetDescriptorHeaps(1, &dx_context.descriptor_heap_cbv_srv_uav)
-
-	// setting the root cbv that we set up in the root signature. root parameter 0
-	c.cmdlist->SetGraphicsRootConstantBufferView(0, dx_context.constant_buffer->GetGPUVirtualAddress())
-
-	// setting descriptor tables for our texture. root parameter 1
-	{
-		// setting the graphics root descriptor table
-		// in the root signature, so that it points to
-		// our SRV descriptor
-		c.cmdlist->SetGraphicsRootDescriptorTable(
-			1,
-			get_descriptor_heap_gpu_address(dx_context.descriptor_heap_cbv_srv_uav, 1),
-		)
-	}
 
 	{
 		viewport := dx.VIEWPORT {
@@ -2574,7 +2379,7 @@ render_gbuffer_pass :: proc() {
 		mesh_to_render := g_meshes[node.mesh]
 
 		if g_mesh_drawn_count < ct.meshes_to_render {
-			ct.cmdlist->SetGraphicsRoot32BitConstant(2, u32(g_mesh_drawn_count), 0)
+			ct.cmdlist->SetGraphicsRoot32BitConstant(0, u32(g_mesh_drawn_count), 0)
 			ct.cmdlist->DrawIndexedInstanced(mesh_to_render.index_count, 1, mesh_to_render.index_offset, 0, 0)
 		}
 
@@ -2838,6 +2643,8 @@ load_textures_from_gltf :: proc(data : ^cgltf.data) {
 		// the format is prob wrong.
 		texture_res := create_texture_with_data(image_data, u64(w), u32(h), u32(channels), .R8G8B8A8_UNORM, 
 			&resources_longterm, &upload_resources, ct.cmdlist, string(image.name))
+		
+		create_srv_on_uber_heap(texture_res)
 	}
 	
 	// execute command list
@@ -2850,4 +2657,11 @@ load_textures_from_gltf :: proc(data : ^cgltf.data) {
 	
 	// create descriptor heap
 	
+}
+
+// creates a SRV for the resource on the uber SRV heap
+create_srv_on_uber_heap :: proc(res : ^dx.IResource) {
+	ct := &dx_context
+	ct.device->CreateShaderResourceView(res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, ct.descriptor_count))
+	ct.descriptor_count += 1
 }
