@@ -1578,7 +1578,7 @@ do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
 
 	g_meshes = load_meshes(data, &vertices_dyn, &indices_dyn)
 	
-	load_textures_from_gltf(data)
+	// load_textures_from_gltf(data)
 
 	fmt.printfln("mesh count: %v", len(g_meshes))
 
@@ -2228,17 +2228,7 @@ create_lighting_root_signature :: proc() {
 
 	c := &dx_context
 
-
-	// We'll define a descriptor range for our gbuffers
-	texture_range := dx.DESCRIPTOR_RANGE {
-		RangeType = .SRV,
-		NumDescriptors = 3,
-		BaseShaderRegister = 1, // Corresponds to t1 in the shader
-		RegisterSpace = 0,
-		OffsetInDescriptorsFromTableStart = dx.DESCRIPTOR_RANGE_OFFSET_APPEND,
-	}
-
-	root_parameters_len :: 2
+	root_parameters_len :: 1
 
 	root_parameters: [root_parameters_len]dx.ROOT_PARAMETER
 
@@ -2247,13 +2237,6 @@ create_lighting_root_signature :: proc() {
 		ParameterType = .CBV,
 		Descriptor = {ShaderRegister = 0, RegisterSpace = 0},
 		ShaderVisibility = .ALL, // vertex, pixel, or both (all)
-	}
-
-	// our descriptor table for the texture
-	root_parameters[1] = {
-		ParameterType = .DESCRIPTOR_TABLE,
-		DescriptorTable = {NumDescriptorRanges = 1, pDescriptorRanges = &texture_range},
-		ShaderVisibility = .PIXEL,
 	}
 
 	// our static sampler
@@ -2286,7 +2269,7 @@ create_lighting_root_signature :: proc() {
 	}
 
 	// desc.Desc_1_0.Flags = {.ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT}
-	desc.Desc_1_0.Flags = {}
+	desc.Desc_1_0.Flags = {.CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED}
 	serialized_desc: ^dx.IBlob
 	hr := dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
 	check(hr, "Failed to serialize root signature")
@@ -2644,26 +2627,13 @@ render_lighting_pass :: proc() {
 		c.cmdlist->ResourceBarrier(1, &to_render_target_barrier)
 	}
 
-	// This state is reset everytime the cmd list is reset, so we need to rebind it
+	// descriptor heap is directly accessed in the shader.
+	//  so we don't need to set a descriptor table or set texture slots.
+	c.cmdlist->SetDescriptorHeaps(1, &c.gbuffer.srv_heap)
 	c.cmdlist->SetGraphicsRootSignature(c.lighting_pass_root_signature)
-
 
 	// setting the root cbv that we set up in the root signature. root parameter 0
 	c.cmdlist->SetGraphicsRootConstantBufferView(0, dx_context.constant_buffer->GetGPUVirtualAddress())
-
-	// setting descriptor tables for our gbuffers
-	{
-
-		// setting descriptor heap for our cbv srv uav's
-		c.cmdlist->SetDescriptorHeaps(1, &c.gbuffer.srv_heap)
-
-		// setting the graphics root descriptor table
-		// in the root signature, so that it points to
-		// our SRV descriptor
-		c.cmdlist->SetGraphicsRootDescriptorTable(1, get_descriptor_heap_gpu_address(c.gbuffer.srv_heap, 0))
-
-		// c.gbuffer.rtv_heap
-	}
 
 	{
 		viewport := dx.VIEWPORT {
@@ -2849,11 +2819,10 @@ load_textures_from_gltf :: proc(data : ^cgltf.data) {
 	for image in data.images {
 		fmt.printfln("loading image %v", image.name)
 		assert(image.mime_type == "image/png")
-		// image.buffer_view.
 		
-		// png would be image_data, with size of image.buffer_view.size
 		png_data := cgltf.buffer_view_data(image.buffer_view)
 		png_size := image.buffer_view.size
+		
 		w, h, channels : c.int
 		image_data := img.load_from_memory(png_data, i32(png_size), &w, &h, &channels, 4)
 		assert(image_data != nil)
@@ -2866,10 +2835,12 @@ load_textures_from_gltf :: proc(data : ^cgltf.data) {
 	
 	// execute command list
 	execute_command_list_and_wait(ct.cmdlist, ct.queue)
-	// free upload resources
 	
+	// free upload resources
 	for res in upload_resources {
 		res->Release()
 	}
+	
+	// create descriptor heap
 	
 }

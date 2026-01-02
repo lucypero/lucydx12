@@ -3,9 +3,6 @@
 
 #pragma pack_matrix(column_major)
 
-Texture2D<float4> albedo : register(t1);
-Texture2D<float4> normal : register(t2);
-Texture2D<float4> position : register(t3);
 
 SamplerState mySampler : register(s0);
 
@@ -51,6 +48,10 @@ PSInput VSMain(uint VertexID : SV_VertexID)
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
+	Texture2D<float4> albedo = ResourceDescriptorHeap[0];
+	Texture2D<float4> normal = ResourceDescriptorHeap[1];
+	Texture2D<float4> position = ResourceDescriptorHeap[2];
+
     float3 albedoColor = albedo.Sample(mySampler, input.uvs).xyz;
     float3 normalColor = normal.Sample(mySampler, input.uvs).xyz;
     float3 positionColor = position.Sample(mySampler, input.uvs).xyz;
