@@ -32,16 +32,10 @@ struct GeneralConstants {
     bool place_texture;
 };
 
-ConstantBuffer<GeneralConstants> general_constants : register(b0);
-
-Texture2D<float4> myTexture : register(t1);
-
 struct MeshTransform
 {
     float4x4 model; 
 };
-
-StructuredBuffer<MeshTransform> mesh_transforms : register(t2);
 
 SamplerState mySampler : register(s0);
 
@@ -51,7 +45,14 @@ struct DrawConstants {
 
 ConstantBuffer<DrawConstants> draw_constants : register(b1);
 
+// cbv index is 3
+// structured buffer index is %v 5
+
 PSInput VSMain(VSInput the_input) {
+
+	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[3];
+	StructuredBuffer<MeshTransform> mesh_transforms = ResourceDescriptorHeap[4];
+
     PSInput result;
 
     // use this for instanced drawing
@@ -97,14 +98,13 @@ struct PSOutput {
 };
 
 PSOutput PSMain(PSInput input) {
-    
+
+	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[3];
     PSOutput output;
 
     float4 pixelColor = float4(input.color, 1.0);
-
-    if(general_constants.place_texture) {
-        pixelColor = myTexture.Sample(mySampler, input.uvs);
-    }
+    // Texture2D<float4> someTexture = ResourceDescriptorHeap[9];
+    // pixelColor = someTexture.Sample(mySampler, input.uvs);
 
     float3 norm = normalize(input.frag_normal);
 
