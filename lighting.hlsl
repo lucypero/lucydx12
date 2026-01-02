@@ -14,7 +14,6 @@ cbuffer ConstantBuffer : register(b0)
     float light_int;
     float3 view_pos;
     float time;
-    bool place_texture;
 };
 
 struct PSInput
