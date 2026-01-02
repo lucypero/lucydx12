@@ -1,6 +1,16 @@
 # current todo
 
+- copy code from here to filter out instrumentation markers
+	- https://github.com/joaocarvalhoopen/ota_profiller__Odin_Terminal_Auto_Profiller_Lib/blob/main/ota_profiller/otprofiller.odin
+
+- render the base color textures using bindless. see gemini answer.
+	- look into this: 
+			Pro-Tip: Shader Model 6.6
+			If you use Shader Model 6.6, you can skip the "unbounded array" declaration entirely. You can access the heap directly in your shader like this:
+
 - run profiler to see why the startup is so slow
+	- paused until u fix the spall bug.
+	
 - rebind `g t` to "go to type" (it's at `g y`)
 
 - TODO: find out how to abstract and/or share fences

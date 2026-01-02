@@ -98,7 +98,7 @@ Mesh :: struct {
 }
 
 // testing
-meshes: []Mesh
+g_meshes: []Mesh
 
 Scene :: struct {
 	nodes: []Node,
@@ -264,7 +264,7 @@ context_init :: proc(con: ^Context) {
 	light_pos = v3{4.1, 3.5, 4.5}
 	light_int = 1
 	light_speed = 0.002
-	con.meshes_to_render = len(meshes)
+	con.meshes_to_render = len(g_meshes)
 }
 
 check :: proc(res: dx.HRESULT, message: string) {
@@ -600,6 +600,11 @@ main :: proc() {
 		dxgi_debug->ReportLiveObjects(dxgi.DEBUG_ALL, {})
 		fmt.println("=== report end =====")
 	}
+	
+	when PROFILE {
+		fmt.printfln("highest stack count: %v, total instrument hits: %v", highest_stack_count, instrument_hit_count)
+	}
+	
 }
 
 g_frame_dt : f64 = 0.2 // in ms
@@ -1008,16 +1013,8 @@ create_sample_texture :: proc() {
 	num_rows: u32
 	row_size: u64
 
-	dx_context.device->GetCopyableFootprints(
-		&texture_desc,
-		0,
-		1,
-		0,
-		&text_footprint,
-		&num_rows,
-		&row_size,
-		&text_bytes,
-	)
+	dx_context.device->GetCopyableFootprints(&texture_desc, 0, 1, 0, &text_footprint, &num_rows, 
+		&row_size, &text_bytes)
 
 	// creating upload heap and resource (needed to upload texture data from cpu to the default heap)
 
@@ -1267,6 +1264,7 @@ create_gbuffer_pass_root_signature :: proc() {
 		}
 	}
 
+	// Root constant: the index to the right model matrix of the draw call.
 	root_parameters[2] = {
 		ParameterType = ._32BIT_CONSTANTS,
 		Constants = {ShaderRegister = 1, RegisterSpace = 0, Num32BitValues = 1},
@@ -1571,8 +1569,6 @@ do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
 
 	// new stuff start
 
-	// just taking the first scene
-
 	assert(len(data.scenes) == 1)
 
 	gltf_scene := data.scenes[0]
@@ -1580,9 +1576,11 @@ do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
 	vertices_dyn := make([dynamic]VertexData)
 	indices_dyn := make([dynamic]u32)
 
-	meshes = load_meshes(data, &vertices_dyn, &indices_dyn)
+	g_meshes = load_meshes(data, &vertices_dyn, &indices_dyn)
+	
+	load_textures_from_gltf(data)
 
-	fmt.printfln("mesh count: %v", len(meshes))
+	fmt.printfln("mesh count: %v", len(g_meshes))
 
 	scene = gltf_load_nodes(data)
 
@@ -2583,7 +2581,7 @@ render_gbuffer_pass :: proc() {
 			return
 		}
 
-		mesh_to_render := meshes[node.mesh]
+		mesh_to_render := g_meshes[node.mesh]
 
 		if g_mesh_drawn_count < ct.meshes_to_render {
 			ct.cmdlist->SetGraphicsRoot32BitConstant(2, u32(g_mesh_drawn_count), 0)
@@ -2753,6 +2751,10 @@ lprintfln_donotuse :: proc(fmt_s: string, args: ..any) {
 // Automatic profiling of every procedure:
 
 when PROFILE {
+	
+	highest_stack_count: u32
+	cur_stack_count: u32
+	instrument_hit_count: u64
 
 	@(instrumentation_enter)
 	spall_enter :: proc "contextless" (
@@ -2760,6 +2762,12 @@ when PROFILE {
 		loc: runtime.Source_Code_Location,
 	) {
 		spall._buffer_begin(&spall_ctx, &spall_buffer, "", "", loc)
+		cur_stack_count += 1
+		instrument_hit_count += 1
+		
+		if cur_stack_count > highest_stack_count {
+			highest_stack_count = cur_stack_count
+		}
 	}
 
 	@(instrumentation_exit)
@@ -2768,6 +2776,7 @@ when PROFILE {
 		loc: runtime.Source_Code_Location,
 	) {
 		spall._buffer_end(&spall_ctx, &spall_buffer)
+		cur_stack_count -= 1
 	}
 
 }
@@ -2825,4 +2834,42 @@ hotswap_swap :: proc(hs: ^HotSwapState, pso: ^^dx.IPipelineState) {
 		pso_pointer^ = pso^
 		hs.pso_swap = nil
 	}
+}
+
+
+load_textures_from_gltf :: proc(data : ^cgltf.data) {
+	
+	ct := dx_context
+	
+	upload_resources := make([dynamic]^dx.IUnknown, 0, len(data.images))
+	defer delete(upload_resources)
+	
+	dx_context.cmdlist->Reset(dx_context.command_allocator, ct.pipeline_gbuffer)
+	
+	for image in data.images {
+		fmt.printfln("loading image %v", image.name)
+		assert(image.mime_type == "image/png")
+		// image.buffer_view.
+		
+		// png would be image_data, with size of image.buffer_view.size
+		png_data := cgltf.buffer_view_data(image.buffer_view)
+		png_size := image.buffer_view.size
+		w, h, channels : c.int
+		image_data := img.load_from_memory(png_data, i32(png_size), &w, &h, &channels, 4)
+		assert(image_data != nil)
+		defer img.image_free(image_data)
+		
+		// the format is prob wrong.
+		texture_res := create_texture_with_data(image_data, u64(w), u32(h), u32(channels), .R8G8B8A8_UNORM, 
+			&resources_longterm, &upload_resources, ct.cmdlist, string(image.name))
+	}
+	
+	// execute command list
+	execute_command_list_and_wait(ct.cmdlist, ct.queue)
+	// free upload resources
+	
+	for res in upload_resources {
+		res->Release()
+	}
+	
 }

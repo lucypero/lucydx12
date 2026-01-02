@@ -1,6 +1,5 @@
 // this is the first pass that populates all the g-buffers.
 
-
 #pragma pack_matrix(column_major)
 
 struct VSInput {
