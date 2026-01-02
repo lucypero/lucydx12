@@ -183,7 +183,6 @@ GBuffer :: struct {
 	gb_normal: GBufferUnit,
 	gb_position: GBufferUnit,
 	rtv_heap: ^dx.IDescriptorHeap,
-	srv_heap: ^dx.IDescriptorHeap,
 }
 
 HotSwapState :: struct {
@@ -237,7 +236,11 @@ Context :: struct {
 	texture: ^dx.IResource,
 	res_structured_buffer: ^dx.IResource,
 
-	// descriptor heap for our cbv and srv (texture)
+	// descriptor heap for ALL our resources
+	cbv_srv_uav_heap: ^dx.IDescriptorHeap,
+	descriptor_count : u32, // count for how many descriptors are in the srv heap
+	
+	// TODO delete this one later. combine it into the heap above.
 	descriptor_heap_cbv_srv_uav: ^dx.IDescriptorHeap,
 
 	// vertex count
@@ -318,6 +321,21 @@ main :: proc() {
 	init_dx()
 
 	device := dx_context.device
+	
+	// Creating SRV heap used for all resourcse
+	
+	{
+		desc := dx.DESCRIPTOR_HEAP_DESC {
+			NumDescriptors = 1000000,
+			Type = .CBV_SRV_UAV,
+			Flags = {.SHADER_VISIBLE},
+		}
+
+		hr := device->CreateDescriptorHeap(&desc, dx.IDescriptorHeap_UUID, (^rawptr)(&dx_context.cbv_srv_uav_heap))
+		check(hr, "Failed creating descriptor heap")
+		dx_context.cbv_srv_uav_heap->SetName("lucy's uber CBV_SRV_UAV descriptor heap")
+		sa.push(&resources_longterm, dx_context.cbv_srv_uav_heap)
+	}
 
 
 	hr: dx.HRESULT
@@ -1912,7 +1930,6 @@ create_gbuffer :: proc() -> GBuffer {
 
 	// creating rtv heap and srv heaps
 	gb_rtv_dh: ^dx.IDescriptorHeap
-	gb_srv_dh: ^dx.IDescriptorHeap
 
 	desc := dx.DESCRIPTOR_HEAP_DESC {
 		NumDescriptors = gbuffer_count,
@@ -1927,18 +1944,6 @@ create_gbuffer :: proc() -> GBuffer {
 	rtv_descriptor_size: u32 = ct.device->GetDescriptorHandleIncrementSize(.RTV)
 	rtv_descriptor_handle_heap_start: dx.CPU_DESCRIPTOR_HANDLE
 	gb_rtv_dh->GetCPUDescriptorHandleForHeapStart(&rtv_descriptor_handle_heap_start)
-
-	// creating SRV descriptor heap
-
-	desc = dx.DESCRIPTOR_HEAP_DESC {
-		NumDescriptors = gbuffer_count,
-		Type = .CBV_SRV_UAV,
-		Flags = {.SHADER_VISIBLE},
-	}
-
-	hr = ct.device->CreateDescriptorHeap(&desc, dx.IDescriptorHeap_UUID, (^rawptr)(&gb_srv_dh))
-	check(hr, "Failed creating descriptor heap")
-	gb_rtv_dh->SetName("lucy's g-buffer CBV_SRV_UAV descriptor heap")
 
 	// create texture resource and RTV's
 
@@ -1962,13 +1967,15 @@ create_gbuffer :: proc() -> GBuffer {
 		initial_state = {.PIXEL_SHADER_RESOURCE},
 		pool = &resources_longterm,
 	)
-
+	
 	gb_1_res->SetName("gbuffer unit 0: ALBEDO + SPECULAR")
 
 	rtv_descriptor_handle_1: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
 	rtv_descriptor_handle_1.ptr += uint(rtv_descriptor_size) * 0
 	ct.device->CreateRenderTargetView(gb_1_res, nil, rtv_descriptor_handle_1)
-	ct.device->CreateShaderResourceView(gb_1_res, nil, get_descriptor_heap_cpu_address(gb_srv_dh, 0))
+	ct.device->CreateShaderResourceView(gb_1_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, ct.descriptor_count))
+	ct.descriptor_count += 1
+	
 	// u gotta release the whole heap
 
 	// world normal data
@@ -1985,7 +1992,8 @@ create_gbuffer :: proc() -> GBuffer {
 	rtv_descriptor_handle_2: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
 	rtv_descriptor_handle_2.ptr += uint(rtv_descriptor_size) * 1
 	ct.device->CreateRenderTargetView(gb_2_res, nil, rtv_descriptor_handle_2)
-	ct.device->CreateShaderResourceView(gb_2_res, nil, get_descriptor_heap_cpu_address(gb_srv_dh, 1))
+	ct.device->CreateShaderResourceView(gb_2_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, ct.descriptor_count))
+	ct.descriptor_count += 1
 
 	// world space position
 	gb_3_res := create_texture(
@@ -2001,17 +2009,16 @@ create_gbuffer :: proc() -> GBuffer {
 	rtv_descriptor_handle_3: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
 	rtv_descriptor_handle_3.ptr += uint(rtv_descriptor_size) * 2
 	ct.device->CreateRenderTargetView(gb_3_res, nil, rtv_descriptor_handle_3)
-	ct.device->CreateShaderResourceView(gb_3_res, nil, get_descriptor_heap_cpu_address(gb_srv_dh, 2))
+	ct.device->CreateShaderResourceView(gb_3_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, ct.descriptor_count))
+	ct.descriptor_count += 1
 
 	sa.push(&resources_longterm, gb_rtv_dh)
-	sa.push(&resources_longterm, gb_srv_dh)
 
 	return GBuffer {
 		gb_albedo = GBufferUnit{res = gb_1_res, rtv = rtv_descriptor_handle_1, format = gb_albedo_format},
 		gb_normal = GBufferUnit{res = gb_2_res, rtv = rtv_descriptor_handle_2, format = gb_normal_format},
 		gb_position = GBufferUnit{res = gb_3_res, rtv = rtv_descriptor_handle_3, format = gb_position_format},
 		rtv_heap = gb_rtv_dh,
-		srv_heap = gb_srv_dh,
 	}
 }
 
@@ -2629,7 +2636,7 @@ render_lighting_pass :: proc() {
 
 	// descriptor heap is directly accessed in the shader.
 	//  so we don't need to set a descriptor table or set texture slots.
-	c.cmdlist->SetDescriptorHeaps(1, &c.gbuffer.srv_heap)
+	c.cmdlist->SetDescriptorHeaps(1, &c.cbv_srv_uav_heap)
 	c.cmdlist->SetGraphicsRootSignature(c.lighting_pass_root_signature)
 
 	// setting the root cbv that we set up in the root signature. root parameter 0
