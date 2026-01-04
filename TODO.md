@@ -1,5 +1,18 @@
 # current todo
 
+- set up a material system.
+
+	now i have to process materials.. then tell each mesh what material it needs.. and all that
+	is a root constant enough for that? to index a material
+	i'd have to make a materials structured buffer.. and a material is just indexes to textures..
+	then the root constant is an index to this material buffer
+	am i cooking?
+
+	Maico — 03:26
+	Yes. The root constant has to be some type of object/instance id value set before each draw (or in an indirect arguments buffer).
+
+	To clarify, you can supply a descriptor heap index to the material structured buffer once (say through a CBV), and then a per draw instance id into that buffer.
+	
 - copy code from here to filter out instrumentation markers
 	- https://github.com/joaocarvalhoopen/ota_profiller__Odin_Terminal_Auto_Profiller_Lib/blob/main/ota_profiller/otprofiller.odin
 

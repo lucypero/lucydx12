@@ -66,130 +66,6 @@ transition_resource :: proc(res: ^dx.IResource, cmd_list: ^dx.IGraphicsCommandLi
 	cmd_list->ResourceBarrier(1, &barrier)
 }
 
-// creates texture then uploads data to it then transitions to a default heap
-// it doesn't execute the command list. u have to do that later.
-// release upload resources after executing command list.
-create_texture_with_data :: proc(
-	image_data: [^]byte,
-	width: u64,
-	height: u32,
-	channels: u32,
-	format: dxgi.FORMAT,
-	pool_textures : ^DXResourcePool,
-	pool_upload_heap : ^[dynamic]^dx.IUnknown,
-	cmdlist : ^dx.IGraphicsCommandList,
-	texture_name := ""
-) -> (res: ^dx.IResource) {
-	
-	ct := &dx_context
-
-	// default heap (this is where the final texture will reside)
-	heap_properties := dx.HEAP_PROPERTIES {
-		Type = .DEFAULT,
-	}
-	texture_desc := dx.RESOURCE_DESC {
-		Width = (u64)(width),
-		Height = (u32)(height),
-		Dimension = .TEXTURE2D,
-		Layout = .UNKNOWN,
-		Format = format,
-		DepthOrArraySize = 1,
-		MipLevels = 1,
-		SampleDesc = {Count = 1},
-	}
-
-	hr := ct.device->CreateCommittedResource(
-		&heap_properties,
-		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
-		&texture_desc,
-		{.COPY_DEST},
-		nil,
-		dx.IResource_UUID,
-		(^rawptr)(&res),
-	)
-
-	check(hr, "failed creating texture")
-	
-	// u need to add null terminator for this to work...
-	texture_name_cstring := windows.utf8_to_wstring_alloc(texture_name, allocator = context.temp_allocator)
-	res->SetName(texture_name_cstring)
-	sa.push(pool_textures, res)
-
-	// getting data from texture that we'll use later
-	text_footprint: dx.PLACED_SUBRESOURCE_FOOTPRINT
-	text_bytes: u64
-	num_rows: u32
-	row_size: u64
-
-	ct.device->GetCopyableFootprints(&texture_desc, 0, 1, 0, &text_footprint, &num_rows, 
-		&row_size, &text_bytes)
-
-	// creating upload heap and resource (needed to upload texture data from cpu to the default heap)
-
-	heap_properties = dx.HEAP_PROPERTIES {
-		Type = .UPLOAD,
-	}
-
-	texture_upload: ^dx.IResource
-	upload_desc := dx.RESOURCE_DESC {
-		Dimension = .BUFFER,
-		Alignment = 0,
-		Width = text_bytes, // size of the texture in bytes
-		Height = 1,
-		MipLevels = 1,
-		Format = .UNKNOWN,
-		Layout = .ROW_MAJOR,
-		DepthOrArraySize = 1,
-		SampleDesc = {Count = 1},
-	}
-
-	hr = ct.device->CreateCommittedResource(
-		&heap_properties,
-		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
-		&upload_desc,
-		dx.RESOURCE_STATE_GENERIC_READ,
-		nil,
-		dx.IResource_UUID,
-		(^rawptr)(&texture_upload),
-	)
-
-	check(hr, "failed creating upload texture")
-	append(pool_upload_heap, texture_upload)
-
-	// here you do a Map and you memcpy the data to the upload resource.
-	// you'll have to use an image library here to get the pixel data of an image.
-
-	texture_map_start: rawptr
-	texture_upload->Map(0, &dx.RANGE{}, &texture_map_start)
-	texture_map_start_mp: [^]u8 = auto_cast texture_map_start
-
-	for row in 0 ..< height {
-		mem.copy(
-			texture_map_start_mp[u32(text_footprint.Footprint.RowPitch) * u32(row):],
-			image_data[width * u64(channels) * u64(row):],
-			int(width * u64(channels)),
-		)
-	}
-
-	// here you send the gpu command to copy the data to the texture resource.
-
-	copy_location_src := dx.TEXTURE_COPY_LOCATION {
-		pResource = texture_upload,
-		Type = .PLACED_FOOTPRINT,
-		PlacedFootprint = text_footprint,
-	}
-
-	copy_location_dst := dx.TEXTURE_COPY_LOCATION {
-		pResource = res,
-		Type = .SUBRESOURCE_INDEX,
-		SubresourceIndex = 0,
-	}
-
-	cmdlist->CopyTextureRegion(&copy_location_dst, 0, 0, 0, &copy_location_src, nil)
-	transition_resource_from_copy_to_read(res, cmdlist)
-	return res
-}
-
 
 // helper function that creates a texture resource in its own implicit heap
 // TODO: look into creating heap separately
@@ -326,4 +202,209 @@ compile_individual_shader :: proc(source_buffer: ^dxc.Buffer, compiler: ^dxc.ICo
 	output_blob : ^dxc.IBlob
 	results->GetOutput(.OBJECT, dxc.IBlob_UUID, (^rawptr)(&output_blob), nil)
 	return output_blob, true
+}
+
+create_structured_buffer_with_data :: proc(
+	cmdlist : ^dx.IGraphicsCommandList,
+	buffer_name: string,
+	pool_resource : ^DXResourcePool,
+	buffer_data : []byte
+	) -> ^dx.IResource {
+	
+	ct := &dx_context
+	
+	heap_properties := dx.HEAP_PROPERTIES {
+		Type = .DEFAULT,
+	}
+
+	buffer_desc := dx.RESOURCE_DESC {
+		Width = u64(len(buffer_data)),
+		Height = 1,
+		Dimension = .BUFFER,
+		Layout = .ROW_MAJOR,
+		Format = .UNKNOWN,
+		DepthOrArraySize = 1,
+		MipLevels = 1,
+		SampleDesc = {Count = 1},
+		Flags = {},
+	}
+
+	default_res: ^dx.IResource
+
+	hr := ct.device->CreateCommittedResource(
+		pHeapProperties = &heap_properties,
+		HeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
+		pDesc = &buffer_desc,
+		InitialResourceState = dx.RESOURCE_STATE_COMMON, // it will promote to copy_dest automatically later
+		pOptimizedClearValue = nil,
+		riidResource = dx.IResource_UUID,
+		ppvResource = (^rawptr)(&default_res),
+	)
+
+	check(hr, "failed creating buffer")
+	
+	buffer_name_cstring := windows.utf8_to_wstring_alloc(buffer_name, allocator = context.temp_allocator)
+	default_res->SetName(buffer_name_cstring)
+	sa.push(pool_resource, default_res)
+
+	// creating UPLOAD resource
+
+	heap_properties.Type = .UPLOAD
+
+	upload_res: ^dx.IResource
+
+	// buffer desc is the same i think.
+	// buffer_desc.
+
+	hr = ct.device->CreateCommittedResource(
+		&heap_properties,
+		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
+		&buffer_desc,
+		dx.RESOURCE_STATE_GENERIC_READ,
+		nil,
+		dx.IResource_UUID,
+		(^rawptr)(&upload_res),
+	)
+
+	check(hr, "failed creating upload buffer")
+	defer upload_res->Release()
+
+	// Copying data from cpu to upload resource
+	copy_to_buffer(upload_res, buffer_data)
+
+	// this might be problematic
+	cmdlist->Reset(ct.command_allocator, ct.pipeline_gbuffer)
+	
+	cmdlist->CopyResource(default_res, upload_res)
+
+	// transition resource to shader readable.
+
+	transition_resource_from_copy_to_read(default_res, cmdlist)
+
+	execute_command_list_and_wait(cmdlist, ct.queue)
+	
+	return default_res
+}
+
+// creates texture then uploads data to it then transitions to a default heap
+// it doesn't execute the command list. u have to do that later.
+// release upload resources after executing command list.
+create_texture_with_data :: proc(
+	image_data: [^]byte,
+	width: u64,
+	height: u32,
+	channels: u32,
+	format: dxgi.FORMAT,
+	pool_textures : ^DXResourcePool,
+	pool_upload_heap : ^DXResourcePoolDynamic,
+	cmdlist : ^dx.IGraphicsCommandList,
+	texture_name := ""
+) -> (res: ^dx.IResource) {
+	
+	ct := &dx_context
+
+	// default heap (this is where the final texture will reside)
+	heap_properties := dx.HEAP_PROPERTIES {
+		Type = .DEFAULT,
+	}
+	texture_desc := dx.RESOURCE_DESC {
+		Width = (u64)(width),
+		Height = (u32)(height),
+		Dimension = .TEXTURE2D,
+		Layout = .UNKNOWN,
+		Format = format,
+		DepthOrArraySize = 1,
+		MipLevels = 1,
+		SampleDesc = {Count = 1},
+	}
+
+	hr := ct.device->CreateCommittedResource(
+		&heap_properties,
+		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
+		&texture_desc,
+		{.COPY_DEST},
+		nil,
+		dx.IResource_UUID,
+		(^rawptr)(&res),
+	)
+
+	check(hr, "failed creating texture")
+	
+	texture_name_cstring := windows.utf8_to_wstring_alloc(texture_name, allocator = context.temp_allocator)
+	res->SetName(texture_name_cstring)
+	sa.push(pool_textures, res)
+
+	// getting data from texture that we'll use later
+	text_footprint: dx.PLACED_SUBRESOURCE_FOOTPRINT
+	text_bytes: u64
+	num_rows: u32
+	row_size: u64
+
+	ct.device->GetCopyableFootprints(&texture_desc, 0, 1, 0, &text_footprint, &num_rows, 
+		&row_size, &text_bytes)
+
+	// creating upload heap and resource (needed to upload texture data from cpu to the default heap)
+
+	heap_properties = dx.HEAP_PROPERTIES {
+		Type = .UPLOAD,
+	}
+
+	texture_upload: ^dx.IResource
+	upload_desc := dx.RESOURCE_DESC {
+		Dimension = .BUFFER,
+		Alignment = 0,
+		Width = text_bytes, // size of the texture in bytes
+		Height = 1,
+		MipLevels = 1,
+		Format = .UNKNOWN,
+		Layout = .ROW_MAJOR,
+		DepthOrArraySize = 1,
+		SampleDesc = {Count = 1},
+	}
+
+	hr = ct.device->CreateCommittedResource(
+		&heap_properties,
+		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
+		&upload_desc,
+		dx.RESOURCE_STATE_GENERIC_READ,
+		nil,
+		dx.IResource_UUID,
+		(^rawptr)(&texture_upload),
+	)
+
+	check(hr, "failed creating upload texture")
+	append(pool_upload_heap, texture_upload)
+
+	// here you do a Map and you memcpy the data to the upload resource.
+	// you'll have to use an image library here to get the pixel data of an image.
+
+	texture_map_start: rawptr
+	texture_upload->Map(0, &dx.RANGE{}, &texture_map_start)
+	texture_map_start_mp: [^]u8 = auto_cast texture_map_start
+
+	for row in 0 ..< height {
+		mem.copy(
+			texture_map_start_mp[u32(text_footprint.Footprint.RowPitch) * u32(row):],
+			image_data[width * u64(channels) * u64(row):],
+			int(width * u64(channels)),
+		)
+	}
+
+	// here you send the gpu command to copy the data to the texture resource.
+
+	copy_location_src := dx.TEXTURE_COPY_LOCATION {
+		pResource = texture_upload,
+		Type = .PLACED_FOOTPRINT,
+		PlacedFootprint = text_footprint,
+	}
+
+	copy_location_dst := dx.TEXTURE_COPY_LOCATION {
+		pResource = res,
+		Type = .SUBRESOURCE_INDEX,
+		SubresourceIndex = 0,
+	}
+
+	cmdlist->CopyTextureRegion(&copy_location_dst, 0, 0, 0, &copy_location_src, nil)
+	transition_resource_from_copy_to_read(res, cmdlist)
+	return res
 }

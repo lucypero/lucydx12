@@ -45,6 +45,7 @@ v4 :: linalg.Vector4f32
 dxm :: matrix[4, 4]f32
 
 DXResourcePool :: sa.Small_Array(100, ^dx.IUnknown)
+DXResourcePoolDynamic :: [dynamic]^dx.IUnknown
 
 gbuffer_shader_filename :: "shader.hlsl"
 lighting_shader_filename :: "lighting.hlsl"
@@ -555,7 +556,7 @@ main :: proc() {
 		index_buffer->Unmap(0, nil)
 	}
 
-	create_structured_buffer(&resources_longterm)
+	create_model_matrix_structured_buffer(&resources_longterm)
 	create_cbv_and_structured_buffer()
 
 	// This fence is used to wait for frames to finish
@@ -1038,20 +1039,17 @@ create_instance_buffer_example :: proc() -> VertexBuffer {
 	instance_data_size := len(instance_data) * size_of(instance_data[0])
 
 	vb := create_vertex_buffer(size_of(instance_data[0]), u32(instance_data_size), pool = &resources_longterm)
-
+	
 	// third: we copy the data to the buffer (map and unmap)									
-	copy_to_buffer(vb.buffer, &instance_data[0], instance_data_size)
+	copy_to_buffer(vb.buffer, slice.to_bytes(instance_data)
+)
 
 	return vb
 }
 
 reroll_teapots :: proc() {
-
 	instance_data := gen_teapot_instance_data()
-
-	instance_data_size := len(instance_data) * size_of(instance_data[0])
-
-	copy_to_buffer(dx_context.instance_buffer.buffer, &instance_data[0], instance_data_size)
+	copy_to_buffer(dx_context.instance_buffer.buffer, slice.to_bytes(instance_data))
 }
 
 // creates:
@@ -1166,6 +1164,8 @@ load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indices: 
 		mesh_index_count: u32
 
 		for prim in mesh.primitives {
+			
+			// process material here material
 
 			attr_position: cgltf.attribute
 			attr_normal: cgltf.attribute
@@ -1735,11 +1735,11 @@ create_vertex_buffer :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^DXResou
 }
 
 // copies data to a dx resource. then unmaps the memory
-copy_to_buffer :: proc(buffer: ^dx.IResource, src: rawptr, len: int) {
+copy_to_buffer :: proc(buffer: ^dx.IResource, data: []byte) {
 	gpu_data: rawptr
 	hr := buffer->Map(0, &dx.RANGE{}, &gpu_data)
 	check(hr, "Failed mapping")
-	mem.copy(gpu_data, src, len)
+	mem.copy(gpu_data, raw_data(data), len(data))
 	buffer->Unmap(0, nil)
 }
 
@@ -1847,110 +1847,31 @@ BufferThing :: struct {
 // it creates an upload heap, copies data to it, then transfers it to the default heap.
 // make it specific for what u want now.
 // then we can turn it into a helper function. later.
-create_structured_buffer :: proc(pool: ^DXResourcePool) {
+create_model_matrix_structured_buffer :: proc(pool: ^DXResourcePool) {
 
 	ct := &dx_context
-
-
-
-	buffer_size: u64 = size_of(BufferThing) * u64(scene.mesh_count)
-
-	heap_properties := dx.HEAP_PROPERTIES {
-		Type = .DEFAULT,
-	}
-
-	buffer_desc := dx.RESOURCE_DESC {
-		Width = buffer_size,
-		Height = 1,
-		Dimension = .BUFFER,
-		Layout = .ROW_MAJOR,
-		Format = .UNKNOWN,
-		DepthOrArraySize = 1,
-		MipLevels = 1,
-		SampleDesc = {Count = 1},
-		Flags = {},
-	}
-
-	default_res: ^dx.IResource
-
-	// CreateCommittedResource:          proc "system" (this: ^IDevice,
-	//  pHeapProperties: ^HEAP_PROPERTIES, HeapFlags: HEAP_FLAGS, pDesc: ^RESOURCE_DESC, InitialResourceState: RESOURCE_STATES,
-	//   pOptimizedClearValue: ^CLEAR_VALUE, riidResource: ^IID, ppvResource: ^rawptr) -> HRESULT,
-
-	hr := ct.device->CreateCommittedResource(
-		pHeapProperties = &heap_properties,
-		HeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
-		pDesc = &buffer_desc,
-		InitialResourceState = dx.RESOURCE_STATE_COMMON, // it will promote to copy_dest automatically later
-		pOptimizedClearValue = nil,
-		riidResource = dx.IResource_UUID,
-		ppvResource = (^rawptr)(&default_res),
-	)
-
-	check(hr, "failed creating buffer")
-	default_res->SetName("structured buffer - model matrices")
-	sa.push(pool, default_res)
-
-	// creating UPLOAD resource
-
-	heap_properties.Type = .UPLOAD
-
-	upload_res: ^dx.IResource
-
-	// buffer desc is the same i think.
-	// buffer_desc.
-
-	hr = ct.device->CreateCommittedResource(
-		&heap_properties,
-		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
-		&buffer_desc,
-		dx.RESOURCE_STATE_GENERIC_READ,
-		nil,
-		dx.IResource_UUID,
-		(^rawptr)(&upload_res),
-	)
-
-	check(hr, "failed creating upload buffer")
-	upload_res->SetName("upload buffer for matrices")
-	defer upload_res->Release()
-
+	
 	// Copying data from cpu to upload resource
-
-	Data :: struct {
+	CallbackData :: struct {
 		sample_matrix_data: []BufferThing,
 		mesh_i: uint,
 	}
 
-	data := Data {
+	data := CallbackData {
 		sample_matrix_data = make([]BufferThing, scene.mesh_count, allocator = context.temp_allocator),
 		mesh_i = 0,
 	}
 
 	scene_walk(scene, &data, proc(node: Node, scene: Scene, data: rawptr) {
 		if node.mesh == -1 do return
-		data := cast(^Data)data
+		data := cast(^CallbackData)data
 		data.sample_matrix_data[data.mesh_i].model_matrix = get_node_world_matrix(node, scene)
 		data.mesh_i += 1
 	})
-
-	// TODO: check if this works.
-	// if it works, make a helper method that just takes a slice. friendlier API
-	copy_to_buffer(
-		upload_res,
-		&data.sample_matrix_data[0],
-		size_of(data.sample_matrix_data[0]) * len(data.sample_matrix_data),
-	)
-
-	dx_context.cmdlist->Reset(ct.command_allocator, ct.pipeline_gbuffer)
-	dx_context.cmdlist->CopyResource(default_res, upload_res)
-
-	// transition resource to shader readable.
-
-	transition_resource_from_copy_to_read(default_res, ct.cmdlist)
-
-	execute_command_list_and_wait(ct.cmdlist, ct.queue)
-
-	ct.res_structured_buffer = default_res
+	
+	ct.res_structured_buffer = create_structured_buffer_with_data(ct.cmdlist, "model matrix data",
+	 	&resources_longterm,
+		slice.to_bytes(data.sample_matrix_data))
 }
 
 create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState {
@@ -2646,7 +2567,7 @@ load_textures_from_gltf :: proc(data : ^cgltf.data) {
 		textures_srv_index += 1
 		
 		// enforcing a limit bc it's so slow
-		if i > 5 do break
+		// if i > 20 do break
 	}
 	
 	// execute command list
