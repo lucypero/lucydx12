@@ -100,6 +100,7 @@ ConstantBufferData :: struct #align (256) {
 
 // all meshes use the same index/vertex buffer.
 // so we just have to store the offset and index count to render a specific mesh
+// TODO: u now need to break apart meshes into primitives. because it is the primitives that index the materials.
 Mesh :: struct {
 	index_offset: u32,
 	index_count: u32,
@@ -178,7 +179,6 @@ VertexBuffer :: struct {
 	buffer_size: u32,
 	buffer_stride: u32,
 }
-
 
 GBufferUnit :: struct {
 	res: ^dx.IResource,
@@ -1102,10 +1102,12 @@ create_gbuffer_pass_root_signature :: proc() {
 	root_parameters: [root_parameters_len]dx.ROOT_PARAMETER
 
 	// Root constant: the index to the right model matrix of the draw call.
+	// first number: model matrix of the draw call
+	// second number: material index
 	root_parameters[0] = {
 		ParameterType = ._32BIT_CONSTANTS,
-		Constants = {ShaderRegister = 1, RegisterSpace = 0, Num32BitValues = 1},
-		ShaderVisibility = .VERTEX,
+		Constants = {ShaderRegister = 1, RegisterSpace = 0, Num32BitValues = 2},
+		ShaderVisibility = .ALL
 	}
 
 	// our static sampler
@@ -2274,6 +2276,11 @@ render_gbuffer_pass :: proc() {
 	// going through scene tree
 
 	// drawing scene
+	
+	DrawConstants :: struct {
+	    mesh_index: u32,
+	    material_index: u32,
+	}
 
 	scene_walk(scene, nil, proc(node: Node, scene: Scene, data: rawptr) {
 		ct := &dx_context
@@ -2285,7 +2292,13 @@ render_gbuffer_pass :: proc() {
 		mesh_to_render := g_meshes[node.mesh]
 
 		if g_mesh_drawn_count < ct.meshes_to_render {
-			ct.cmdlist->SetGraphicsRoot32BitConstant(0, u32(g_mesh_drawn_count), 0)
+			
+			dc := DrawConstants {
+				mesh_index = u32(g_mesh_drawn_count),
+				material_index = u32(g_mesh_drawn_count), // TODO set the real number here
+			}
+			
+			ct.cmdlist->SetGraphicsRoot32BitConstants(0, 2, &dc, 0)
 			ct.cmdlist->DrawIndexedInstanced(mesh_to_render.index_count, 1, mesh_to_render.index_offset, 0, 0)
 		}
 
@@ -2349,9 +2362,6 @@ render_lighting_pass :: proc() {
 	//  so we don't need to set a descriptor table or set texture slots.
 	c.cmdlist->SetDescriptorHeaps(1, &c.cbv_srv_uav_heap)
 	c.cmdlist->SetGraphicsRootSignature(c.lighting_pass_root_signature)
-
-	// setting the root cbv that we set up in the root signature. root parameter 0
-	c.cmdlist->SetGraphicsRootConstantBufferView(0, dx_context.constant_buffer->GetGPUVirtualAddress())
 
 	{
 		viewport := dx.VIEWPORT {
@@ -2559,7 +2569,7 @@ load_textures_from_gltf :: proc(data : ^cgltf.data) {
 		
 		
 		// enforcing a limit bc it's so slow
-		// if i > 20 do break
+		if i > 2 do break
 	}
 	
 	// execute command list
