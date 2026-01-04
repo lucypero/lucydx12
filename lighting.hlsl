@@ -3,11 +3,9 @@
 
 #pragma pack_matrix(column_major)
 
-
 SamplerState mySampler : register(s0);
 
-cbuffer ConstantBuffer : register(b0)
-{
+struct GeneralConstants {
     float4x4 view;
     float4x4 projection;
     float3 light_pos;
@@ -47,6 +45,8 @@ PSInput VSMain(uint VertexID : SV_VertexID)
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
+	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[4];
+	
 	Texture2D<float4> albedo = ResourceDescriptorHeap[0];
 	Texture2D<float4> normal = ResourceDescriptorHeap[1];
 	Texture2D<float4> position = ResourceDescriptorHeap[2];
@@ -68,13 +68,13 @@ float4 PSMain(PSInput input) : SV_TARGET
         norm = normalize(norm);
     }
     
-    float3 light_dir = normalize(light_pos - positionColor);
+    float3 light_dir = normalize(general_constants.light_pos - positionColor);
 
     // calculating diffuse
     float3 diffuse = 0;
     {
         float diff = max(dot(norm, light_dir), 0.0f);
-        diffuse = diff * light_int;
+        diffuse = diff * general_constants.light_int;
     }
 
     // calculating ambient
@@ -90,7 +90,7 @@ float4 PSMain(PSInput input) : SV_TARGET
     {
         float specularStrength = 0.5;
     
-        float3 viewDir = normalize(view_pos - positionColor);
+        float3 viewDir = normalize(general_constants.view_pos - positionColor);
         float3 reflectDir = reflect(light_dir, norm);
     
         float3 spec_color = float3(1, 1, 1);

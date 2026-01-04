@@ -31,6 +31,10 @@ struct GeneralConstants {
     float time;
 };
 
+struct Material {
+	uint base_color_index;
+};
+
 struct MeshTransform
 {
     float4x4 model; 
@@ -40,6 +44,7 @@ SamplerState mySampler : register(s0);
 
 struct DrawConstants {
     uint mesh_index;
+    uint material_index;
 };
 
 ConstantBuffer<DrawConstants> draw_constants : register(b1);
@@ -100,12 +105,17 @@ PSOutput PSMain(PSInput input) {
 
 	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[4];
     PSOutput output;
+    
+    StructuredBuffer<Material> materials = ResourceDescriptorHeap[3];
+    
+    Material mat = materials[draw_constants.material_index];
 
     float4 pixelColor = float4(input.color, 1.0);
-    Texture2D<float4> someTexture = ResourceDescriptorHeap[400];
+    Texture2D<float4> someTexture = ResourceDescriptorHeap[mat.base_color_index];
     pixelColor = someTexture.Sample(mySampler, input.uvs);
 
     float3 norm = normalize(input.frag_normal);
+    
 
     // writing to all gbuffers
 
