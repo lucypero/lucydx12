@@ -79,6 +79,15 @@ exit_app: bool
 // dx resources to be freed at the end of the app
 resources_longterm: DXResourcePool
 
+ModelMatrixData :: struct {
+	model_matrix: dxm,
+}
+
+Material :: struct #align (256) {
+	// index into the textures buffer containing the texture
+	base_color_index: u32 
+}
+
 // constant buffer data
 ConstantBufferData :: struct #align (256) {
 	view: dxm,
@@ -97,6 +106,7 @@ Mesh :: struct {
 }
 
 // testing
+g_materials: []Material
 g_meshes: []Mesh
 
 Scene :: struct {
@@ -231,7 +241,8 @@ Context :: struct {
 	fence_event: windows.HANDLE,
 
 	// resources
-	res_structured_buffer: ^dx.IResource,
+	sb_model_matrices: ^dx.IResource,
+	sb_materials: ^dx.IResource,
 
 	// descriptor heap for ALL our resources
 	cbv_srv_uav_heap: ^dx.IDescriptorHeap,
@@ -557,7 +568,7 @@ main :: proc() {
 	}
 
 	create_model_matrix_structured_buffer(&resources_longterm)
-	create_cbv_and_structured_buffer()
+	create_cbv_and_structured_buffer_srv()
 
 	// This fence is used to wait for frames to finish
 	{
@@ -1056,7 +1067,7 @@ reroll_teapots :: proc() {
 // - constant buffer with some global info
 // - structured buffer SRV containing all model matrices.
 // they are placed in the uber srv heap.
-create_cbv_and_structured_buffer :: proc() {
+create_cbv_and_structured_buffer_srv :: proc() {
 
 	c := &dx_context
 
@@ -1066,9 +1077,7 @@ create_cbv_and_structured_buffer :: proc() {
 		SizeInBytes = size_of(ConstantBufferData),
 	}
 	
-	c.device->CreateConstantBufferView(&cbv_desc, get_descriptor_heap_cpu_address(c.cbv_srv_uav_heap, c.descriptor_count))
-	fmt.printfln("cbv index is %v", c.descriptor_count)
-	c.descriptor_count += 1
+	create_cbv_on_uber_heap(&cbv_desc, true, "test cbv")
 
 	// creating SRV (structured buffer) (index 2)
 	srv_desc := dx.SHADER_RESOURCE_VIEW_DESC {
@@ -1078,18 +1087,12 @@ create_cbv_and_structured_buffer :: proc() {
 		Buffer = {
 			FirstElement = 0,
 			NumElements = u32(scene.mesh_count),
-			StructureByteStride = size_of(BufferThing),
+			StructureByteStride = size_of(ModelMatrixData),
 			Flags = {},
 		},
 	}
-
-	c.device->CreateShaderResourceView(
-		c.res_structured_buffer,
-		&srv_desc,
-		get_descriptor_heap_cpu_address(c.cbv_srv_uav_heap, c.descriptor_count),
-	)
-	fmt.printfln("structured buffer index is %v", c.descriptor_count)
-	c.descriptor_count += 1
+	
+	create_srv_on_uber_heap(c.sb_model_matrices, true, "model matrices structured buffer", &srv_desc)
 }
 
 create_gbuffer_pass_root_signature :: proc() {
@@ -1376,6 +1379,8 @@ gltf_load_nodes :: proc(data: ^cgltf.data) -> Scene {
 	return Scene{nodes = nodes, root_nodes = root_nodes, mesh_count = mesh_count}
 }
 
+TEXTURE_INDEX_BASE :: 400
+
 do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
 
 	// model_filepath :: "models/teapot.glb"
@@ -1392,7 +1397,6 @@ do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
 
 	data, ok := cgltf.parse_file(cgltf_options, model_filepath_c)
 	defer cgltf.free(data)
-
 
 	if ok != .success {
 		fmt.eprintln("could not read glb")
@@ -1412,6 +1416,7 @@ do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
 	vertices_dyn := make([dynamic]VertexData)
 	indices_dyn := make([dynamic]u32)
 
+	g_materials = load_materials(data)
 	g_meshes = load_meshes(data, &vertices_dyn, &indices_dyn)
 	
 	load_textures_from_gltf(data)
@@ -1734,15 +1739,6 @@ create_vertex_buffer :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^DXResou
 	}
 }
 
-// copies data to a dx resource. then unmaps the memory
-copy_to_buffer :: proc(buffer: ^dx.IResource, data: []byte) {
-	gpu_data: rawptr
-	hr := buffer->Map(0, &dx.RANGE{}, &gpu_data)
-	check(hr, "Failed mapping")
-	mem.copy(gpu_data, raw_data(data), len(data))
-	buffer->Unmap(0, nil)
-}
-
 create_gbuffer :: proc() -> GBuffer {
 	ct := &dx_context
 
@@ -1791,7 +1787,7 @@ create_gbuffer :: proc() -> GBuffer {
 	rtv_descriptor_handle_1: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
 	rtv_descriptor_handle_1.ptr += uint(rtv_descriptor_size) * 0
 	ct.device->CreateRenderTargetView(gb_1_res, nil, rtv_descriptor_handle_1)
-	create_srv_on_uber_heap(gb_1_res)
+	create_srv_on_uber_heap(gb_1_res, true, "gb 1")
 	
 	// u gotta release the whole heap
 
@@ -1809,7 +1805,7 @@ create_gbuffer :: proc() -> GBuffer {
 	rtv_descriptor_handle_2: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
 	rtv_descriptor_handle_2.ptr += uint(rtv_descriptor_size) * 1
 	ct.device->CreateRenderTargetView(gb_2_res, nil, rtv_descriptor_handle_2)
-	create_srv_on_uber_heap(gb_2_res)
+	create_srv_on_uber_heap(gb_2_res, true, "gb 2")
 
 	// world space position
 	gb_3_res := create_texture(
@@ -1825,7 +1821,7 @@ create_gbuffer :: proc() -> GBuffer {
 	rtv_descriptor_handle_3: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
 	rtv_descriptor_handle_3.ptr += uint(rtv_descriptor_size) * 2
 	ct.device->CreateRenderTargetView(gb_3_res, nil, rtv_descriptor_handle_3)
-	create_srv_on_uber_heap(gb_3_res)
+	create_srv_on_uber_heap(gb_3_res, true, "gb 3")
 
 	sa.push(&resources_longterm, gb_rtv_dh)
 
@@ -1837,12 +1833,6 @@ create_gbuffer :: proc() -> GBuffer {
 	}
 }
 
-// TODO organize this
-BufferThing :: struct {
-	model_matrix: dxm,
-}
-
-
 // this is the same as create_sample_texture
 // it creates an upload heap, copies data to it, then transfers it to the default heap.
 // make it specific for what u want now.
@@ -1853,12 +1843,12 @@ create_model_matrix_structured_buffer :: proc(pool: ^DXResourcePool) {
 	
 	// Copying data from cpu to upload resource
 	CallbackData :: struct {
-		sample_matrix_data: []BufferThing,
+		sample_matrix_data: []ModelMatrixData,
 		mesh_i: uint,
 	}
 
 	data := CallbackData {
-		sample_matrix_data = make([]BufferThing, scene.mesh_count, allocator = context.temp_allocator),
+		sample_matrix_data = make([]ModelMatrixData, scene.mesh_count, allocator = context.temp_allocator),
 		mesh_i = 0,
 	}
 
@@ -1869,7 +1859,7 @@ create_model_matrix_structured_buffer :: proc(pool: ^DXResourcePool) {
 		data.mesh_i += 1
 	})
 	
-	ct.res_structured_buffer = create_structured_buffer_with_data(ct.cmdlist, "model matrix data",
+	ct.sb_model_matrices = create_structured_buffer_with_data(ct.cmdlist, "model matrix data",
 	 	&resources_longterm,
 		slice.to_bytes(data.sample_matrix_data))
 }
@@ -2534,7 +2524,6 @@ hotswap_swap :: proc(hs: ^HotSwapState, pso: ^^dx.IPipelineState) {
 	}
 }
 
-
 load_textures_from_gltf :: proc(data : ^cgltf.data) {
 	
 	ct := dx_context
@@ -2544,10 +2533,10 @@ load_textures_from_gltf :: proc(data : ^cgltf.data) {
 	
 	dx_context.cmdlist->Reset(dx_context.command_allocator, ct.pipeline_gbuffer)
 	
-	textures_srv_index : u32 = 100 // starting at 100 to not interfere with other views
+	textures_srv_index : u32 = TEXTURE_INDEX_BASE // starting at 100 to not interfere with other views
 	
 	for image, i in data.images {
-		fmt.printfln("loading image %v", image.name)
+		// fmt.printfln("loading image %v", image.name)
 		assert(image.mime_type == "image/png")
 		
 		png_data := cgltf.buffer_view_data(image.buffer_view)
@@ -2562,9 +2551,12 @@ load_textures_from_gltf :: proc(data : ^cgltf.data) {
 		texture_res := create_texture_with_data(image_data, u64(w), u32(h), u32(channels), .R8G8B8A8_UNORM, 
 			&resources_longterm, &upload_resources, ct.cmdlist, string(image.name))
 		
+		// fmt.printfln("name: %v, index in the heap: %v", image.name, textures_srv_index)
+		
 		// creating srv on uber heap
 		ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, textures_srv_index))
 		textures_srv_index += 1
+		
 		
 		// enforcing a limit bc it's so slow
 		// if i > 20 do break
@@ -2579,9 +2571,57 @@ load_textures_from_gltf :: proc(data : ^cgltf.data) {
 	}
 }
 
-// creates a SRV for the resource on the uber SRV heap
-create_srv_on_uber_heap :: proc(res : ^dx.IResource) {
+load_materials :: proc(data: ^cgltf.data) -> []Material {
+	
 	ct := &dx_context
-	ct.device->CreateShaderResourceView(res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, ct.descriptor_count))
-	ct.descriptor_count += 1
+	
+	mats := make([]Material, len(data.materials))
+	
+	for mat, i in data.materials {
+		assert(bool(mat.has_pbr_metallic_roughness))
+		
+		// loading base color
+		// mat.pbr_metallic_roughness.base_color_texture.
+		
+		// TODO take evrything else into consideration. (scale, uvs, etc...)
+		
+		tex_view := mat.pbr_metallic_roughness.base_color_texture
+		base_color_img_index : u32 = 0
+		
+		texture_name : cstring = "no base texture"
+		
+		if tex_view.texture != nil {
+			base_color_img_index = u32(cgltf.image_index(data, tex_view.texture.image_))
+			texture_name = tex_view.texture.image_.name
+		}
+		
+		// fmt.printfln("name: %v, cgltf index: %v", texture_name, base_color_img_index)
+		
+		mats[i] = Material {
+			base_color_index = TEXTURE_INDEX_BASE + base_color_img_index
+		}
+	}
+	
+	ct.sb_materials = create_structured_buffer_with_data(
+		ct.cmdlist,
+		"material buffer",
+		&resources_longterm,
+		slice.to_bytes(mats)
+	)
+	
+	srv_desc := dx.SHADER_RESOURCE_VIEW_DESC {
+		Format = .UNKNOWN,
+		ViewDimension = .BUFFER,
+		Shader4ComponentMapping = dx.ENCODE_SHADER_4_COMPONENT_MAPPING(0, 1, 2, 3), // this is the default mapping
+		Buffer = {
+			FirstElement = 0,
+			NumElements = u32(len(mats)),
+			StructureByteStride = size_of(mats[0]),
+			Flags = {},
+		},
+	}
+	
+	create_srv_on_uber_heap(ct.sb_materials, true, "materials srv", &srv_desc)
+	
+	return mats
 }

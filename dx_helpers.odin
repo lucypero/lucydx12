@@ -389,9 +389,9 @@ create_texture_with_data :: proc(
 			int(width * u64(channels)),
 		)
 	}
-
+	
 	// here you send the gpu command to copy the data to the texture resource.
-
+	
 	copy_location_src := dx.TEXTURE_COPY_LOCATION {
 		pResource = texture_upload,
 		Type = .PLACED_FOOTPRINT,
@@ -407,4 +407,35 @@ create_texture_with_data :: proc(
 	cmdlist->CopyTextureRegion(&copy_location_dst, 0, 0, 0, &copy_location_src, nil)
 	transition_resource_from_copy_to_read(res, cmdlist)
 	return res
+}
+
+// copies data to a dx resource. then unmaps the memory
+copy_to_buffer :: proc(buffer: ^dx.IResource, data: []byte) {
+	gpu_data: rawptr
+	hr := buffer->Map(0, &dx.RANGE{}, &gpu_data)
+	check(hr, "Failed mapping")
+	mem.copy(gpu_data, raw_data(data), len(data))
+	buffer->Unmap(0, nil)
+}
+
+// creates a SRV for the resource on the uber SRV heap
+create_srv_on_uber_heap :: proc(res : ^dx.IResource, debug_index: bool = false, debug_name: string = "",
+		srv_desc : ^dx.SHADER_RESOURCE_VIEW_DESC = nil
+	) {
+	ct := &dx_context
+	ct.device->CreateShaderResourceView(res, srv_desc, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, ct.descriptor_count))
+	uber_heap_count(debug_index, debug_name)
+}
+
+create_cbv_on_uber_heap :: proc(
+		cbv_desc : ^dx.CONSTANT_BUFFER_VIEW_DESC, debug_index: bool = false, debug_name: string = "") {
+	ct := &dx_context
+	ct.device->CreateConstantBufferView(cbv_desc, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, ct.descriptor_count))
+	uber_heap_count(debug_index, debug_name)
+}
+
+uber_heap_count :: proc(debug_index: bool, debug_name: string) {
+	ct := &dx_context
+	if debug_index do fmt.printfln("creating view on uber heap: name: %v, index: %v", debug_name, ct.descriptor_count)
+	ct.descriptor_count += 1
 }
