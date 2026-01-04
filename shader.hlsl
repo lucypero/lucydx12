@@ -49,8 +49,8 @@ ConstantBuffer<DrawConstants> draw_constants : register(b1);
 
 PSInput VSMain(VSInput the_input) {
 
-	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[3];
-	StructuredBuffer<MeshTransform> mesh_transforms = ResourceDescriptorHeap[4];
+	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[4];
+	StructuredBuffer<MeshTransform> mesh_transforms = ResourceDescriptorHeap[5];
 
     PSInput result;
 
@@ -98,11 +98,11 @@ struct PSOutput {
 
 PSOutput PSMain(PSInput input) {
 
-	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[3];
+	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[4];
     PSOutput output;
 
     float4 pixelColor = float4(input.color, 1.0);
-    Texture2D<float4> someTexture = ResourceDescriptorHeap[140];
+    Texture2D<float4> someTexture = ResourceDescriptorHeap[400];
     pixelColor = someTexture.Sample(mySampler, input.uvs);
 
     float3 norm = normalize(input.frag_normal);
