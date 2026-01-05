@@ -38,6 +38,8 @@ NUM_RENDERTARGETS :: 2
 
 TURNS_TO_RAD :: math.PI * 2
 
+TEXTURE_LIMIT :: 2
+
 v2 :: linalg.Vector2f32
 v3 :: linalg.Vector3f32
 v4 :: linalg.Vector4f32
@@ -83,6 +85,19 @@ ModelMatrixData :: struct {
 	model_matrix: dxm,
 }
 
+// all meshes use the same index/vertex buffer.
+// so we just have to store the offset and index count to render a specific mesh
+// TODO: u now need to break apart meshes into primitives. because it is the primitives that index the materials.
+Mesh :: struct {
+	primitives: []Primitive,
+}
+
+Primitive :: struct {
+	index_offset: u32,
+	index_count: u32,
+	material_index: u32
+}
+
 Material :: struct #align (256) {
 	// index into the textures buffer containing the texture
 	base_color_index: u32 
@@ -96,14 +111,6 @@ ConstantBufferData :: struct #align (256) {
 	light_int: f32,
 	view_pos: v3,
 	time: f32,
-}
-
-// all meshes use the same index/vertex buffer.
-// so we just have to store the offset and index count to render a specific mesh
-// TODO: u now need to break apart meshes into primitives. because it is the primitives that index the materials.
-Mesh :: struct {
-	index_offset: u32,
-	index_count: u32,
 }
 
 // testing
@@ -1163,12 +1170,10 @@ load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indices: 
 	index_count_total: u32 = 0
 
 	for mesh, i in data.meshes {
-
-		mesh_index_offset := index_count_total
-
-		mesh_index_count: u32
-
-		for prim in mesh.primitives {
+		
+		the_meshes[i].primitives = make_slice([]Primitive, len(mesh.primitives))
+		
+		for prim, prim_i in mesh.primitives {
 			
 			// process material here material
 
@@ -1213,14 +1218,15 @@ load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indices: 
 			}
 
 			index_count += u32(attr_position.data.count)
+			
+			the_meshes[i].primitives[prim_i] = Primitive {
+				index_offset = u32(index_count_total),
+				index_count = u32(prim.indices.count),
+				material_index = u32(cgltf.material_index(data, prim.material))
+			}
 
 			index_count_total += u32(prim.indices.count)
-			mesh_index_count += u32(prim.indices.count)
-		}
-
-		the_meshes[i] = Mesh {
-			index_offset = mesh_index_offset,
-			index_count = mesh_index_count,
+			
 		}
 	}
 
@@ -1422,9 +1428,7 @@ do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
 	g_meshes = load_meshes(data, &vertices_dyn, &indices_dyn)
 	
 	load_textures_from_gltf(data)
-
-	fmt.printfln("mesh count: %v", len(g_meshes))
-
+	
 	scene = gltf_load_nodes(data)
 
 	// printing nodes
@@ -2299,7 +2303,11 @@ render_gbuffer_pass :: proc() {
 			}
 			
 			ct.cmdlist->SetGraphicsRoot32BitConstants(0, 2, &dc, 0)
-			ct.cmdlist->DrawIndexedInstanced(mesh_to_render.index_count, 1, mesh_to_render.index_offset, 0, 0)
+			
+			for prim in mesh_to_render.primitives {
+				ct.cmdlist->DrawIndexedInstanced(prim.index_count, 1, prim.index_offset, 0, 0)
+			}
+			
 		}
 
 		g_mesh_drawn_count += 1
@@ -2569,7 +2577,7 @@ load_textures_from_gltf :: proc(data : ^cgltf.data) {
 		
 		
 		// enforcing a limit bc it's so slow
-		if i > 2 do break
+		if i > TEXTURE_LIMIT do break
 	}
 	
 	// execute command list
