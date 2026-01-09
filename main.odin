@@ -38,7 +38,7 @@ NUM_RENDERTARGETS :: 2
 
 TURNS_TO_RAD :: math.PI * 2
 
-TEXTURE_LIMIT :: 2
+TEXTURE_LIMIT :: 20000000000000000
 
 v2 :: linalg.Vector2f32
 v3 :: linalg.Vector3f32
@@ -98,7 +98,7 @@ Primitive :: struct {
 	material_index: u32
 }
 
-Material :: struct #align (256) {
+Material :: struct {
 	// index into the textures buffer containing the texture
 	base_color_index: u32 
 }
@@ -1387,6 +1387,7 @@ gltf_load_nodes :: proc(data: ^cgltf.data) -> Scene {
 	return Scene{nodes = nodes, root_nodes = root_nodes, mesh_count = mesh_count}
 }
 
+TEXTURE_WHITE_INDEX :: TEXTURE_INDEX_BASE - 1
 TEXTURE_INDEX_BASE :: 400
 
 do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
@@ -2296,21 +2297,16 @@ render_gbuffer_pass :: proc() {
 		mesh_to_render := g_meshes[node.mesh]
 
 		if g_mesh_drawn_count < ct.meshes_to_render {
-			
-			dc := DrawConstants {
-				mesh_index = u32(g_mesh_drawn_count),
-				material_index = u32(g_mesh_drawn_count), // TODO set the real number here
-			}
-			
-			ct.cmdlist->SetGraphicsRoot32BitConstants(0, 2, &dc, 0)
-			
 			for prim in mesh_to_render.primitives {
+				dc := DrawConstants {
+					mesh_index = u32(g_mesh_drawn_count),
+					material_index = u32(prim.material_index),
+				}
+				ct.cmdlist->SetGraphicsRoot32BitConstants(0, 2, &dc, 0)
 				ct.cmdlist->DrawIndexedInstanced(prim.index_count, 1, prim.index_offset, 0, 0)
 			}
-			
+			g_mesh_drawn_count += 1
 		}
-
-		g_mesh_drawn_count += 1
 	})
 }
 
@@ -2551,6 +2547,8 @@ load_textures_from_gltf :: proc(data : ^cgltf.data) {
 	
 	dx_context.cmdlist->Reset(dx_context.command_allocator, ct.pipeline_gbuffer)
 	
+	load_white_texture(&upload_resources)
+	
 	textures_srv_index : u32 = TEXTURE_INDEX_BASE // starting at 100 to not interfere with other views
 	
 	for image, i in data.images {
@@ -2604,19 +2602,19 @@ load_materials :: proc(data: ^cgltf.data) -> []Material {
 		// TODO take evrything else into consideration. (scale, uvs, etc...)
 		
 		tex_view := mat.pbr_metallic_roughness.base_color_texture
-		base_color_img_index : u32 = 0
+		base_color_img_index : u32 = TEXTURE_WHITE_INDEX
 		
 		texture_name : cstring = "no base texture"
 		
 		if tex_view.texture != nil {
-			base_color_img_index = u32(cgltf.image_index(data, tex_view.texture.image_))
+			base_color_img_index = TEXTURE_INDEX_BASE + u32(cgltf.image_index(data, tex_view.texture.image_))
 			texture_name = tex_view.texture.image_.name
 		}
 		
 		// fmt.printfln("name: %v, cgltf index: %v", texture_name, base_color_img_index)
 		
 		mats[i] = Material {
-			base_color_index = TEXTURE_INDEX_BASE + base_color_img_index
+			base_color_index = base_color_img_index
 		}
 	}
 	
@@ -2642,4 +2640,19 @@ load_materials :: proc(data: ^cgltf.data) -> []Material {
 	create_srv_on_uber_heap(ct.sb_materials, true, "materials srv", &srv_desc)
 	
 	return mats
+}
+
+load_white_texture :: proc(upload_resources: ^DXResourcePoolDynamic) {
+	ct := dx_context
+	
+	w, h, channels : c.int
+	image_data := img.load("white.png", &w, &h, &channels, 4)
+	assert(image_data != nil)
+	defer img.image_free(image_data)
+	
+	texture_res := create_texture_with_data(image_data, u64(w), u32(h), u32(channels), .R8G8B8A8_UNORM, 
+		&resources_longterm, upload_resources, ct.cmdlist, "white")
+	
+	// creating srv on uber heap
+	ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, TEXTURE_WHITE_INDEX))
 }
