@@ -38,7 +38,7 @@ NUM_RENDERTARGETS :: 2
 
 TURNS_TO_RAD :: math.PI * 2
 
-TEXTURE_LIMIT :: 20000000000000000
+TEXTURE_LIMIT :: 9999999
 
 v2 :: linalg.Vector2f32
 v3 :: linalg.Vector3f32
@@ -2559,12 +2559,15 @@ load_textures_from_gltf :: proc(data : ^cgltf.data) {
 		png_size := image.buffer_view.size
 		
 		w, h, channels : c.int
-		image_data := img.load_from_memory(png_data, i32(png_size), &w, &h, &channels, 4)
+		channel_count :: 4
+		image_data := img.load_from_memory(png_data, i32(png_size), &w, &h, &channels, channel_count)
 		assert(image_data != nil)
 		defer img.image_free(image_data)
 		
+		texture_format : dxgi.FORMAT : .R8G8B8A8_UNORM
+		
 		// the format is prob wrong.
-		texture_res := create_texture_with_data(image_data, u64(w), u32(h), u32(channels), .R8G8B8A8_UNORM, 
+		texture_res := create_texture_with_data(auto_cast(image_data), u64(w), u32(h), channel_count, texture_format, 
 			&resources_longterm, &upload_resources, ct.cmdlist, string(image.name))
 		
 		// fmt.printfln("name: %v, index in the heap: %v", image.name, textures_srv_index)

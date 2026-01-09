@@ -1,5 +1,10 @@
 # current todo
 
+
+- take care of multiple UVs on meshes
+- take care of scale in texures (bricks look too big)
+
+
 - set up a material system.
 
 	now i have to process materials.. then tell each mesh what material it needs.. and all that
