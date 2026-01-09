@@ -111,8 +111,8 @@ PSOutput PSMain(PSInput input) {
     Material mat = materials[draw_constants.material_index];
 
     float4 pixelColor = float4(input.color, 1.0);
-    // Texture2D<float4> someTexture = ResourceDescriptorHeap[mat.base_color_index];
-    // pixelColor = someTexture.Sample(mySampler, input.uvs);
+    Texture2D<float4> baseColorTexture = ResourceDescriptorHeap[mat.base_color_index];
+    pixelColor = baseColorTexture.Sample(mySampler, input.uvs);
 
     float3 norm = normalize(input.frag_normal);
     
