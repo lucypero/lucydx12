@@ -100,7 +100,8 @@ Primitive :: struct {
 
 Material :: struct {
 	// index into the textures buffer containing the texture
-	base_color_index: u32 
+	base_color_index: u32,
+	base_color_uv_index: u32
 }
 
 // constant buffer data
@@ -175,6 +176,7 @@ VertexData :: struct {
 	pos: v3,
 	normal: v3,
 	uv: v2,
+	uv_2: v2,
 }
 
 // Data associated with a vertex buffer
@@ -1122,8 +1124,8 @@ create_gbuffer_pass_root_signature :: proc() {
 	// We'll define a static sampler description
 	sampler_desc := dx.STATIC_SAMPLER_DESC {
 		Filter = .MIN_MAG_MIP_LINEAR, // Tri-linear filtering
-		AddressU = .CLAMP, // Repeat the texture in the U direction
-		AddressV = .CLAMP, // Repeat the texture in the V direction
+		AddressU = .WRAP, // Repeat the texture in the U direction
+		AddressV = .WRAP, // Repeat the texture in the V direction
 		AddressW = .WRAP, // Repeat the texture in the W direction
 		MipLODBias = 0.0,
 		MaxAnisotropy = 0,
@@ -1179,7 +1181,10 @@ load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indices: 
 
 			attr_position: cgltf.attribute
 			attr_normal: cgltf.attribute
-			attr_texcoord: cgltf.attribute
+			attr_texcoord: [2]cgltf.attribute
+			
+			textcoord_count := 0
+			
 
 			for attribute in prim.attributes {
 				#partial switch attribute.type {
@@ -1188,7 +1193,8 @@ load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indices: 
 				case .normal:
 					attr_normal = attribute
 				case .texcoord:
-					attr_texcoord = attribute
+					attr_texcoord[attribute.index] = attribute
+					textcoord_count += 1
 				case:
 				// it's outputting "unknown attribute COLOR_0" and it's annoying.
 				//  so, i am commenting this error log.
@@ -1203,8 +1209,13 @@ load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indices: 
 				if !ok do fmt.eprintln("Error reading gltf position")
 				ok = cgltf.accessor_read_float(attr_normal.data, i, &vertex.normal[0], 3)
 				if !ok do fmt.eprintln("Error reading gltf normal")
-				ok = cgltf.accessor_read_float(attr_texcoord.data, i, &vertex.uv[0], 2)
+				ok = cgltf.accessor_read_float(attr_texcoord[0].data, i, &vertex.uv[0], 2)
 				if !ok do fmt.eprintln("Error reading gltf texcoord")
+				
+				if textcoord_count > 1 {
+					ok = cgltf.accessor_read_float(attr_texcoord[1].data, i, &vertex.uv_2[0], 2)
+					if !ok do fmt.eprintln("Error reading gltf texcoord")
+				}
 
 				position := v4{vertex.pos.x, vertex.pos.y, vertex.pos.z, 1}
 				// vertex.pos = (mesh_mat * position).xyz
@@ -1398,7 +1409,8 @@ do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
 	// model_filepath :: "models/main_sponza/sponza_blender.glb"
 	
 	// no decals (ruins solid rendering)
-	model_filepath :: "models/main_sponza/sponza_blender_no_decals.glb"
+	// model_filepath :: "models/main_sponza/sponza_blender_no_decals.glb"
+	model_filepath :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf"
 	
 	model_filepath_c := strings.clone_to_cstring(model_filepath, context.temp_allocator)
 
@@ -2050,6 +2062,13 @@ create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.
 			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
 			InputSlotClass = .PER_VERTEX_DATA,
 		},
+		{
+			SemanticName = "TEXCOORD",
+			SemanticIndex = 1,
+			Format = .R32G32_FLOAT,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_VERTEX_DATA,
+		},
 		// per-instance data
 		{
 			SemanticName = "WORLDMATRIX",
@@ -2553,15 +2572,25 @@ load_textures_from_gltf :: proc(data : ^cgltf.data) {
 	
 	for image, i in data.images {
 		// fmt.printfln("loading image %v", image.name)
-		assert(image.mime_type == "image/png")
-		
-		png_data := cgltf.buffer_view_data(image.buffer_view)
-		png_size := image.buffer_view.size
-		
+		// assert(image.mime_type == "image/png")
 		w, h, channels : c.int
 		channel_count :: 4
-		image_data := img.load_from_memory(png_data, i32(png_size), &w, &h, &channels, channel_count)
-		assert(image_data != nil)
+		image_data : [^]byte
+		
+		if image.uri != nil {
+			channel_count :: 4
+			//  u gotta concatenate the name
+			you are here
+			image_data = img.load(image.uri, &w, &h, &channels, channel_count)
+			assert(image_data != nil)
+		} else {
+			png_data := cgltf.buffer_view_data(image.buffer_view)
+			png_size := image.buffer_view.size
+			
+			image_data = img.load_from_memory(png_data, i32(png_size), &w, &h, &channels, channel_count)
+			assert(image_data != nil)
+		}
+		
 		defer img.image_free(image_data)
 		
 		texture_format : dxgi.FORMAT : .R8G8B8A8_UNORM
@@ -2606,18 +2635,21 @@ load_materials :: proc(data: ^cgltf.data) -> []Material {
 		
 		tex_view := mat.pbr_metallic_roughness.base_color_texture
 		base_color_img_index : u32 = TEXTURE_WHITE_INDEX
+		base_color_uv_index : u32 = 0
 		
 		texture_name : cstring = "no base texture"
 		
 		if tex_view.texture != nil {
 			base_color_img_index = TEXTURE_INDEX_BASE + u32(cgltf.image_index(data, tex_view.texture.image_))
 			texture_name = tex_view.texture.image_.name
+			base_color_uv_index = u32(tex_view.texcoord)
 		}
 		
 		// fmt.printfln("name: %v, cgltf index: %v", texture_name, base_color_img_index)
 		
 		mats[i] = Material {
-			base_color_index = base_color_img_index
+			base_color_index = base_color_img_index,
+			base_color_uv_index = base_color_uv_index
 		}
 	}
 	
