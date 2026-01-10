@@ -1,8 +1,9 @@
 # current todo
 
-
-- take care of multiple UVs on meshes
-- take care of scale in texures (bricks look too big)
+- the door frames are using the wrong texture. look into it.
+- find a better sponza that loads faster. this site has a better one:
+	https://github.khronos.org/glTF-Sample-Viewer-Release/
+	https://github.com/KhronosGroup/glTF-Sample-Models/tree/main
 
 
 - set up a material system.

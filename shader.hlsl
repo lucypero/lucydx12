@@ -5,7 +5,8 @@
 struct VSInput {
     float3 position : POSITION;
     float3 normal : NORMAL;
-    float2 uvs : TEXCOORD;
+    float2 uvs : TEXCOORD0;
+    float2 uvs_2 : TEXCOORD1;
     // instance data
     float4 worldM0  : WORLDMATRIX0; // Per-instance data (Slot 1)
     float4 worldM1  : WORLDMATRIX1;
@@ -19,6 +20,7 @@ struct PSInput {
     float3 frag_pos_world: POSITION;
     float3 frag_normal: NORMAL;
     float2 uvs : TEXCOORD0;
+    float2 uvs_2 : TEXCOORD1;
     float3 color: COLOR;
 };
 
@@ -33,6 +35,7 @@ struct GeneralConstants {
 
 struct Material {
 	uint base_color_index;
+	uint base_color_uv_index;
 };
 
 struct MeshTransform
@@ -83,6 +86,11 @@ PSInput VSMain(VSInput the_input) {
     result.frag_normal = mul((float3x3)world_matrix, the_input.normal);
     
     result.uvs = the_input.uvs.xy;
+    result.uvs.y = 1.0f - result.uvs.y;
+    
+    result.uvs_2 = the_input.uvs_2.xy;
+    result.uvs_2.y = 1.0f - result.uvs_2.y;
+    
     result.color = the_input.color;
     return result;
 }
@@ -112,11 +120,16 @@ PSOutput PSMain(PSInput input) {
 
     float4 pixelColor = float4(input.color, 1.0);
     Texture2D<float4> baseColorTexture = ResourceDescriptorHeap[mat.base_color_index];
-    pixelColor = baseColorTexture.Sample(mySampler, input.uvs);
+    
+    float2 base_color_uvs = input.uvs;
+    if(mat.base_color_uv_index != 0) {
+    	base_color_uvs = input.uvs_2;
+    }
+    
+    pixelColor = baseColorTexture.Sample(mySampler, base_color_uvs);
 
     float3 norm = normalize(input.frag_normal);
     
-
     // writing to all gbuffers
 
     output.albedoSpecRT = pixelColor;

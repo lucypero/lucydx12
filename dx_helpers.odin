@@ -141,6 +141,8 @@ compile_shader :: proc(compiler: ^dxc.ICompiler3, shader_filename: string) -> (v
 
 	defer(delete(data))
 	
+	if len(data) == 0 do return vs, ps, false
+	
 	source_buffer := dxc.Buffer {
 		Ptr = &data[0],
 		Size = len(data),
@@ -193,13 +195,14 @@ compile_individual_shader :: proc(source_buffer: ^dxc.Buffer, compiler: ^dxc.ICo
 		fmt.printfln("dxc: errors: %v", error_str)
 	}
 	
+	output_blob : ^dxc.IBlob
+	
 	hr : dxc.HRESULT
 	results->GetStatus(&hr)
 	if hr < 0 {
-		os.exit(1)
+		return output_blob, false
 	}
 	
-	output_blob : ^dxc.IBlob
 	results->GetOutput(.OBJECT, dxc.IBlob_UUID, (^rawptr)(&output_blob), nil)
 	return output_blob, true
 }
