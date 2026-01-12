@@ -1,6 +1,7 @@
 # current todo
 
 - the image or meshes are flipped horizontally. it's all inverted horizontally.
+	- curtains: left: green. right: red. lion = in front of you
 
 - take memory management more seriously
 	- use the tracking allocator
