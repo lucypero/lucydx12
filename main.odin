@@ -39,7 +39,7 @@ NUM_RENDERTARGETS :: 2
 
 TURNS_TO_RAD :: math.PI * 2
 
-TEXTURE_LIMIT :: 0
+TEXTURE_LIMIT :: 9999999999
 
 v2 :: linalg.Vector2f32
 v3 :: linalg.Vector3f32
@@ -130,7 +130,6 @@ Node :: struct {
 	transform_t: v3,
 	transform_r: v4,
 	transform_s: v3,
-	has_rotation: bool,
 	children: []int,
 	parent: int, // -1 for no parent (root node)
 	mesh: int, // mesh index to render. -1 for no mesh
@@ -1260,17 +1259,13 @@ get_node_world_matrix :: proc(node: Node, scene: Scene) -> dxm {
 		boosted_s := node_i.transform_s * 1
 		scale_mat := linalg.matrix4_scale_f32(boosted_s)
 		
-		rot_mat : dxm = 1
-		
-		if node_i.has_rotation {
-			rot_quat: quaternion128 = quaternion(
-				w = node_i.transform_r[0],
-				x = node_i.transform_r[1],
-				y = node_i.transform_r[2],
-				z = node_i.transform_r[3],
-			)
-			rot_mat = linalg.matrix4_from_quaternion_f32(rot_quat)
-		}
+		rot_quat: quaternion128 = quaternion(
+			w = node_i.transform_r[3],
+			x = node_i.transform_r[0],
+			y = node_i.transform_r[1],
+			z = node_i.transform_r[2],
+		)
+		rot_mat: dxm = linalg.matrix4_from_quaternion_f32(rot_quat)
 
 		// mesh_world : dxm = translation_mat * rot_mat * scale_mat
 		// no rot
@@ -1390,7 +1385,6 @@ gltf_load_nodes :: proc(data: ^cgltf.data) -> Scene {
 			transform_t = node.translation,
 			transform_r = node.rotation,
 			transform_s = node.scale,
-			has_rotation = bool(node.has_rotation),
 			children = node_children,
 			parent = node.parent == nil ? -1 : int(cgltf.node_index(data, node.parent)),
 			mesh = node.mesh == nil ? -1 : int(cgltf.mesh_index(data, node.mesh)),
@@ -1414,8 +1408,8 @@ TEXTURE_INDEX_BASE :: 400
 // model_filepath :: "models/main_sponza/sponza_blender.glb"
 
 // no decals (ruins solid rendering)
-model_filepath :: "models/main_sponza/sponza_blender_no_decals.glb"
-// model_filepath :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf"
+// model_filepath :: "models/main_sponza/sponza_blender_no_decals.glb"
+model_filepath :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf"
 
 do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
 
