@@ -812,31 +812,6 @@ lucy_log_callback :: proc "c" (
 	fmt.printfln("%v: (%v) %v", severity, cat, msg)
 }
 
-get_projection_matrix :: proc(fov_rad: f32, screenWidth: i32, screenHeight: i32, near: f32, far: f32) -> dxm {
-	f := math.tan_f32(fov_rad * 0.5)
-
-	aspect := f32(screenWidth) / f32(screenHeight)
-
-	return dxm {
-		aspect / f,
-		0.0,
-		0.0,
-		0.0,
-		0.0,
-		1 / f,
-		0.0,
-		0.0,
-		0.0,
-		0.0,
-		far / (far - near),
-		-(near * far) / (far - near),
-		0.0,
-		0.0,
-		1.0,
-		0.0,
-	}
-}
-
 update :: proc() {
 
 	c := &dx_context
