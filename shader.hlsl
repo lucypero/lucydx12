@@ -71,6 +71,8 @@ PSInput VSMain(VSInput the_input) {
     float4 pos = float4(the_input.position, 1.0f);
 
     float4 world_position = mul(world_matrix, pos);
+    // sometimes u have to flip it like this:
+    // world_position.y = -world_position.y;
     // float4x4 world_position = mul(wvp, world_matrix);
 
     float4 view_position = mul(general_constants.view, world_position);
@@ -86,10 +88,10 @@ PSInput VSMain(VSInput the_input) {
     result.frag_normal = mul((float3x3)world_matrix, the_input.normal);
     
     result.uvs = the_input.uvs.xy;
-    result.uvs.y = 1.0f - result.uvs.y;
+    // result.uvs.y = 1.0f - result.uvs.y;
     
     result.uvs_2 = the_input.uvs_2.xy;
-    result.uvs_2.y = 1.0f - result.uvs_2.y;
+    // result.uvs_2.y = 1.0f - result.uvs_2.y;
     
     result.color = the_input.color;
     return result;

@@ -1,5 +1,6 @@
 package main
 
+import "core:path/filepath"
 import "core:reflect"
 import "core:fmt"
 import "core:mem"
@@ -38,7 +39,7 @@ NUM_RENDERTARGETS :: 2
 
 TURNS_TO_RAD :: math.PI * 2
 
-TEXTURE_LIMIT :: 9999999
+TEXTURE_LIMIT :: 0
 
 v2 :: linalg.Vector2f32
 v3 :: linalg.Vector3f32
@@ -129,6 +130,7 @@ Node :: struct {
 	transform_t: v3,
 	transform_r: v4,
 	transform_s: v3,
+	has_rotation: bool,
 	children: []int,
 	parent: int, // -1 for no parent (root node)
 	mesh: int, // mesh index to render. -1 for no mesh
@@ -1257,14 +1259,18 @@ get_node_world_matrix :: proc(node: Node, scene: Scene) -> dxm {
 
 		boosted_s := node_i.transform_s * 1
 		scale_mat := linalg.matrix4_scale_f32(boosted_s)
-
-		rot_quat: quaternion128 = quaternion(
-			w = node_i.transform_r[0],
-			x = node_i.transform_r[1],
-			y = node_i.transform_r[2],
-			z = node_i.transform_r[3],
-		)
-		rot_mat := linalg.matrix4_from_quaternion_f32(rot_quat)
+		
+		rot_mat : dxm = 1
+		
+		if node_i.has_rotation {
+			rot_quat: quaternion128 = quaternion(
+				w = node_i.transform_r[0],
+				x = node_i.transform_r[1],
+				y = node_i.transform_r[2],
+				z = node_i.transform_r[3],
+			)
+			rot_mat = linalg.matrix4_from_quaternion_f32(rot_quat)
+		}
 
 		// mesh_world : dxm = translation_mat * rot_mat * scale_mat
 		// no rot
@@ -1384,6 +1390,7 @@ gltf_load_nodes :: proc(data: ^cgltf.data) -> Scene {
 			transform_t = node.translation,
 			transform_r = node.rotation,
 			transform_s = node.scale,
+			has_rotation = bool(node.has_rotation),
 			children = node_children,
 			parent = node.parent == nil ? -1 : int(cgltf.node_index(data, node.parent)),
 			mesh = node.mesh == nil ? -1 : int(cgltf.mesh_index(data, node.mesh)),
@@ -1401,16 +1408,17 @@ gltf_load_nodes :: proc(data: ^cgltf.data) -> Scene {
 TEXTURE_WHITE_INDEX :: TEXTURE_INDEX_BASE - 1
 TEXTURE_INDEX_BASE :: 400
 
+// model_filepath :: "models/teapot.glb"
+// model_filepath :: "models/main_sponza/NewSponza_Main_glTF_003.gltf"
+// model_filepath :: "models/test_scene.glb"
+// model_filepath :: "models/main_sponza/sponza_blender.glb"
+
+// no decals (ruins solid rendering)
+model_filepath :: "models/main_sponza/sponza_blender_no_decals.glb"
+// model_filepath :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf"
+
 do_gltf_stuff :: proc() -> (vertices: []VertexData, indices: []u32) {
 
-	// model_filepath :: "models/teapot.glb"
-	// model_filepath :: "models/main_sponza/NewSponza_Main_glTF_003.gltf"
-	// model_filepath :: "models/test_scene.glb"
-	// model_filepath :: "models/main_sponza/sponza_blender.glb"
-	
-	// no decals (ruins solid rendering)
-	// model_filepath :: "models/main_sponza/sponza_blender_no_decals.glb"
-	model_filepath :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf"
 	
 	model_filepath_c := strings.clone_to_cstring(model_filepath, context.temp_allocator)
 
@@ -2568,6 +2576,10 @@ load_textures_from_gltf :: proc(data : ^cgltf.data) {
 	
 	load_white_texture(&upload_resources)
 	
+	if TEXTURE_LIMIT == 0 {
+		return
+	}
+	
 	textures_srv_index : u32 = TEXTURE_INDEX_BASE // starting at 100 to not interfere with other views
 	
 	for image, i in data.images {
@@ -2576,18 +2588,24 @@ load_textures_from_gltf :: proc(data : ^cgltf.data) {
 		w, h, channels : c.int
 		channel_count :: 4
 		image_data : [^]byte
+		image_name : string
 		
 		if image.uri != nil {
 			channel_count :: 4
 			//  u gotta concatenate the name
-			you are here
-			image_data = img.load(image.uri, &w, &h, &channels, channel_count)
+			image_dir := filepath.dir(model_filepath, context.temp_allocator)
+			image_path := filepath.join({image_dir, string(image.uri)}, context.temp_allocator)
+			image_path_cstring := strings.clone_to_cstring(image_path, context.temp_allocator)
+			
+			image_data = img.load(image_path_cstring, &w, &h, &channels, channel_count)
+			image_name = string(image.uri)
 			assert(image_data != nil)
 		} else {
 			png_data := cgltf.buffer_view_data(image.buffer_view)
 			png_size := image.buffer_view.size
 			
 			image_data = img.load_from_memory(png_data, i32(png_size), &w, &h, &channels, channel_count)
+			image_name = string(image.name)
 			assert(image_data != nil)
 		}
 		
@@ -2638,6 +2656,10 @@ load_materials :: proc(data: ^cgltf.data) -> []Material {
 		base_color_uv_index : u32 = 0
 		
 		texture_name : cstring = "no base texture"
+		
+		if TEXTURE_LIMIT == 0 {
+			tex_view.texture = nil
+		}
 		
 		if tex_view.texture != nil {
 			base_color_img_index = TEXTURE_INDEX_BASE + u32(cgltf.image_index(data, tex_view.texture.image_))
