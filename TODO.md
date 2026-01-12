@@ -1,35 +1,14 @@
 # current todo
 
-- the door frames are using the wrong texture. look into it.
-- find a better sponza that loads faster. this site has a better one:
-	https://github.khronos.org/glTF-Sample-Viewer-Release/
-	https://github.com/KhronosGroup/glTF-Sample-Models/tree/main
+- the image or meshes are flipped horizontally. it's all inverted horizontally.
 
+- take memory management more seriously
+	- use the tracking allocator
+	- find out how to do memory checkpoints
 
-- set up a material system.
-
-	now i have to process materials.. then tell each mesh what material it needs.. and all that
-	is a root constant enough for that? to index a material
-	i'd have to make a materials structured buffer.. and a material is just indexes to textures..
-	then the root constant is an index to this material buffer
-	am i cooking?
-
-	Maico — 03:26
-	Yes. The root constant has to be some type of object/instance id value set before each draw (or in an indirect arguments buffer).
-
-	To clarify, you can supply a descriptor heap index to the material structured buffer once (say through a CBV), and then a per draw instance id into that buffer.
-	
 - copy code from here to filter out instrumentation markers
 	- https://github.com/joaocarvalhoopen/ota_profiller__Odin_Terminal_Auto_Profiller_Lib/blob/main/ota_profiller/otprofiller.odin
 
-- render the base color textures using bindless. see gemini answer.
-	- look into this: 
-			Pro-Tip: Shader Model 6.6
-			If you use Shader Model 6.6, you can skip the "unbounded array" declaration entirely. You can access the heap directly in your shader like this:
-
-- run profiler to see why the startup is so slow
-	- paused until u fix the spall bug.
-	
 - rebind `g t` to "go to type" (it's at `g y`)
 
 - TODO: find out how to abstract and/or share fences

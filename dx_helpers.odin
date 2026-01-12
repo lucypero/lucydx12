@@ -333,8 +333,11 @@ create_texture_with_data :: proc(
 
 	check(hr, "failed creating texture")
 	
-	texture_name_cstring := windows.utf8_to_wstring_alloc(texture_name, allocator = context.temp_allocator)
-	res->SetName(texture_name_cstring)
+	if len(texture_name) > 0 {
+		texture_name_cstring := windows.utf8_to_wstring_alloc(texture_name, allocator = context.temp_allocator)
+		res->SetName(texture_name_cstring)
+	}
+	
 	sa.push(pool_textures, res)
 
 	// getting data from texture that we'll use later
