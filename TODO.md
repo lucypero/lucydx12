@@ -1,5 +1,7 @@
 # current todo
 
+- respond to the peep in the dx discord about the linalg package in odin and the perspective depth fix.
+
 - the image or meshes are flipped horizontally. it's all inverted horizontally.
 	- curtains: left: green. right: red. lion = in front of you
 
