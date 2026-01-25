@@ -100,7 +100,9 @@ Primitive :: struct {
 Material :: struct {
 	// index into the textures buffer containing the texture
 	base_color_index: u32,
-	base_color_uv_index: u32
+	base_color_uv_index: u32,
+	metallic_roughness_index: u32,
+	metallic_roughness_uv_index: u32,
 }
 
 // constant buffer data

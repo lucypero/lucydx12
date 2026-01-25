@@ -246,7 +246,6 @@ gltf_load_textures :: proc(data : ^cgltf.data) {
 		
 		texture_format : dxgi.FORMAT : .R8G8B8A8_UNORM
 		
-		// the format is prob wrong.
 		texture_res := create_texture_with_data(auto_cast(image_data), u64(w), u32(h), channel_count, texture_format, 
 			&resources_longterm, &upload_resources, ct.cmdlist, string(image.name))
 		
@@ -270,6 +269,22 @@ gltf_load_textures :: proc(data : ^cgltf.data) {
 	}
 }
 
+@(private="file")
+get_texture_index_uv :: proc(data: ^cgltf.data, tex_view: cgltf.texture_view) -> (u32, u32){
+	
+	base_color_img_index : u32 = TEXTURE_WHITE_INDEX
+	base_color_uv_index : u32 = 0
+	texture_name : cstring = "no base texture"
+	
+	if TEXTURE_LIMIT != 0 && tex_view.texture != nil {
+		base_color_img_index = TEXTURE_INDEX_BASE + u32(cgltf.image_index(data, tex_view.texture.image_))
+		texture_name = tex_view.texture.image_.name
+		base_color_uv_index = u32(tex_view.texcoord)
+	}
+	
+	return base_color_img_index, base_color_uv_index
+}
+
 gltf_load_materials :: proc(data: ^cgltf.data) -> []Material {
 	
 	ct := &dx_context
@@ -284,27 +299,22 @@ gltf_load_materials :: proc(data: ^cgltf.data) -> []Material {
 		
 		// TODO take evrything else into consideration. (scale, uvs, etc...)
 		
-		tex_view := mat.pbr_metallic_roughness.base_color_texture
-		base_color_img_index : u32 = TEXTURE_WHITE_INDEX
-		base_color_uv_index : u32 = 0
-		
-		texture_name : cstring = "no base texture"
-		
-		if TEXTURE_LIMIT == 0 {
-			tex_view.texture = nil
-		}
-		
-		if tex_view.texture != nil {
-			base_color_img_index = TEXTURE_INDEX_BASE + u32(cgltf.image_index(data, tex_view.texture.image_))
-			texture_name = tex_view.texture.image_.name
-			base_color_uv_index = u32(tex_view.texcoord)
-		}
+		// metallic roughness texture
+		// mat.pbr_metallic_roughness.metallic_roughness_texture
 		
 		// fmt.printfln("name: %v, cgltf index: %v", texture_name, base_color_img_index)
+		// base color
+		bc_i, bc_uv := get_texture_index_uv(data, mat.pbr_metallic_roughness.base_color_texture)
+		
+		// metallic, roughness
+		mr_i, mr_uv := get_texture_index_uv(data, mat.pbr_metallic_roughness.metallic_roughness_texture)
+		
 		
 		mats[i] = Material {
-			base_color_index = base_color_img_index,
-			base_color_uv_index = base_color_uv_index
+			base_color_index = bc_i,
+			base_color_uv_index = bc_uv,
+			metallic_roughness_index = mr_i,
+			metallic_roughness_uv_index = mr_uv
 		}
 	}
 	

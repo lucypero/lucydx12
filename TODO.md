@@ -1,6 +1,14 @@
 # current todo
 
+- use thread pool for loading textures
+	- main thread loads the files to memory
+	- worker threads do the png processing using stb image
+	- then as for dx.. that's unclear
+
 - respond to the peep in the dx discord about the linalg package in odin and the perspective depth fix.
+	- "What depth values does it come up with?
+I'm using the linalg package too https://github.com/lodinukal/en/blob/master/app%2Fmain.odin#L261-L266 and it's working fine"
+	- check depth values in renderdoc
 
 - the image or meshes are flipped horizontally. it's all inverted horizontally.
 	- curtains: left: green. right: red. lion = in front of you
