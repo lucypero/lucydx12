@@ -119,6 +119,8 @@ create_texture :: proc(width: u64, height: u32, format: dxgi.FORMAT, resource_fl
 	return res
 }
 
+include_handler : ^dxc.IIncludeHandler
+
 dxc_init :: proc() -> ^dxc.ICompiler3 {
 	// todo here
 	utils : ^dxc.IUtils
@@ -126,6 +128,9 @@ dxc_init :: proc() -> ^dxc.ICompiler3 {
 	
 	dxc.CreateInstance(dxc.Utils_CLSID, dxc.IUtils_UUID, (^rawptr)(&utils))
 	dxc.CreateInstance(dxc.Compiler_CLSID, dxc.ICompiler3_UUID, (^rawptr)(&compiler))
+	
+	utils->CreateDefaultIncludeHandler(&include_handler)
+	
 	return compiler
 }
 
@@ -172,6 +177,7 @@ compile_individual_shader :: proc(source_buffer: ^dxc.Buffer, compiler: ^dxc.ICo
 		"-T", "vs_6_6", // target profile (pixel shader 6)
 		"-Zi", // enable debug info
 		"-O3", // Optimization level 3
+		// "-I \".\"", // include paths
 	}
 	
 	if shader_kind == .Pixel {
@@ -186,7 +192,7 @@ compile_individual_shader :: proc(source_buffer: ^dxc.Buffer, compiler: ^dxc.ICo
 	}
 	
 	results : ^dxc.IResult
-	compiler->Compile(source_buffer, &arguments_wide[0], len(arguments_wide), nil, dxc.IOperationResult_UUID, (^rawptr)(&results))
+	compiler->Compile(source_buffer, &arguments_wide[0], len(arguments_wide), include_handler, dxc.IOperationResult_UUID, (^rawptr)(&results))
 	
 	errors : ^dxc.IBlobUtf8
 	results->GetOutput(.ERRORS, dxc.IBlobUtf8_UUID, (^rawptr)(&errors), nil)
