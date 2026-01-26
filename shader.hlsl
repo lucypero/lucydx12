@@ -1,6 +1,7 @@
 // this is the first pass that populates all the g-buffers.
 
 #pragma pack_matrix(column_major)
+#include "shader_common.hlsl"
 
 struct VSInput {
     float3 position : POSITION;
@@ -22,15 +23,6 @@ struct PSInput {
     float2 uvs : TEXCOORD0;
     float2 uvs_2 : TEXCOORD1;
     float3 color: COLOR;
-};
-
-struct GeneralConstants {
-    float4x4 view;
-    float4x4 projection;
-    float3 light_pos;
-    float light_int;
-    float3 view_pos;
-    float time;
 };
 
 struct Material {
