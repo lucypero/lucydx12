@@ -51,7 +51,7 @@ DXResourcePoolDynamic :: [dynamic]^dx.IUnknown
 gbuffer_shader_filename :: "shader.hlsl"
 lighting_shader_filename :: "lighting.hlsl"
 
-gbuffer_count :: 3
+gbuffer_count :: 2
 
 // ---- all state ----
 
@@ -109,6 +109,7 @@ Material :: struct {
 ConstantBufferData :: struct #align (256) {
 	view: dxm,
 	projection: dxm,
+	inverse_view_proj: dxm,
 	light_pos: v3,
 	light_int: f32,
 	view_pos: v3,
@@ -143,7 +144,7 @@ InstanceData :: struct #align (256) {
 	color: v3,
 }
 
-get_most_of_cbv :: proc() -> ConstantBufferData {
+get_cbv :: proc() -> ConstantBufferData {
 
 	// ticking cbv time value
 	thetime := time.diff(start_time, time.now())
@@ -154,10 +155,11 @@ get_most_of_cbv :: proc() -> ConstantBufferData {
 
 	// sending constant buffer data
 	view, projection := get_view_projection(cur_cam)
-
+	
 	return ConstantBufferData {
 		view = view,
 		projection = projection,
+		inverse_view_proj = linalg.inverse(projection * view),
 		light_pos = light_pos,
 		light_int = light_int,
 		view_pos = cur_cam.pos,
@@ -167,7 +169,7 @@ get_most_of_cbv :: proc() -> ConstantBufferData {
 
 cb_update :: proc() {
 
-	cbv_data := get_most_of_cbv()
+	cbv_data := get_cbv()
 
 	// sending data to the cpu mapped memory that the gpu can read
 	mem.copy(dx_context.constant_buffer_map, (rawptr)(&cbv_data), size_of(cbv_data))
@@ -199,7 +201,6 @@ GBufferUnit :: struct {
 GBuffer :: struct {
 	gb_albedo: GBufferUnit,
 	gb_normal: GBufferUnit,
-	gb_position: GBufferUnit,
 	rtv_heap: ^dx.IDescriptorHeap,
 }
 
@@ -296,6 +297,8 @@ check :: proc(res: dx.HRESULT, message: string) {
 
 main :: proc() {
 
+	ct := &dx_context
+
 	// setting up profiling
 	when PROFILE {
 		spall_ctx = spall.context_create("trace_test.spall")
@@ -337,7 +340,7 @@ main :: proc() {
 
 	device := dx_context.device
 	
-	// Creating SRV heap used for all resourcse
+	// Creating SRV heap used for all resources
 	
 	{
 		desc := dx.DESCRIPTOR_HEAP_DESC {
@@ -405,8 +408,6 @@ main :: proc() {
 		}
 	}
 
-	// creating depth buffer
-
 	// The command allocator is used to create the commandlist that is used to tell the GPU what to draw
 	hr = device->CreateCommandAllocator(.DIRECT, dx.ICommandAllocator_UUID, (^rawptr)(&dx_context.command_allocator))
 	check(hr, "Failed creating command allocator")
@@ -449,8 +450,7 @@ main :: proc() {
 		dx_context.constant_buffer->Map(0, &dx.RANGE{}, &dx_context.constant_buffer_map)
 	}
 
-	create_depth_buffer()
-
+	
 	/* 
 	From https://docs.microsoft.com/en-us/windows/win32/direct3d12/root-signatures-overview:
 	
@@ -475,10 +475,18 @@ main :: proc() {
 		dx.ICommandList_UUID,
 		(^rawptr)(&dx_context.cmdlist),
 	)
-	check(hr, "Failed to create command list")
-	hr = dx_context.cmdlist->Close()
-	check(hr, "Failed to close command list")
+	
+	// cmd list is ready to be used and it's open from now on.
+	
+	// check(hr, "Failed to create command list")
+	// hr = dx_context.cmdlist->Close()
+	// check(hr, "Failed to close command list")
 	sa.push(&resources_longterm, dx_context.cmdlist)
+	
+	// hr = ct.command_allocator->Reset()
+	// hr = ct.cmdlist->Reset(ct.command_allocator, nil)
+	create_depth_buffer()
+	close_and_execute_cmdlist()
 
 
 	vertex_buffer: ^dx.IResource
@@ -888,7 +896,7 @@ draw_gui :: proc() {
 g_mesh_drawn_count: int = 0
 render :: proc() {
 
-	c := &dx_context
+	ct := &dx_context
 
 	hr: dx.HRESULT
 
@@ -899,10 +907,10 @@ render :: proc() {
 	// case .WINDOWEVENT:
 	// This is equivalent to WM_PAINT in win32 API
 	// if e.window.event == .EXPOSED {
-	hr = c.command_allocator->Reset()
+	hr = ct.command_allocator->Reset()
 	check(hr, "Failed resetting command allocator")
 
-	hr = c.cmdlist->Reset(c.command_allocator, c.pipeline_gbuffer)
+	hr = ct.cmdlist->Reset(ct.command_allocator, ct.pipeline_gbuffer)
 	check(hr, "Failed to reset command list")
 
 	render_gbuffer_pass()
@@ -926,14 +934,14 @@ render :: proc() {
 			},
 		}
 
-		c.cmdlist->ResourceBarrier(1, &to_present_barrier)
+		ct.cmdlist->ResourceBarrier(1, &to_present_barrier)
 	}
 
-	hr = c.cmdlist->Close()
+	hr = ct.cmdlist->Close()
 	check(hr, "Failed to close command list")
 
 	// execute
-	cmdlists := [?]^dx.IGraphicsCommandList{c.cmdlist}
+	cmdlists := [?]^dx.IGraphicsCommandList{ct.cmdlist}
 	dx_context.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
 
 	// present
@@ -963,13 +971,13 @@ render :: proc() {
 			windows.WaitForSingleObject(dx_context.fence_event, windows.INFINITE)
 		}
 
-		c.frame_index = c.swapchain->GetCurrentBackBufferIndex()
+		ct.frame_index = ct.swapchain->GetCurrentBackBufferIndex()
 
 		// swap PSO here if needed (hot reload of shaders)
 
 		// hot swap handling
-		hotswap_swap(&c.lighting_hotswap, &c.pipeline_lighting)
-		hotswap_swap(&c.gbuffer_hotswap, &c.pipeline_gbuffer)
+		hotswap_swap(&ct.lighting_hotswap, &ct.pipeline_lighting)
+		hotswap_swap(&ct.gbuffer_hotswap, &ct.pipeline_gbuffer)
 	}
 }
 
@@ -1070,7 +1078,7 @@ create_cbv_and_structured_buffer_srv :: proc() {
 		SizeInBytes = size_of(ConstantBufferData),
 	}
 	
-	create_cbv_on_uber_heap(&cbv_desc, true, "test cbv")
+	create_cbv_on_uber_heap(&cbv_desc, true, "General Constants Buffer")
 
 	// creating SRV (structured buffer) (index 2)
 	srv_desc := dx.SHADER_RESOURCE_VIEW_DESC {
@@ -1337,6 +1345,35 @@ create_depth_buffer :: proc() {
 	}
 
 	c.device->CreateDepthStencilView(c.depth_stencil_res, &dsv_desc, descriptor_handle)
+	
+	// Creating SRV for sampling depth in the lighting pass
+	
+	srv_desc := dx.SHADER_RESOURCE_VIEW_DESC {
+		Format = .R32_FLOAT,
+		ViewDimension = .TEXTURE2D,
+		Shader4ComponentMapping = dx.ENCODE_SHADER_4_COMPONENT_MAPPING(0, 1, 2, 3), // this is the default mapping
+		// Buffer = {
+		// 	FirstElement = 0,
+		// 	NumElements = u32(scene.mesh_count),
+		// 	StructureByteStride = size_of(ModelMatrixData),
+		// 	Flags = {},
+		// },
+		
+// 		TEX2D_SRV :: struct {
+// 			MostDetailedMip:     u32,
+// 			MipLevels:           u32,
+// 			PlaneSlice:          u32,
+// 			ResourceMinLODClamp: f32,
+// }
+
+		Texture2D = {
+			MostDetailedMip = 0,
+			MipLevels = 1,
+		}
+	}
+	
+	create_srv_on_uber_heap(c.depth_stencil_res, true, "Depth SRV", srv_desc = &srv_desc)
+	transition_resource(c.depth_stencil_res, c.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
 }
 
 
@@ -1586,6 +1623,7 @@ create_gbuffer :: proc() -> GBuffer {
 
 	hr := ct.device->CreateDescriptorHeap(&desc, dx.IDescriptorHeap_UUID, (^rawptr)(&gb_rtv_dh))
 	check(hr, "Failed creating descriptor heap")
+	sa.push(&resources_longterm, gb_rtv_dh)
 	gb_rtv_dh->SetName("lucy's g-buffer RTV descriptor heap")
 
 	rtv_descriptor_size: u32 = ct.device->GetDescriptorHandleIncrementSize(.RTV)
@@ -1620,7 +1658,7 @@ create_gbuffer :: proc() -> GBuffer {
 	rtv_descriptor_handle_1: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
 	rtv_descriptor_handle_1.ptr += uint(rtv_descriptor_size) * 0
 	ct.device->CreateRenderTargetView(gb_1_res, nil, rtv_descriptor_handle_1)
-	create_srv_on_uber_heap(gb_1_res, true, "gb 1")
+	create_srv_on_uber_heap(gb_1_res, true, "gbuffer - ALBEDO")
 	
 	// u gotta release the whole heap
 
@@ -1638,30 +1676,13 @@ create_gbuffer :: proc() -> GBuffer {
 	rtv_descriptor_handle_2: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
 	rtv_descriptor_handle_2.ptr += uint(rtv_descriptor_size) * 1
 	ct.device->CreateRenderTargetView(gb_2_res, nil, rtv_descriptor_handle_2)
-	create_srv_on_uber_heap(gb_2_res, true, "gb 2")
-
-	// world space position
-	gb_3_res := create_texture(
-		u64(wx),
-		u32(wy),
-		gb_position_format,
-		{.ALLOW_RENDER_TARGET},
-		initial_state = {.PIXEL_SHADER_RESOURCE},
-		pool = &resources_longterm,
-	)
-	gb_3_res->SetName("gbuffer unit 2: WORLD SPACE POSITION")
-
-	rtv_descriptor_handle_3: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
-	rtv_descriptor_handle_3.ptr += uint(rtv_descriptor_size) * 2
-	ct.device->CreateRenderTargetView(gb_3_res, nil, rtv_descriptor_handle_3)
-	create_srv_on_uber_heap(gb_3_res, true, "gb 3")
-
-	sa.push(&resources_longterm, gb_rtv_dh)
+	create_srv_on_uber_heap(gb_2_res, true, "gbuffer - NORMALS")
+	
+	
 
 	return GBuffer {
 		gb_albedo = GBufferUnit{res = gb_1_res, rtv = rtv_descriptor_handle_1, format = gb_albedo_format},
 		gb_normal = GBufferUnit{res = gb_2_res, rtv = rtv_descriptor_handle_2, format = gb_normal_format},
-		gb_position = GBufferUnit{res = gb_3_res, rtv = rtv_descriptor_handle_3, format = gb_position_format},
 		rtv_heap = gb_rtv_dh,
 	}
 }
@@ -1745,13 +1766,12 @@ create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc
 			ConservativeRaster = .OFF,
 		},
 		// enabling depth testing
-		DepthStencilState = {DepthEnable = true, StencilEnable = false, DepthWriteMask = .ALL, DepthFunc = .LESS},
+		DepthStencilState = {DepthEnable = false, StencilEnable = false},
 		// no input layout. we don't need a vertex buffer.
 		InputLayout = {pInputElementDescs = nil, NumElements = 0},
 		PrimitiveTopologyType = .TRIANGLE,
 		NumRenderTargets = 1,
 		RTVFormats = {0 = .R8G8B8A8_UNORM, 1 ..< 7 = .UNKNOWN},
-		DSVFormat = .D32_FLOAT,
 		SampleDesc = {Count = 1, Quality = 0},
 	}
 
@@ -1949,8 +1969,7 @@ create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.
 	rtv_formats := [8]dxgi.FORMAT {
 		0 = dx_context.gbuffer.gb_albedo.format,
 		1 = dx_context.gbuffer.gb_normal.format,
-		2 = dx_context.gbuffer.gb_position.format,
-		3 ..< 7 = .UNKNOWN,
+		2 ..< 7 = .UNKNOWN,
 	}
 
 	pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
@@ -2028,6 +2047,8 @@ render_gbuffer_pass :: proc() {
 	
 	// This state is reset everytime the cmd list is reset, so we need to rebind it
 	c.cmdlist->SetGraphicsRootSignature(dx_context.gbuffer_pass_root_signature)
+	
+	transition_resource(c.depth_stencil_res, c.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
 
 	{
 		viewport := dx.VIEWPORT {
@@ -2050,7 +2071,7 @@ render_gbuffer_pass :: proc() {
 
 	// Transitioning gbuffers from SRVs to render target
 	{
-		res_barriers: [3]dx.RESOURCE_BARRIER
+		res_barriers: [gbuffer_count]dx.RESOURCE_BARRIER
 
 		// res barrier template
 
@@ -2072,10 +2093,7 @@ render_gbuffer_pass :: proc() {
 		res_barriers[1] = res_barriers[0]
 		res_barriers[1].Transition.pResource = c.gbuffer.gb_normal.res
 
-		res_barriers[2] = res_barriers[0]
-		res_barriers[2].Transition.pResource = c.gbuffer.gb_position.res
-
-		c.cmdlist->ResourceBarrier(3, &res_barriers[0])
+		c.cmdlist->ResourceBarrier(gbuffer_count, &res_barriers[0])
 	}
 
 	// Setting render targets. Clearing DSV and RTV.
@@ -2083,7 +2101,6 @@ render_gbuffer_pass :: proc() {
 		rtv_handles := [gbuffer_count]dx.CPU_DESCRIPTOR_HANDLE {
 			dx_context.gbuffer.gb_albedo.rtv,
 			dx_context.gbuffer.gb_normal.rtv,
-			dx_context.gbuffer.gb_position.rtv,
 		}
 		dsv_handle := get_descriptor_heap_cpu_address(dx_context.descriptor_heap_dsv, 0)
 
@@ -2096,7 +2113,6 @@ render_gbuffer_pass :: proc() {
 		// we should probably clear each gbuffer individually to a sane value...
 		c.cmdlist->ClearRenderTargetView(rtv_handles[0], &clearcolor, 0, nil)
 		c.cmdlist->ClearRenderTargetView(rtv_handles[1], &clearcolor, 0, nil)
-		c.cmdlist->ClearRenderTargetView(rtv_handles[2], &clearcolor, 0, nil)
 
 		// clearing depth buffer
 		c.cmdlist->ClearDepthStencilView(dsv_handle, {.DEPTH, .STENCIL}, 1.0, 0, 0, nil)
@@ -2152,7 +2168,7 @@ render_lighting_pass :: proc() {
 
 	// Transitioning gbuffers from render target to SRVs
 	{
-		res_barriers: [3]dx.RESOURCE_BARRIER
+		res_barriers: [gbuffer_count]dx.RESOURCE_BARRIER
 
 		// res barrier template
 
@@ -2174,10 +2190,7 @@ render_lighting_pass :: proc() {
 		res_barriers[1] = res_barriers[0]
 		res_barriers[1].Transition.pResource = c.gbuffer.gb_normal.res
 
-		res_barriers[2] = res_barriers[0]
-		res_barriers[2].Transition.pResource = c.gbuffer.gb_position.res
-
-		c.cmdlist->ResourceBarrier(3, &res_barriers[0])
+		c.cmdlist->ResourceBarrier(gbuffer_count, &res_barriers[0])
 	}
 
 	// here u have to transition the swapchain buffer so it is a RT
@@ -2195,6 +2208,8 @@ render_lighting_pass :: proc() {
 
 		c.cmdlist->ResourceBarrier(1, &to_render_target_barrier)
 	}
+	
+	transition_resource(c.depth_stencil_res, c.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
 
 	// descriptor heap is directly accessed in the shader.
 	//  so we don't need to set a descriptor table or set texture slots.
@@ -2220,25 +2235,17 @@ render_lighting_pass :: proc() {
 		c.cmdlist->RSSetScissorRects(1, &scissor_rect)
 	}
 
-	// Setting render targets. Clearing DSV and RTV.
+	// Setting render targets. Clearing RTV.
 	{
 		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
 			get_descriptor_heap_cpu_address(c.swapchain_rtv_descriptor_heap, c.frame_index),
 		}
 
-		dsv_handle := get_descriptor_heap_cpu_address(dx_context.descriptor_heap_dsv, 0)
-
-		// setting depth buffer
-		c.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, &dsv_handle)
+		c.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
 
 		// clear backbuffer
 		clearcolor := [?]f32{0.05, 0.05, 0.05, 1.0}
-
-		// we should probably clear each gbuffer individually to a sane value...
 		c.cmdlist->ClearRenderTargetView(rtv_handles[0], &clearcolor, 0, nil)
-
-		// clearing depth buffer
-		c.cmdlist->ClearDepthStencilView(dsv_handle, {.DEPTH, .STENCIL}, 1.0, 0, 0, nil)
 	}
 
 	// draw call
