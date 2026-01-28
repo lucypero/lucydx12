@@ -1,6 +1,6 @@
 [
   {
-    "label": "zed native task - build",
+    "label": "build debug",
     "command": "odin build . -debug -out:lucydx12.exe -linker:radlink",
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
@@ -13,7 +13,7 @@
     "show_command": true
   },
   {
-    "label": "run",
+    "label": "run debug",
     "command": "odin run . -debug -out:lucydx12.exe -linker:radlink -keep-executable",
     "use_new_terminal": false,
     "allow_concurrent_runs": false,

@@ -451,3 +451,10 @@ uber_heap_count :: proc(debug_index: bool, debug_name: string) {
 	if debug_index do fmt.printfln("creating view on uber heap: name: %v, index: %v", debug_name, ct.descriptor_count)
 	ct.descriptor_count += 1
 }
+
+close_and_execute_cmdlist :: proc() {
+	ct := &dx_context
+	ct.cmdlist->Close()
+	cmdlists := [?]^dx.IGraphicsCommandList{ct.cmdlist}
+	dx_context.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
+}

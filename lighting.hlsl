@@ -6,6 +6,26 @@
 
 SamplerState mySampler : register(s0);
 
+// Assuming: 
+// uv: [0, 1] across the screen
+// depth: sampled from your depth buffer [0, 1]
+
+float4 GetWorldPosition(float2 uv, float depth, float4x4 invViewProj) {
+    // Convert UV to [-1, 1] NDC range. 
+    // Note: Y is often flipped depending on your API (Vulkan vs DX)
+    float2 ndcXY = uv * 2.0 - 1.0;
+    ndcXY.y = -ndcXY.y; // Flip Y for DirectX
+
+    // Create the NDC position vector
+    float4 ndcPos = float4(ndcXY, depth, 1.0);
+
+    // Transform by Inverse View-Projection
+    float4 worldPos = mul(invViewProj, ndcPos);
+
+    // Perspective Divide
+    return worldPos / worldPos.w;
+}
+
 struct PSInput
 {
     float4 position : SV_Position;
@@ -37,15 +57,29 @@ PSInput VSMain(uint VertexID : SV_VertexID)
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[4];
+	AllSrvsIndices srv_indexes = get_srvs_from_heap();
 	
-	Texture2D<float4> albedo = ResourceDescriptorHeap[0];
-	Texture2D<float4> normal = ResourceDescriptorHeap[1];
-	Texture2D<float4> position = ResourceDescriptorHeap[2];
+	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[srv_indexes.general_constants_idx];
+	
+	// g buffer
+	Texture2D<float4> albedo = ResourceDescriptorHeap[srv_indexes.g_buffer_color_idx];
+	Texture2D<float4> normal = ResourceDescriptorHeap[srv_indexes.g_buffer_normal_idx];
+	
+	// depth
+	Texture2D<float4> depthTexture = ResourceDescriptorHeap[srv_indexes.depth_idx];
 
     float3 albedoColor = albedo.Sample(mySampler, input.uvs).xyz;
     float3 normalColor = normal.Sample(mySampler, input.uvs).xyz;
-    float3 positionColor = position.Sample(mySampler, input.uvs).xyz;
+    // float3 worldPosition = position.Sample(mySampler, input.uvs).xyz;
+    // float3 worldPosition = position.Sample(mySampler, input.uvs).xyz;
+    
+    // In the Pixel Shader
+    float depth = depthTexture.Sample(mySampler, input.uvs).r;
+    
+    // float depth = ???
+    
+    
+    float3 worldPosition = GetWorldPosition(input.uvs, depth, general_constants.inverse_view_proj).xyz;
 
     // calculating normal
     
@@ -60,7 +94,7 @@ float4 PSMain(PSInput input) : SV_TARGET
         norm = normalize(norm);
     }
     
-    float3 light_dir = normalize(general_constants.light_pos - positionColor);
+    float3 light_dir = normalize(general_constants.light_pos - worldPosition);
 
     // calculating diffuse
     float3 diffuse = 0;
@@ -82,7 +116,7 @@ float4 PSMain(PSInput input) : SV_TARGET
     {
         float specularStrength = 0.5;
     
-        float3 viewDir = normalize(general_constants.view_pos - positionColor);
+        float3 viewDir = normalize(general_constants.view_pos - worldPosition);
         float3 reflectDir = reflect(light_dir, norm);
     
         float3 spec_color = float3(1, 1, 1);
@@ -98,9 +132,9 @@ float4 PSMain(PSInput input) : SV_TARGET
     // -- Display g buffer 2
     // return float4(normalColor, 1.0);
     // -- Display g buffer 3
-    // return float4(positionColor, 1.0);
+    // return float4(worldPosition, 1.0);
     
     // -- Display Final image
     return float4(result, 1.0);
-    
+    // return float4(depth, 0.0, 0.0, 1.0);
 }
