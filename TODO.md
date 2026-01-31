@@ -1,16 +1,23 @@
 # current todo
 
-- get rid of position map. figure out position mathematically from depth buffer
+- pass indices into the descriptor heap in a constant buffer so u don't have to constantly,
+	-  modify the magic values
 
 - decide on the setup of your g buffer for PBR rendering. see this:
 	- https://www.reddit.com/r/opengl/comments/z2kdgm/deferred_rendering_reducing_the_size_of_the/
 	- possible setup:
 	    Albedo (RGB8U).
-	    Normal (Packed with Octahedron mapping) (RG8U).
 	    Emmisive (RGB8U).
-	    AO + Roughness + Metallic (RGB8U).
 	    Depth and stencil (D24S8).
 	
+your idea is:
+
+base color (already done)
+Normal (Packed with Octahedron mapping) (RG8U). (halfway done)
+AO + Roughness + Metallic (RGB8U).
+
+Depth and stencil (already done)
+
 - use thread pool for loading textures
 	- main thread loads the files to memory
 	- worker threads do the png processing using stb image

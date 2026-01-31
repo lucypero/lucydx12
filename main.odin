@@ -201,6 +201,7 @@ GBufferUnit :: struct {
 GBuffer :: struct {
 	gb_albedo: GBufferUnit,
 	gb_normal: GBufferUnit,
+	gb_ao_rough_metal: GBufferUnit,
 	rtv_heap: ^dx.IDescriptorHeap,
 }
 
@@ -1609,6 +1610,40 @@ create_vertex_buffer :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^DXResou
 	}
 }
 
+// gb_normal = create_gbuffer_unit(.R10G10B10A2_UNORM, wx, wy, "gbuffer - NORMALS"),
+
+create_gbuffer_unit :: proc(format: dxgi.FORMAT, 
+			debug_name: string,
+		 	rtv_descriptor_heap_heap_start: dx.CPU_DESCRIPTOR_HANDLE,
+			rtv_descriptor_size: u32,
+		 	gbuffer_index: uint) -> GBufferUnit {
+	ct := &dx_context
+	
+	// albedo color 
+	gb_res := create_texture(
+		u64(wx),
+		u32(wy),
+		format,
+		{.ALLOW_RENDER_TARGET},
+		initial_state = {.PIXEL_SHADER_RESOURCE},
+		pool = &resources_longterm,
+	)
+	
+	gb_name := windows.utf8_to_wstring_alloc(debug_name, allocator = context.temp_allocator)
+	gb_res->SetName(gb_name)
+
+	rtv_descriptor_handle_1: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_heap_heap_start
+	rtv_descriptor_handle_1.ptr += uint(rtv_descriptor_size) * gbuffer_index
+	ct.device->CreateRenderTargetView(gb_res, nil, rtv_descriptor_handle_1)
+	create_srv_on_uber_heap(gb_res, true, debug_name)
+	
+	return GBufferUnit {
+		res = gb_res,
+		rtv = rtv_descriptor_handle_1,
+		format = format
+	}
+}
+
 create_gbuffer :: proc() -> GBuffer {
 	ct := &dx_context
 
@@ -1634,56 +1669,13 @@ create_gbuffer :: proc() -> GBuffer {
 
 	// TODO: look into creating a heap and resources separately.
 
-	gb_albedo_format: dxgi.FORMAT = .R8G8B8A8_UNORM
-	gb_normal_format: dxgi.FORMAT = .R10G10B10A2_UNORM
-	gb_position_format: dxgi.FORMAT = .R16G16B16A16_FLOAT
-
-	clear_value := dx.CLEAR_VALUE {
-		Format = gb_albedo_format,
-		Color = {0, 0, 0, 1.0},
-	}
-
-	// albedo color and specular
-	gb_1_res := create_texture(
-		u64(wx),
-		u32(wy),
-		gb_albedo_format,
-		{.ALLOW_RENDER_TARGET},
-		initial_state = {.PIXEL_SHADER_RESOURCE},
-		pool = &resources_longterm,
-	)
+	// refactor those blocks above with a function
 	
-	gb_1_res->SetName("gbuffer unit 0: ALBEDO + SPECULAR")
-
-	rtv_descriptor_handle_1: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
-	rtv_descriptor_handle_1.ptr += uint(rtv_descriptor_size) * 0
-	ct.device->CreateRenderTargetView(gb_1_res, nil, rtv_descriptor_handle_1)
-	create_srv_on_uber_heap(gb_1_res, true, "gbuffer - ALBEDO")
-	
-	// u gotta release the whole heap
-
-	// world normal data
-	gb_2_res := create_texture(
-		u64(wx),
-		u32(wy),
-		gb_normal_format,
-		{.ALLOW_RENDER_TARGET},
-		initial_state = {.PIXEL_SHADER_RESOURCE},
-		pool = &resources_longterm,
-	)
-	gb_2_res->SetName("gbuffer unit 1: NORMAL")
-
-	rtv_descriptor_handle_2: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_handle_heap_start
-	rtv_descriptor_handle_2.ptr += uint(rtv_descriptor_size) * 1
-	ct.device->CreateRenderTargetView(gb_2_res, nil, rtv_descriptor_handle_2)
-	create_srv_on_uber_heap(gb_2_res, true, "gbuffer - NORMALS")
-	
-	
-
 	return GBuffer {
-		gb_albedo = GBufferUnit{res = gb_1_res, rtv = rtv_descriptor_handle_1, format = gb_albedo_format},
-		gb_normal = GBufferUnit{res = gb_2_res, rtv = rtv_descriptor_handle_2, format = gb_normal_format},
-		rtv_heap = gb_rtv_dh,
+		gb_albedo = create_gbuffer_unit(.R8G8B8A8_UNORM, "gbuffer - ALBEDO", rtv_descriptor_handle_heap_start, rtv_descriptor_size, 0),
+		gb_normal = create_gbuffer_unit(.R10G10B10A2_UNORM, "gbuffer - NORMALS", rtv_descriptor_handle_heap_start, rtv_descriptor_size, 1),
+		// gb_ao_rough_metal = create_gbuffer_unit(.R8G8B8A8_UNORM, "gbuffer - AO ROUGH METAL", rtv_descriptor_handle_heap_start, rtv_descriptor_size, 2),
+		rtv_heap = gb_rtv_dh
 	}
 }
 
