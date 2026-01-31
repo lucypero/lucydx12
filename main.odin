@@ -855,14 +855,14 @@ update :: proc() {
 	// imgui stuff
 	// im.ShowDemoWindow()
 	
-	draw_gui()
+	draw_imgui()
 
 
 	camera_tick(keyboard)
 	// fmt.printfln("%v", g_frame_dt)
 }
 
-draw_gui :: proc() {
+draw_imgui :: proc() {
 	
 	c := &dx_context
 	im.Begin("lucydx12")
@@ -870,6 +870,7 @@ draw_gui :: proc() {
 	im.DragFloat3("light pos", &light_pos, 0.1, -5, 5)
 	im.DragFloat("light intensity", &light_int, 0.1, 0, 20)
 	im.DragFloat("light speed", &light_speed, 0.0001, 0, 20)
+	im.DragFloat("cam speed", &cur_cam.speed, 0.0001, 0, 20)
 
 	im.InputInt("mesh count to draw", (^i32)(&c.meshes_to_render))
 	

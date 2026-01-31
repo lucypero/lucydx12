@@ -19,7 +19,8 @@ CameraMode :: enum {
 Camera :: struct {
 	pos : v3,
 	pitch: f32, // rad
-	yaw: f32 // rad
+	yaw: f32, // rad
+	speed: f32
 }
 
 camera_init :: proc() -> Camera {
@@ -33,7 +34,8 @@ camera_init :: proc() -> Camera {
 	
 	return Camera{
 		pos = {0, 1, -1},
-		yaw = -90
+		yaw = -90,
+		speed = 0.030
 	}
 }
 
@@ -79,7 +81,7 @@ camera_fps_tick :: proc(buttons: u32, dx, dy: i32, keyboard: []u8) {
 	
 	// keyboard controls (moving the cam position)
 	
-	cam_speed :: 0.1
+	cam_speed := cur_cam.speed
 	
 	cam_dir := cam_get_direction(cur_cam)
 	
