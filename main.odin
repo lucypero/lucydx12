@@ -51,7 +51,7 @@ DXResourcePoolDynamic :: [dynamic]^dx.IUnknown
 gbuffer_shader_filename :: "shader.hlsl"
 lighting_shader_filename :: "lighting.hlsl"
 
-gbuffer_count :: 2
+gbuffer_count :: 3
 
 // ---- all state ----
 
@@ -1610,8 +1610,6 @@ create_vertex_buffer :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^DXResou
 	}
 }
 
-// gb_normal = create_gbuffer_unit(.R10G10B10A2_UNORM, wx, wy, "gbuffer - NORMALS"),
-
 create_gbuffer_unit :: proc(format: dxgi.FORMAT, 
 			debug_name: string,
 		 	rtv_descriptor_heap_heap_start: dx.CPU_DESCRIPTOR_HANDLE,
@@ -1674,7 +1672,7 @@ create_gbuffer :: proc() -> GBuffer {
 	return GBuffer {
 		gb_albedo = create_gbuffer_unit(.R8G8B8A8_UNORM, "gbuffer - ALBEDO", rtv_descriptor_handle_heap_start, rtv_descriptor_size, 0),
 		gb_normal = create_gbuffer_unit(.R10G10B10A2_UNORM, "gbuffer - NORMALS", rtv_descriptor_handle_heap_start, rtv_descriptor_size, 1),
-		// gb_ao_rough_metal = create_gbuffer_unit(.R8G8B8A8_UNORM, "gbuffer - AO ROUGH METAL", rtv_descriptor_handle_heap_start, rtv_descriptor_size, 2),
+		gb_ao_rough_metal = create_gbuffer_unit(.R8G8B8A8_UNORM, "gbuffer - AO ROUGH METAL", rtv_descriptor_handle_heap_start, rtv_descriptor_size, 2),
 		rtv_heap = gb_rtv_dh
 	}
 }
@@ -1961,7 +1959,8 @@ create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.
 	rtv_formats := [8]dxgi.FORMAT {
 		0 = dx_context.gbuffer.gb_albedo.format,
 		1 = dx_context.gbuffer.gb_normal.format,
-		2 ..< 7 = .UNKNOWN,
+		2 = dx_context.gbuffer.gb_ao_rough_metal.format,
+		3 ..< 7 = .UNKNOWN,
 	}
 
 	pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
@@ -2084,6 +2083,9 @@ render_gbuffer_pass :: proc() {
 
 		res_barriers[1] = res_barriers[0]
 		res_barriers[1].Transition.pResource = c.gbuffer.gb_normal.res
+		
+		res_barriers[2] = res_barriers[0]
+		res_barriers[2].Transition.pResource = c.gbuffer.gb_ao_rough_metal.res
 
 		c.cmdlist->ResourceBarrier(gbuffer_count, &res_barriers[0])
 	}
@@ -2093,6 +2095,7 @@ render_gbuffer_pass :: proc() {
 		rtv_handles := [gbuffer_count]dx.CPU_DESCRIPTOR_HANDLE {
 			dx_context.gbuffer.gb_albedo.rtv,
 			dx_context.gbuffer.gb_normal.rtv,
+			dx_context.gbuffer.gb_ao_rough_metal.rtv,
 		}
 		dsv_handle := get_descriptor_heap_cpu_address(dx_context.descriptor_heap_dsv, 0)
 
@@ -2105,6 +2108,7 @@ render_gbuffer_pass :: proc() {
 		// we should probably clear each gbuffer individually to a sane value...
 		c.cmdlist->ClearRenderTargetView(rtv_handles[0], &clearcolor, 0, nil)
 		c.cmdlist->ClearRenderTargetView(rtv_handles[1], &clearcolor, 0, nil)
+		c.cmdlist->ClearRenderTargetView(rtv_handles[2], &clearcolor, 0, nil)
 
 		// clearing depth buffer
 		c.cmdlist->ClearDepthStencilView(dsv_handle, {.DEPTH, .STENCIL}, 1.0, 0, 0, nil)
@@ -2181,6 +2185,9 @@ render_lighting_pass :: proc() {
 
 		res_barriers[1] = res_barriers[0]
 		res_barriers[1].Transition.pResource = c.gbuffer.gb_normal.res
+		
+		res_barriers[2] = res_barriers[0]
+		res_barriers[2].Transition.pResource = c.gbuffer.gb_ao_rough_metal.res
 
 		c.cmdlist->ResourceBarrier(gbuffer_count, &res_barriers[0])
 	}

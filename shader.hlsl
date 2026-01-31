@@ -28,6 +28,8 @@ struct PSInput {
 struct Material {
 	uint base_color_index;
 	uint base_color_uv_index;
+	uint metallic_roughness_index;
+	uint metallic_roughness_uv_index;
 };
 
 struct MeshTransform
@@ -92,13 +94,10 @@ PSInput VSMain(VSInput the_input) {
 }
 
 struct PSOutput {
-    // Target 0: Albedo Color (RGB) and Specular Intensity (A)
-    // Common formats: DXGI_FORMAT_R8G8B8A8_UNORM
-    float4 albedoSpecRT : SV_Target0; 
-
-    // Target 1: World-Space Normals (RGB)
-    // We use DXGI_FORMAT_R8G8B8A8_UNORM or similar. Normals are usually packed.
-    float4 normalRT   : SV_Target1; 
+    float4 albedoRT : SV_Target0; 
+    float4 normalRT : SV_Target1; 
+    // X channel: AO --- Y channel: roughness --- Z channel: metalness
+    float4 AoRoughMetalRT : SV_Target2; 
 };
 
 PSOutput PSMain(PSInput input) {
@@ -111,23 +110,53 @@ PSOutput PSMain(PSInput input) {
     StructuredBuffer<Material> materials = ResourceDescriptorHeap[srv_indexes.materials_idx];
     
     Material mat = materials[draw_constants.material_index];
-
-    float4 pixelColor = float4(input.color, 1.0);
-    Texture2D<float4> baseColorTexture = ResourceDescriptorHeap[mat.base_color_index];
     
-    float2 base_color_uvs = input.uvs;
-    if(mat.base_color_uv_index != 0) {
-    	base_color_uvs = input.uvs_2;
+    
+    // Albedo map
+    {
+    	float4 albedoColor;
+	    Texture2D<float4> baseColorTexture = ResourceDescriptorHeap[mat.base_color_index];
+	    
+	    float2 base_color_uvs = input.uvs;
+	    if(mat.base_color_uv_index != 0) {
+	    	base_color_uvs = input.uvs_2;
+	    }
+	    
+	    albedoColor = baseColorTexture.Sample(mySampler, base_color_uvs);
+		output.albedoRT = albedoColor;
     }
     
-    pixelColor = baseColorTexture.Sample(mySampler, base_color_uvs);
-
-    float3 norm = normalize(input.frag_normal);
+    // Normal map
+    {
+    	float4 normalColor;
+    	normalColor.xyz = normalize(input.frag_normal);
+     	normalColor.xyz = (normalColor.xyz * 0.5f) + 0.5f;
+     	normalColor.a = 1.0f;
+      	output.normalRT = normalColor;
+    }
     
-    // writing to all gbuffers
-    output.albedoSpecRT = pixelColor;
-    output.normalRT.rgb = (norm * 0.5f) + 0.5f;
-    output.normalRT.a = 1.0f;
+    // AO + Rough + Metalness map
+    {
+   		float4 aoRoughMetalColor;
+	    Texture2D<float4> metalRoughTexture = ResourceDescriptorHeap[mat.metallic_roughness_index];
+	    
+	    float2 base_color_uvs = input.uvs;
+	    if(mat.metallic_roughness_uv_index != 0) {
+	    	base_color_uvs = input.uvs_2;
+	    }
+	    
+	    aoRoughMetalColor = metalRoughTexture.Sample(mySampler, base_color_uvs);
+		// AO (x channel)
+		output.AoRoughMetalRT.x = 1.0f;
+		
+		// Roughness (y channel)
+		output.AoRoughMetalRT.y = aoRoughMetalColor.y; // roughness is at the Y channel in the texture
+		
+		// Metalness (z channel)
+		output.AoRoughMetalRT.z = aoRoughMetalColor.x; // metalness is at the X channel in the texture
+		
+		output.AoRoughMetalRT.w = 1.0f;
+    }
     
     return output;
 }

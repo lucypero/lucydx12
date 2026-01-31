@@ -55,6 +55,48 @@ PSInput VSMain(uint VertexID : SV_VertexID)
     return output;
 }
 
+
+// helper code
+
+// 1. Normal Distribution Function (GGX)
+// Approximates the amount of microfacets aligned with the Halfway vector
+float DistributionGGX(float3 N, float3 H, float roughness) {
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float NdotH = max(dot(N, H), 0.0);
+    float NdotH2 = NdotH * NdotH;
+
+    float num = a2;
+    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom = 3.14159 * denom * denom;
+
+    return num / denom;
+}
+
+// 2. Geometry Function (Smith's method)
+// Approximates self-shadowing of the microfacets
+float GeometrySchlickGGX(float NdotV, float roughness) {
+    float r = (roughness + 1.0);
+    float k = (r * r) / 8.0;
+    return NdotV / (NdotV * (1.0 - k) + k);
+}
+
+float GeometrySmith(float3 N, float3 V, float3 L, float roughness) {
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    float ggx2 = GeometrySchlickGGX(NdotV, roughness);
+    float ggx1 = GeometrySchlickGGX(NdotL, roughness);
+    return ggx1 * ggx2;
+}
+
+// 3. Fresnel Equation (Schlick's approximation)
+// Ratio of light reflected vs refracted
+float3 FresnelSchlick(float cosTheta, float3 F0) {
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+//  / helper code
+
 float4 PSMain(PSInput input) : SV_TARGET
 {
 	AllSrvsIndices srv_indexes = get_srvs_from_heap();
@@ -64,12 +106,15 @@ float4 PSMain(PSInput input) : SV_TARGET
 	// g buffer
 	Texture2D<float4> albedo = ResourceDescriptorHeap[srv_indexes.g_buffer_color_idx];
 	Texture2D<float4> normal = ResourceDescriptorHeap[srv_indexes.g_buffer_normal_idx];
+	Texture2D<float4> ao_rough_metal = ResourceDescriptorHeap[srv_indexes.g_buffer_ao_rough_metal_idx];
 	
 	// depth
 	Texture2D<float4> depthTexture = ResourceDescriptorHeap[srv_indexes.depth_idx];
 
     float3 albedoColor = albedo.Sample(mySampler, input.uvs).xyz;
     float3 normalColor = normal.Sample(mySampler, input.uvs).xyz;
+    float3 aoRoughMetalColor = ao_rough_metal.Sample(mySampler, input.uvs).xyz;
+    
     // float3 worldPosition = position.Sample(mySampler, input.uvs).xyz;
     // float3 worldPosition = position.Sample(mySampler, input.uvs).xyz;
     
@@ -113,19 +158,45 @@ float4 PSMain(PSInput input) : SV_TARGET
     // Specular calculation
     
     float3 specular = 0;
+    float NdotL;
     {
-        float specularStrength = 0.5;
+        float roughness = aoRoughMetalColor.y;
+        
+        float3 N = norm;
+        float3 V = normalize(general_constants.view_pos - worldPosition);
+        float3 L = normalize(light_dir);
+        float3 H = normalize(V + L);
     
-        float3 viewDir = normalize(general_constants.view_pos - worldPosition);
-        float3 reflectDir = reflect(light_dir, norm);
+        // F0 is the base reflectivity (0.04 for non-metals)
+        float3 F0 = float3(0.04, 0.04, 0.04); 
+        
+        // Cook-Torrance BRDF components
+        float D = DistributionGGX(N, H, roughness);
+        float G = GeometrySmith(N, V, L, roughness);
+        float3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
     
-        float3 spec_color = float3(1, 1, 1);
+        // Final Specular calculation
+        float3 numerator = D * G * F;
+        float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001; // prevent div by zero
+        specular = numerator / denominator;
+        
+        // Add specular to your diffuse lighting...
+        NdotL = max(dot(N, L), 0.0);
+        // return float4(specular * LightColor * NdotL, 1.0);
+        
+        // float specularStrength = 0.5;
     
-        float spec = pow(max(dot(viewDir, reflectDir), 0.0), 128);
-        specular = specularStrength * spec * spec_color;
+        // float3 viewDir = normalize(general_constants.view_pos - worldPosition);
+        // float3 reflectDir = reflect(light_dir, norm);
+    
+        // float3 spec_color = float3(1, 1, 1);
+    
+        // float spec = pow(max(dot(viewDir, reflectDir), 0.0), 128);
+        // specular = specularStrength * spec * spec_color;
     }
 
-    float3 result = (ambient + diffuse + specular) * albedoColor;
+    float3 specularResult = specular * float3(1,1,1) * NdotL;
+    float3 result = (ambient + diffuse + specularResult) * albedoColor;
     
     // -- Display g buffer 1
     // return float4(albedoColor, 1.0);
