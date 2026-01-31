@@ -18,10 +18,9 @@ struct AllSrvsIndices {
 	// g buffer
 	int g_buffer_color_idx;
 	int g_buffer_normal_idx;
-	
+	int g_buffer_ao_rough_metal_idx;
 	
 	// depth 
-	
 	int depth_idx;
 };
 
@@ -30,11 +29,12 @@ AllSrvsIndices get_srvs_from_heap() {
 	
 	idxs.g_buffer_color_idx = 0;
 	idxs.g_buffer_normal_idx = 1;
+	idxs.g_buffer_ao_rough_metal_idx = 2;
 	
-	idxs.depth_idx = 2;
-	idxs.materials_idx = 3;
-	idxs.general_constants_idx = 4;
-	idxs.mesh_transforms_idx = 5;
+	idxs.depth_idx = 3;
+	idxs.materials_idx = 4;
+	idxs.general_constants_idx = 5;
+	idxs.mesh_transforms_idx = 6;
 	
 	return idxs;
 }
