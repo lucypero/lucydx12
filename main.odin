@@ -1,5 +1,6 @@
 package main
 
+import "core:debug/trace"
 import "core:reflect"
 import img "vendor:stb/image"
 import "core:fmt"
@@ -297,6 +298,9 @@ check :: proc(res: dx.HRESULT, message: string) {
 }
 
 main :: proc() {
+
+	trace.init(&global_trace_ctx)
+	defer trace.destroy(&global_trace_ctx)
 
 	ct := &dx_context
 
@@ -797,7 +801,7 @@ init_dx :: proc() {
 		info_queue: ^dx.IInfoQueue1
 		dx_context.device->QueryInterface(dx.IInfoQueue1_UUID, (^rawptr)(&info_queue))
 		cb_cookie: u32
-		hr = info_queue->RegisterMessageCallback(lucy_log_callback, {}, nil, &cb_cookie)
+		hr = info_queue->RegisterMessageCallback(dx_log_callback, {}, nil, &cb_cookie)
 		check(hr, "failed to register")
 		info_queue->Release()
 	}
@@ -805,7 +809,9 @@ init_dx :: proc() {
 	dx_context.dxc_compiler = dxc_init()
 }
 
-lucy_log_callback :: proc "c" (
+global_trace_ctx: trace.Context
+
+dx_log_callback :: proc "c" (
 	category: dx.MESSAGE_CATEGORY,
 	severity: dx.MESSAGE_SEVERITY,
 	id: dx.MESSAGE_ID,
@@ -817,8 +823,31 @@ lucy_log_callback :: proc "c" (
 	severity, ok_2 := reflect.enum_name_from_value(severity)
 	cat, ok := reflect.enum_name_from_value(category)
 	msg := string(description)
-
+	
 	fmt.printfln("%v: (%v) %v", severity, cat, msg)
+	
+	// printing stack trace
+	
+	if !trace.in_resolve(&global_trace_ctx) {
+		
+		buf: [64]trace.Frame
+		
+		max_frames_display :: 300
+		frames := trace.frames(&global_trace_ctx, 1, buf[:])
+		frame_c := math.min(len(frames), max_frames_display)
+		frames = frames[:frame_c]
+		
+		if len(frames) > 0 do fmt.printfln("At:")
+		
+		for f, i in frames {
+			fl := trace.resolve(&global_trace_ctx, f, context.temp_allocator)
+			if fl.loc.file_path == "" && fl.loc.line == 0 {
+				continue
+			}
+			
+			fmt.printfln("--- %v - Frame %v", fl.loc, i)
+		}
+	}
 }
 
 update :: proc() {
@@ -2264,7 +2293,7 @@ print_ref_count :: proc(obj: ^dx.IUnknown) {
 }
 
 // Prints to windows debug, with a fmt.println() interface
-lprintln_donotuse :: proc(args: ..any, sep := " ") {
+lprintln :: proc(args: ..any, sep := " ") {
 	str: strings.Builder
 	strings.builder_init(&str, context.temp_allocator)
 	final_string := fmt.sbprintln(&str, ..args, sep = sep)
@@ -2274,10 +2303,11 @@ lprintln_donotuse :: proc(args: ..any, sep := " ") {
 		os.exit(1)
 	}
 
+	fmt.println(args, sep)
 	windows.OutputDebugStringA(final_string_c)
 }
 
-lprintfln_donotuse :: proc(fmt_s: string, args: ..any) {
+lprintfln :: proc(fmt_s: string, args: ..any) {
 	str: strings.Builder
 	strings.builder_init(&str, context.temp_allocator)
 	final_string := fmt.sbprintf(&str, fmt_s, ..args, newline = true)
@@ -2288,6 +2318,7 @@ lprintfln_donotuse :: proc(fmt_s: string, args: ..any) {
 		os.exit(1)
 	}
 
+	fmt.printfln(fmt_s, args)
 	windows.OutputDebugStringA(final_string_c)
 }
 
