@@ -140,7 +140,7 @@ compile_shader :: proc(compiler: ^dxc.ICompiler3, shader_filename: string) -> (v
 	data, ok_f := os.read_entire_file(shader_filename)
 	
 	if !ok_f {
-		fmt.printfln("could not read file")
+		lprintfln("could not read file")
 		os.exit(1)
 	}
 
@@ -198,7 +198,7 @@ compile_individual_shader :: proc(source_buffer: ^dxc.Buffer, compiler: ^dxc.ICo
 	results->GetOutput(.ERRORS, dxc.IBlobUtf8_UUID, (^rawptr)(&errors), nil)
 	if errors != nil && errors->GetStringLength() > 0 {
 		error_str := strings.string_from_ptr((^u8)(errors->GetBufferPointer()), int(errors->GetBufferSize()))
-		fmt.printfln("dxc: errors: %v", error_str)
+		lprintfln("dxc: errors: %v", error_str)
 	}
 	
 	output_blob : ^dxc.IBlob
@@ -448,7 +448,7 @@ create_cbv_on_uber_heap :: proc(
 
 uber_heap_count :: proc(debug_index: bool, debug_name: string) {
 	ct := &dx_context
-	if debug_index do fmt.printfln("creating view on uber heap: name: %v, index: %v", debug_name, ct.descriptor_count)
+	if debug_index do lprintfln("creating view on uber heap: name: %v, index: %v", debug_name, ct.descriptor_count)
 	ct.descriptor_count += 1
 }
 

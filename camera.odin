@@ -115,7 +115,7 @@ camera_fps_tick :: proc(buttons: u32, dx, dy: i32, keyboard: []u8) {
 		cur_cam.pos += v3{0, 1, 0} * cam_speed
 	}
 	
-	// fmt.printfln("%v", cam_dir)
+	// lprintfln("%v", cam_dir)
 	
 	// if click, switch to static camera mode
 	if (buttons & sdl.BUTTON_LMASK) == 1 {
