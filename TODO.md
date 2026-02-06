@@ -1,7 +1,10 @@
 # current todo
 
+- print everything to debug output string so u can read everything in RAD
+	- look into overriding std out or whatever fmt.print prints to.
+
 - pass indices into the descriptor heap in a constant buffer so u don't have to constantly,
-	-  modify the magic values
+	modify the magic values
 
 - decide on the setup of your g buffer for PBR rendering. see this:
 	- https://www.reddit.com/r/opengl/comments/z2kdgm/deferred_rendering_reducing_the_size_of_the/
@@ -84,3 +87,93 @@ The logic behind that "safe value" is: That "safe value" is only going to be sig
 me: "I'd use this strategy if you are still figuring out dx12"
 also me: Proceeds to explain kinda complicated scheme that is actually often used in real projects
 😂
+
+
+# crash logs
+
+odin crashes
+
+## log 1
+
+```
+[DEBUG] Selected microarch: x86-64-v2
+[DEBUG] Default microarch features: 64bit,64bit-mode,cmov,crc32,cx16,cx8,false-deps-popcnt,fast-15bytenop,fast-scalar-fsqrt,fast-shld-rotate,fxsr,idivq-to-divl,macrofusion,mmx,nopl,popcnt,sahf,slow-3ops-lea,slow-unaligned-mem-32,sse,sse2,sse3,sse4.1,sse4.2,ssse3,vzeroupper,x87
+[DEBUG] Target triplet: x86_64-pc-windows-msvc
+[DEBUG] build_paths[0]: E:/dev/dx12/
+[DEBUG] build_paths[1]:
+[DEBUG] build_paths[2]:
+[DEBUG] build_paths[3]: C:/Program Files (x86)/Windows Kits/10/bin/10.0.22621.0/x64/
+[DEBUG] build_paths[4]: C:/Program Files (x86)/Windows Kits/10/Lib/10.0.22621.0/um/x64/
+[DEBUG] build_paths[5]: C:/Program Files (x86)/Windows Kits/10/Lib/10.0.22621.0/ucrt/x64/
+[DEBUG] build_paths[6]: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.41.34120/bin/Hostx64/x64/
+[DEBUG] build_paths[7]: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.41.34120/lib/x64/
+[DEBUG] build_paths[8]: E:/dev/dx12/lucydx12.exe
+[DEBUG] build_paths[9]: E:/dev/dx12/lucydx12.pdb
+[DEBUG] [Section] init thread pool
+[DEBUG] [Section] init universal
+[DEBUG] [Section] parse files
+[DEBUG] [Section] init checker info
+[DEBUG] [Section] checker info: general
+[DEBUG] [Section] init proc queues
+[DEBUG] [Section] type check
+[DEBUG] [Section] map full filepaths to scope
+[DEBUG] [Section] init worker data
+[DEBUG] [Section] create file scopes
+[DEBUG] [Section] collect entities
+[DEBUG] [Section] export entities - pre
+[DEBUG] [Section] check_import_entities - sort packages
+[DEBUG] [Section] check_import_entities - collect file decls
+[DEBUG] [Section] check_import_entities - check delayed entities
+[DEBUG] [Section] export entities - post
+[DEBUG] [Section] add entities from packages
+[DEBUG] [Section] check all global entities
+[DEBUG] [Section] init preload
+[DEBUG] [Section] add global untyped expression to queue
+[DEBUG] [Section] check procedure bodies
+
+⏵ Task `build debug` finished with non-zero error code: -1073741819
+⏵ Command: cmd /C "odin build . -debug -out:lucydx12.exe -linker:radlink -show-debug-messages"
+```
+
+
+## log 2
+
+```
+[DEBUG] Selected microarch: x86-64-v2
+[DEBUG] Default microarch features: 64bit,64bit-mode,cmov,crc32,cx16,cx8,false-deps-popcnt,fast-15bytenop,fast-scalar-fsqrt,fast-shld-rotate,fxsr,idivq-to-divl,macrofusion,mmx,nopl,popcnt,sahf,slow-3ops-lea,slow-unaligned-mem-32,sse,sse2,sse3,sse4.1,sse4.2,ssse3,vzeroupper,x87
+[DEBUG] Target triplet: x86_64-pc-windows-msvc
+[DEBUG] build_paths[0]: E:/dev/dx12/
+[DEBUG] build_paths[1]:
+[DEBUG] build_paths[2]:
+[DEBUG] build_paths[3]: C:/Program Files (x86)/Windows Kits/10/bin/10.0.22621.0/x64/
+[DEBUG] build_paths[4]: C:/Program Files (x86)/Windows Kits/10/Lib/10.0.22621.0/um/x64/
+[DEBUG] build_paths[5]: C:/Program Files (x86)/Windows Kits/10/Lib/10.0.22621.0/ucrt/x64/
+[DEBUG] build_paths[6]: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.41.34120/bin/Hostx64/x64/
+[DEBUG] build_paths[7]: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.41.34120/lib/x64/
+[DEBUG] build_paths[8]: E:/dev/dx12/lucydx12.exe
+[DEBUG] build_paths[9]: E:/dev/dx12/lucydx12.pdb
+[DEBUG] [Section] init thread pool
+[DEBUG] [Section] init universal
+[DEBUG] [Section] parse files
+[DEBUG] [Section] init checker info
+[DEBUG] [Section] checker info: general
+[DEBUG] [Section] init proc queues
+[DEBUG] [Section] type check
+[DEBUG] [Section] map full filepaths to scope
+[DEBUG] [Section] init worker data
+[DEBUG] [Section] create file scopes
+[DEBUG] [Section] collect entities
+[DEBUG] [Section] export entities - pre
+[DEBUG] [Section] check_import_entities - sort packages
+[DEBUG] [Section] check_import_entities - collect file decls
+[DEBUG] [Section] check_import_entities - check delayed entities
+[DEBUG] [Section] export entities - post
+[DEBUG] [Section] add entities from packages
+[DEBUG] [Section] check all global entities
+[DEBUG] [Section] init preload
+[DEBUG] [Section] add global untyped expression to queue
+[DEBUG] [Section] check procedure bodies
+
+⏵ Task `build debug` finished with non-zero error code: -1073741819
+⏵ Command: cmd /C "odin build . -debug -out:lucydx12.exe -linker:radlink -show-debug-messages"
+```

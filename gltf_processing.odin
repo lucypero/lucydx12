@@ -163,8 +163,8 @@ gltf_load_nodes :: proc(data: ^cgltf.data) -> Scene {
 		// TODO: don't leak this
 		node_children := make([]int, len(node.children))
 
-		for n_child, i in node.children {
-			node_children[i] = int(cgltf.node_index(data, n_child))
+		for n_child, child_i in node.children {
+			node_children[child_i] = int(cgltf.node_index(data, n_child))
 		}
 
 		if node.mesh != nil {
