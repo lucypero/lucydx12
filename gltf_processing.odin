@@ -216,7 +216,7 @@ gltf_load_textures :: proc(data : ^cgltf.data) {
 	textures_srv_index : u32 = TEXTURE_INDEX_BASE // starting at 100 to not interfere with other views
 	
 	for image, i in data.images {
-		// fmt.printfln("loading image %v", image.name)
+		// lprintfln("loading image %v", image.name)
 		// assert(image.mime_type == "image/png")
 		w, h, channels : c.int
 		channel_count :: 4
@@ -249,7 +249,7 @@ gltf_load_textures :: proc(data : ^cgltf.data) {
 		texture_res := create_texture_with_data(auto_cast(image_data), u64(w), u32(h), channel_count, texture_format, 
 			&resources_longterm, &upload_resources, ct.cmdlist, string(image.name))
 		
-		// fmt.printfln("name: %v, index in the heap: %v", image.name, textures_srv_index)
+		// lprintfln("name: %v, index in the heap: %v", image.name, textures_srv_index)
 		
 		// creating srv on uber heap
 		ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, textures_srv_index))
@@ -302,7 +302,7 @@ gltf_load_materials :: proc(data: ^cgltf.data) -> []Material {
 		// metallic roughness texture
 		// mat.pbr_metallic_roughness.metallic_roughness_texture
 		
-		// fmt.printfln("name: %v, cgltf index: %v", texture_name, base_color_img_index)
+		// lprintfln("name: %v, cgltf index: %v", texture_name, base_color_img_index)
 		// base color
 		bc_i, bc_uv := get_texture_index_uv(data, mat.pbr_metallic_roughness.base_color_texture)
 		

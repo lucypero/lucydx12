@@ -293,7 +293,7 @@ check :: proc(res: dx.HRESULT, message: string) {
 		return
 	}
 
-	fmt.printf("%v. Error code: %0x\n", message, u32(res))
+	lprintfln("%v. Error code: %0x", message, u32(res))
 	os.exit(-1)
 }
 
@@ -603,7 +603,7 @@ main :: proc() {
 		initial_state: windows.BOOL = false
 		dx_context.fence_event = windows.CreateEventW(nil, manual_reset, initial_state, nil)
 		if dx_context.fence_event == nil {
-			fmt.println("Failed to create fence event")
+			lprintln("Failed to create fence event")
 			return
 		}
 	}
@@ -629,7 +629,7 @@ main :: proc() {
 	sdl.DestroyWindow(dx_context.window)
 
 	when ODIN_DEBUG {
-		fmt.println("=== live object report start =====")
+		lprintln("=== live object report start =====")
 		debug_device: ^dx.IDebugDevice2
 		dx_context.device->QueryInterface(dx.IDebugDevice2_UUID, (^rawptr)(&debug_device))
 		// Finally, release the device (it is not in any pool)
@@ -642,11 +642,11 @@ main :: proc() {
 		dxgi_debug: ^dxgi.IDebug1
 		dxgi.DXGIGetDebugInterface1(0, dxgi.IDebug1_UUID, (^rawptr)(&dxgi_debug))
 		dxgi_debug->ReportLiveObjects(dxgi.DEBUG_ALL, {})
-		fmt.println("=== report end =====")
+		lprintln("=== report end =====")
 	}
 	
 	when PROFILE {
-		fmt.printfln("highest stack count: %v, total instrument hits: %v", highest_stack_count, instrument_hit_count)
+		lprintfln("highest stack count: %v, total instrument hits: %v", highest_stack_count, instrument_hit_count)
 	}
 	
 }
@@ -824,7 +824,7 @@ dx_log_callback :: proc "c" (
 	cat, ok := reflect.enum_name_from_value(category)
 	msg := string(description)
 	
-	fmt.printfln("%v: (%v) %v", severity, cat, msg)
+	lprintfln("%v: (%v) %v", severity, cat, msg)
 	
 	// printing stack trace
 	
@@ -837,7 +837,7 @@ dx_log_callback :: proc "c" (
 		frame_c := math.min(len(frames), max_frames_display)
 		frames = frames[:frame_c]
 		
-		if len(frames) > 0 do fmt.printfln("At:")
+		if len(frames) > 0 do lprintfln("At:")
 		
 		for f, i in frames {
 			fl := trace.resolve(&global_trace_ctx, f, context.temp_allocator)
@@ -845,7 +845,7 @@ dx_log_callback :: proc "c" (
 				continue
 			}
 			
-			fmt.printfln("--- %v - Frame %v", fl.loc, i)
+			lprintfln("--- %v - Frame %v", fl.loc, i)
 		}
 	}
 }
@@ -888,7 +888,7 @@ update :: proc() {
 
 
 	camera_tick(keyboard)
-	// fmt.printfln("%v", g_frame_dt)
+	// lprintfln("%v", g_frame_dt)
 }
 
 draw_imgui :: proc() {
@@ -1812,7 +1812,7 @@ create_lighting_pso_initial :: proc() {
 	vs, ps, ok := compile_shader(c.dxc_compiler, lighting_shader_filename)
 
 	if !ok {
-		fmt.printfln("could not compile shader!! check logs")
+		lprintfln("could not compile shader!! check logs")
 		os.exit(1)
 	}
 
@@ -2044,7 +2044,7 @@ create_gbuffer_pso_initial :: proc() {
 
 	vs, ps, ok := compile_shader(c.dxc_compiler, gbuffer_shader_filename)
 	if !ok {
-		fmt.printfln("could not compile shader!! check logs")
+		lprintfln("could not compile shader!! check logs")
 		os.exit(1)
 	}
 
@@ -2289,10 +2289,10 @@ render_lighting_pass :: proc() {
 print_ref_count :: proc(obj: ^dx.IUnknown) {
 	obj->AddRef()
 	count := obj->Release()
-	fmt.printfln("count: %v", count)
+	lprintfln("count: %v", count)
 }
 
-// Prints to windows debug, with a fmt.println() interface
+// Prints to windows debug, with a lprintln() interface
 lprintln :: proc(args: ..any, sep := " ") {
 	str: strings.Builder
 	strings.builder_init(&str, context.temp_allocator)
@@ -2318,7 +2318,7 @@ lprintfln :: proc(fmt_s: string, args: ..any) {
 		os.exit(1)
 	}
 
-	fmt.printfln(fmt_s, args)
+	fmt.print(final_string)
 	windows.OutputDebugStringA(final_string_c)
 }
 
@@ -2377,11 +2377,11 @@ hotswap_watch :: proc(
 	}
 
 	if reload {
-		fmt.println("Recompiling shader...")
+		lprintln("Recompiling shader...")
 		// handle releasing resources
 		vs, ps, ok := compile_shader(dx_context.dxc_compiler, shader_name)
 		if !ok {
-			fmt.println("Could not compile new shader!! check logs")
+			lprintln("Could not compile new shader!! check logs")
 		} else {
 			// create the new PSO to be swapped later
 			hs.pso_swap = pso_creation_proc(root_signature, vs, ps)

@@ -1,7 +1,6 @@
 # current todo
 
-- print everything to debug output string so u can read everything in RAD
-	- look into overriding std out or whatever fmt.print prints to.
+- go to file:line is broken in windows. report it.
 
 - pass indices into the descriptor heap in a constant buffer so u don't have to constantly,
 	modify the magic values
