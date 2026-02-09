@@ -1,6 +1,6 @@
 # current todo
 
-- go to file:line is broken in windows. report it.
+- zed: go to file:line is broken in windows. report it.
 
 - pass indices into the descriptor heap in a constant buffer so u don't have to constantly,
 	modify the magic values

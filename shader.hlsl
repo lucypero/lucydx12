@@ -6,6 +6,7 @@
 struct VSInput {
     float3 position : POSITION;
     float3 normal : NORMAL;
+    float3 tangent : TANGENT;
     float2 uvs : TEXCOORD0;
     float2 uvs_2 : TEXCOORD1;
     // instance data
@@ -19,17 +20,21 @@ struct VSInput {
 struct PSInput {
     float4 position : SV_POSITION;
     float3 frag_pos_world: POSITION;
-    float3 frag_normal: NORMAL;
+    float3 normal_world: NORMAL;
     float2 uvs : TEXCOORD0;
     float2 uvs_2 : TEXCOORD1;
     float3 color: COLOR;
 };
 
+struct TextureUV {
+	uint texture_id;
+	uint uv_id;
+};
+
 struct Material {
-	uint base_color_index;
-	uint base_color_uv_index;
-	uint metallic_roughness_index;
-	uint metallic_roughness_uv_index;
+	TextureUV base_color;
+	TextureUV metallic_roughness;
+	TextureUV normal;
 };
 
 struct MeshTransform
@@ -81,7 +86,7 @@ PSInput VSMain(VSInput the_input) {
     // transforming normals by the normal matrix (a transformed world matrix)
     // this does not handle non-uniform scaling
     // TODO deal with that.
-    result.frag_normal = mul((float3x3)world_matrix, the_input.normal);
+    result.normal_world = mul((float3x3)world_matrix, the_input.normal);
     
     result.uvs = the_input.uvs.xy;
     // result.uvs.y = 1.0f - result.uvs.y;
@@ -115,10 +120,10 @@ PSOutput PSMain(PSInput input) {
     // Albedo map
     {
     	float4 albedoColor;
-	    Texture2D<float4> baseColorTexture = ResourceDescriptorHeap[mat.base_color_index];
+	    Texture2D<float4> baseColorTexture = ResourceDescriptorHeap[mat.base_color.texture_id];
 	    
 	    float2 base_color_uvs = input.uvs;
-	    if(mat.base_color_uv_index != 0) {
+	    if(mat.base_color.uv_id != 0) {
 	    	base_color_uvs = input.uvs_2;
 	    }
 	    
@@ -129,7 +134,7 @@ PSOutput PSMain(PSInput input) {
     // Normal map
     {
     	float4 normalColor;
-    	normalColor.xyz = normalize(input.frag_normal);
+    	normalColor.xyz = normalize(input.normal_world);
      	normalColor.xyz = (normalColor.xyz * 0.5f) + 0.5f;
      	normalColor.a = 1.0f;
       	output.normalRT = normalColor;
@@ -138,10 +143,10 @@ PSOutput PSMain(PSInput input) {
     // AO + Rough + Metalness map
     {
    		float4 aoRoughMetalColor;
-	    Texture2D<float4> metalRoughTexture = ResourceDescriptorHeap[mat.metallic_roughness_index];
+	    Texture2D<float4> metalRoughTexture = ResourceDescriptorHeap[mat.metallic_roughness.texture_id];
 	    
 	    float2 base_color_uvs = input.uvs;
-	    if(mat.metallic_roughness_uv_index != 0) {
+	    if(mat.metallic_roughness.uv_id != 0) {
 	    	base_color_uvs = input.uvs_2;
 	    }
 	    
