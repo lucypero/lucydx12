@@ -187,7 +187,7 @@ cb_update :: proc() {
 VertexData :: struct {
 	pos: v3,
 	normal: v3,
-	tangent: v3,
+	tangent: v4,
 	uv: v2,
 	uv_2: v2,
 }
@@ -1929,7 +1929,7 @@ create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.
 		},
 		{
 			SemanticName = "TANGENT",
-			Format = .R32G32B32_FLOAT,
+			Format = .R32G32B32A32_FLOAT,
 			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
 			InputSlotClass = .PER_VERTEX_DATA,
 		},
