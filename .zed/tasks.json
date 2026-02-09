@@ -1,7 +1,7 @@
 [
   {
     "label": "build debug",
-    "command": "odin build . -debug -out:lucydx12.exe -linker:radlink -show-debug-messages -vet-shadowing",
+    "command": "odin build . -debug -out:lucydx12.exe -linker:radlink -vet-shadowing",
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
     "reveal": "always",
@@ -14,7 +14,7 @@
   },
   {
     "label": "run debug",
-    "command": "odin run . -debug -out:lucydx12.exe -linker:radlink -keep-executable -show-debug-messages",
+    "command": "odin run . -debug -out:lucydx12.exe -linker:radlink -keep-executable",
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
     "reveal": "always",

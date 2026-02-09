@@ -629,7 +629,7 @@ main :: proc() {
 	sdl.DestroyWindow(dx_context.window)
 
 	when ODIN_DEBUG {
-		lprintln("=== live object report start =====")
+		
 		debug_device: ^dx.IDebugDevice2
 		dx_context.device->QueryInterface(dx.IDebugDevice2_UUID, (^rawptr)(&debug_device))
 		// Finally, release the device (it is not in any pool)
@@ -642,8 +642,8 @@ main :: proc() {
 		dxgi_debug: ^dxgi.IDebug1
 		dxgi.DXGIGetDebugInterface1(0, dxgi.IDebug1_UUID, (^rawptr)(&dxgi_debug))
 		dxgi_debug->ReportLiveObjects(dxgi.DEBUG_ALL, {})
-		lprintln("=== report end =====")
 	}
+	
 	
 	when PROFILE {
 		lprintfln("highest stack count: %v, total instrument hits: %v", highest_stack_count, instrument_hit_count)
@@ -801,7 +801,8 @@ init_dx :: proc() {
 		info_queue: ^dx.IInfoQueue1
 		dx_context.device->QueryInterface(dx.IInfoQueue1_UUID, (^rawptr)(&info_queue))
 		cb_cookie: u32
-		hr = info_queue->RegisterMessageCallback(dx_log_callback, {}, nil, &cb_cookie)
+		hr = info_queue->RegisterMessageCallback(dx_log_callback, {.IGNORE_FILTERS}, nil, &cb_cookie)
+		info_queue->SetMuteDebugOutput(true)
 		check(hr, "failed to register")
 		info_queue->Release()
 	}
@@ -820,11 +821,23 @@ dx_log_callback :: proc "c" (
 ) {
 	context = runtime.default_context()
 
-	severity, ok_2 := reflect.enum_name_from_value(severity)
-	cat, ok := reflect.enum_name_from_value(category)
+	// Filtering by severity
+	
+	#partial switch severity {
+	case .CORRUPTION, .ERROR, .WARNING:
+	case:
+		return
+	}
+	
 	msg := string(description)
 	
-	lprintfln("%v: (%v) %v", severity, cat, msg)
+	// ignore if it tells me the device is live
+	if id == .LIVE_DEVICE do return
+	
+	severity_string, ok_2 := reflect.enum_name_from_value(severity)
+	cat, ok := reflect.enum_name_from_value(category)
+	
+	lprintfln("%v: (%v) %v", severity_string, cat, msg)
 	
 	// printing stack trace
 	
@@ -832,20 +845,27 @@ dx_log_callback :: proc "c" (
 		
 		buf: [64]trace.Frame
 		
-		max_frames_display :: 300
+		max_frames_display :: 3
 		frames := trace.frames(&global_trace_ctx, 1, buf[:])
-		frame_c := math.min(len(frames), max_frames_display)
-		frames = frames[:frame_c]
 		
-		if len(frames) > 0 do lprintfln("At:")
+		// filtering by frames where we actually have info
+		our_frames : sa.Small_Array(64, runtime.Source_Code_Location)
 		
 		for f, i in frames {
 			fl := trace.resolve(&global_trace_ctx, f, context.temp_allocator)
 			if fl.loc.file_path == "" && fl.loc.line == 0 {
 				continue
 			}
-			
-			lprintfln("--- %v - Frame %v", fl.loc, i)
+			sa.push(&our_frames, fl.loc)
+		}
+		
+		if sa.len(our_frames) > 0 do lprintfln("At:")
+		
+		frame_c := math.min(sa.len(our_frames), max_frames_display)
+		our_frames_slice := our_frames.data[:frame_c]
+		
+		for loc, i in our_frames_slice {
+			lprintfln("--- %v - Frame %v", loc, i)
 		}
 	}
 }
