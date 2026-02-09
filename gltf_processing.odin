@@ -72,6 +72,7 @@ gltf_load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indi
 
 			attr_position: cgltf.attribute
 			attr_normal: cgltf.attribute
+			attr_tangent: cgltf.attribute
 			attr_texcoord: [2]cgltf.attribute
 			
 			textcoord_count := 0
@@ -83,6 +84,8 @@ gltf_load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indi
 					attr_position = attribute
 				case .normal:
 					attr_normal = attribute
+				case .tangent:
+					attr_tangent = attribute
 				case .texcoord:
 					attr_texcoord[attribute.index] = attribute
 					textcoord_count += 1
@@ -92,6 +95,8 @@ gltf_load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indi
 				// fmt.eprintfln("Unkown gltf attribute: {}", attribute)
 				}
 			}
+			
+			some primitives don't have tangents.. what do we do about that?
 
 			for i in 0 ..< attr_position.data.count {
 				vertex: VertexData
@@ -100,6 +105,8 @@ gltf_load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indi
 				if !ok do fmt.eprintln("Error reading gltf position")
 				ok = cgltf.accessor_read_float(attr_normal.data, i, &vertex.normal[0], 3)
 				if !ok do fmt.eprintln("Error reading gltf normal")
+				ok = cgltf.accessor_read_float(attr_tangent.data, i, &vertex.tangent[0], 3)
+				if !ok do fmt.eprintln("Error reading gltf tangent")
 				ok = cgltf.accessor_read_float(attr_texcoord[0].data, i, &vertex.uv[0], 2)
 				if !ok do fmt.eprintln("Error reading gltf texcoord")
 				
@@ -116,6 +123,7 @@ gltf_load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indi
 				// Flipping everything because gltf is right handed and dx12 is left handed.
 				vertex.pos.x *= -1
 				vertex.normal.x *= -1
+				vertex.tangent.x *= -1
 				
 				append(vertices, vertex)
 				// vertices[i] = vertex
@@ -270,7 +278,7 @@ gltf_load_textures :: proc(data : ^cgltf.data) {
 }
 
 @(private="file")
-get_texture_index_uv :: proc(data: ^cgltf.data, tex_view: cgltf.texture_view) -> (u32, u32){
+get_texture_index_uv :: proc(data: ^cgltf.data, tex_view: cgltf.texture_view) -> TextureUV {
 	
 	base_color_img_index : u32 = TEXTURE_WHITE_INDEX
 	base_color_uv_index : u32 = 0
@@ -282,7 +290,7 @@ get_texture_index_uv :: proc(data: ^cgltf.data, tex_view: cgltf.texture_view) ->
 		base_color_uv_index = u32(tex_view.texcoord)
 	}
 	
-	return base_color_img_index, base_color_uv_index
+	return TextureUV{texture_id = base_color_img_index, uv_id = base_color_uv_index}
 }
 
 gltf_load_materials :: proc(data: ^cgltf.data) -> []Material {
@@ -303,18 +311,11 @@ gltf_load_materials :: proc(data: ^cgltf.data) -> []Material {
 		// mat.pbr_metallic_roughness.metallic_roughness_texture
 		
 		// lprintfln("name: %v, cgltf index: %v", texture_name, base_color_img_index)
-		// base color
-		bc_i, bc_uv := get_texture_index_uv(data, mat.pbr_metallic_roughness.base_color_texture)
-		
-		// metallic, roughness
-		mr_i, mr_uv := get_texture_index_uv(data, mat.pbr_metallic_roughness.metallic_roughness_texture)
-		
 		
 		mats[i] = Material {
-			base_color_index = bc_i,
-			base_color_uv_index = bc_uv,
-			metallic_roughness_index = mr_i,
-			metallic_roughness_uv_index = mr_uv
+			base_color = get_texture_index_uv(data, mat.pbr_metallic_roughness.base_color_texture),
+			metallic_roughness = get_texture_index_uv(data, mat.pbr_metallic_roughness.metallic_roughness_texture),
+			normal = get_texture_index_uv(data, mat.normal_texture),
 		}
 	}
 	

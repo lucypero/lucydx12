@@ -98,12 +98,20 @@ Primitive :: struct {
 	material_index: u32
 }
 
+TextureUV :: struct {
+	texture_id: u32,
+	uv_id: u32, // what uv to use to sample the texture
+}
+
 Material :: struct {
 	// index into the textures buffer containing the texture
-	base_color_index: u32,
-	base_color_uv_index: u32,
-	metallic_roughness_index: u32,
-	metallic_roughness_uv_index: u32,
+	base_color: TextureUV,
+	metallic_roughness: TextureUV,
+	normal: TextureUV,
+	// base_color_index: u32,
+	// base_color_uv_index: u32,
+	// metallic_roughness_index: u32,
+	// metallic_roughness_uv_index: u32,
 }
 
 // constant buffer data
@@ -179,6 +187,7 @@ cb_update :: proc() {
 VertexData :: struct {
 	pos: v3,
 	normal: v3,
+	tangent: v3,
 	uv: v2,
 	uv_2: v2,
 }
@@ -1919,6 +1928,12 @@ create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.
 			InputSlotClass = .PER_VERTEX_DATA,
 		},
 		{
+			SemanticName = "TANGENT",
+			Format = .R32G32B32_FLOAT,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_VERTEX_DATA,
+		},
+		{
 			SemanticName = "TEXCOORD",
 			Format = .R32G32_FLOAT,
 			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
@@ -2059,7 +2074,7 @@ create_gbuffer_pso_initial :: proc() {
 	c.pipeline_gbuffer = create_new_gbuffer_pso(c.gbuffer_pass_root_signature, vs, ps)
 
 	pso_index := sa.len(resources_longterm)
-	// sa.push(&resources_longterm, c.pipeline_gbuffer)
+	sa.push(&resources_longterm, c.pipeline_gbuffer)
 
 	hotswap_init(&c.gbuffer_hotswap, gbuffer_shader_filename, pso_index)
 
