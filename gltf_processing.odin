@@ -96,17 +96,22 @@ gltf_load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indi
 				}
 			}
 			
-			some primitives don't have tangents.. what do we do about that?
 
 			for i in 0 ..< attr_position.data.count {
 				vertex: VertexData
 				ok: b32
+				
 				ok = cgltf.accessor_read_float(attr_position.data, i, &vertex.pos[0], 3)
 				if !ok do fmt.eprintln("Error reading gltf position")
+				
 				ok = cgltf.accessor_read_float(attr_normal.data, i, &vertex.normal[0], 3)
 				if !ok do fmt.eprintln("Error reading gltf normal")
-				ok = cgltf.accessor_read_float(attr_tangent.data, i, &vertex.tangent[0], 3)
-				if !ok do fmt.eprintln("Error reading gltf tangent")
+				
+				if attr_tangent.type != .invalid {
+					ok = cgltf.accessor_read_float(attr_tangent.data, i, &vertex.tangent[0], 4)
+					if !ok do fmt.eprintln("Error reading gltf tangent")
+				}
+				
 				ok = cgltf.accessor_read_float(attr_texcoord[0].data, i, &vertex.uv[0], 2)
 				if !ok do fmt.eprintln("Error reading gltf texcoord")
 				
@@ -114,7 +119,6 @@ gltf_load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indi
 					ok = cgltf.accessor_read_float(attr_texcoord[1].data, i, &vertex.uv_2[0], 2)
 					if !ok do fmt.eprintln("Error reading gltf texcoord")
 				}
-				
 
 				position := v4{vertex.pos.x, vertex.pos.y, vertex.pos.z, 1}
 				// vertex.pos = (mesh_mat * position).xyz
