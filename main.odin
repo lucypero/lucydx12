@@ -840,32 +840,20 @@ dx_log_callback :: proc "c" (
 	lprintfln("%v: (%v) %v", severity_string, cat, msg)
 	
 	// printing stack trace
-	
 	if !trace.in_resolve(&global_trace_ctx) {
-		
 		buf: [64]trace.Frame
-		
 		max_frames_display :: 3
 		frames := trace.frames(&global_trace_ctx, 1, buf[:])
 		
 		// filtering by frames where we actually have info
-		our_frames : sa.Small_Array(64, runtime.Source_Code_Location)
+		real_counter := 0
 		
 		for f, i in frames {
 			fl := trace.resolve(&global_trace_ctx, f, context.temp_allocator)
-			if fl.loc.file_path == "" && fl.loc.line == 0 {
-				continue
-			}
-			sa.push(&our_frames, fl.loc)
-		}
-		
-		if sa.len(our_frames) > 0 do lprintfln("At:")
-		
-		frame_c := math.min(sa.len(our_frames), max_frames_display)
-		our_frames_slice := our_frames.data[:frame_c]
-		
-		for loc, i in our_frames_slice {
-			lprintfln("--- %v - Frame %v", loc, i)
+			if fl.loc.file_path == "" && fl.loc.line == 0 do continue
+			if real_counter == 0 do lprintfln("At:")
+			real_counter += 1
+			if real_counter <= max_frames_display do lprintfln("--- %v - Frame %v", fl.loc, real_counter)
 		}
 	}
 }
@@ -2071,7 +2059,7 @@ create_gbuffer_pso_initial :: proc() {
 	c.pipeline_gbuffer = create_new_gbuffer_pso(c.gbuffer_pass_root_signature, vs, ps)
 
 	pso_index := sa.len(resources_longterm)
-	sa.push(&resources_longterm, c.pipeline_gbuffer)
+	// sa.push(&resources_longterm, c.pipeline_gbuffer)
 
 	hotswap_init(&c.gbuffer_hotswap, gbuffer_shader_filename, pso_index)
 
