@@ -1,5 +1,7 @@
 # current todo
 
+- handle transparency in textures (the flowers)
+
 - zed: go to file:line is broken in windows. report it.
 
 - pass indices into the descriptor heap in a constant buffer so u don't have to constantly,
