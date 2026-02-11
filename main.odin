@@ -98,20 +98,16 @@ Primitive :: struct {
 	material_index: u32
 }
 
+// texture id into the srv heap. and the uv id used to sample the texture
 TextureUV :: struct {
 	texture_id: u32,
 	uv_id: u32, // what uv to use to sample the texture
 }
 
 Material :: struct {
-	// index into the textures buffer containing the texture
 	base_color: TextureUV,
 	metallic_roughness: TextureUV,
 	normal: TextureUV,
-	// base_color_index: u32,
-	// base_color_uv_index: u32,
-	// metallic_roughness_index: u32,
-	// metallic_roughness_uv_index: u32,
 }
 
 // constant buffer data
