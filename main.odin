@@ -51,6 +51,7 @@ DXResourcePoolDynamic :: [dynamic]^dx.IUnknown
 
 gbuffer_shader_filename :: "shader.hlsl"
 lighting_shader_filename :: "lighting.hlsl"
+ui_shader_filename :: "ui.hlsl"
 
 gbuffer_count :: 3
 
@@ -72,7 +73,6 @@ dx_context: Context
 start_time: time.Time
 light_pos: v3
 light_int: f32
-light_speed: f32
 the_time_sec: f32
 exit_app: bool
 
@@ -289,7 +289,6 @@ context_init :: proc(con: ^Context) {
 	cur_cam = camera_init()
 	light_pos = v3{4.1, 3.5, 4.5}
 	light_int = 1
-	light_speed = 0.002
 	con.meshes_to_render = len(g_meshes)
 }
 
@@ -475,6 +474,7 @@ main :: proc() {
 
 	create_gbuffer_pso_initial()
 	create_lighting_pso_initial()
+	rs_ui, pso_ui := create_ui_pso()
 
 	// Create the commandlist that is reused further down.
 	hr = device->CreateCommandList(
@@ -870,9 +870,6 @@ update :: proc() {
 	sdl.PumpEvents()
 	keyboard := sdl.GetKeyboardStateAsSlice()
 
-	light_pos.x = linalg.sin(the_time_sec * light_speed) * 2
-	light_pos.z = linalg.cos(the_time_sec * light_speed) * 2
-
 	if keyboard[sdl.Scancode.ESCAPE] == 1 {
 		exit_app = true
 	}
@@ -911,7 +908,6 @@ draw_imgui :: proc() {
 
 	im.DragFloat3("light pos", &light_pos, 0.1, -5, 5)
 	im.DragFloat("light intensity", &light_int, 0.1, 0, 20)
-	im.DragFloat("light speed", &light_speed, 0.0001, 0, 20)
 	im.DragFloat("cam speed", &cur_cam.speed, 0.0001, 0, 20)
 
 	im.InputInt("mesh count to draw", (^i32)(&c.meshes_to_render))
@@ -1200,8 +1196,6 @@ create_gbuffer_pass_root_signature :: proc() {
 	serialized_desc->Release()
 }
 
-
-
 get_node_world_matrix :: proc(node: Node, scene: Scene) -> dxm {
 
 	res: dxm = 1
@@ -1319,7 +1313,8 @@ TEXTURE_INDEX_BASE :: 400
 
 // no decals (ruins solid rendering)
 // model_filepath :: "models/main_sponza/sponza_blender_no_decals.glb"
-model_filepath :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf"
+// model_filepath :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf"
+model_filepath :: "models/normal_map_test.glb"
 
 
 create_depth_buffer :: proc() {
@@ -1817,12 +1812,147 @@ create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc
 	return pso
 }
 
+create_ui_pso :: proc() -> (^dx.IRootSignature, ^dx.IPipelineState) {
+	
+	ct := &dx_context
+	
+	// compiling shader here
+	
+	vs, ps, ok := compile_shader(ct.dxc_compiler, ui_shader_filename)
+	
+	if !ok {
+		lprintfln("could not compile shader!! check logs")
+		os.exit(1)
+	}
+	
+	defer {
+		vs->Release()
+		ps->Release()
+	}
+	
+	// create root signature here
+	root_parameters_len :: 1
+
+	root_parameters: [root_parameters_len]dx.ROOT_PARAMETER
+
+	// Root constant: the index to the right model matrix of the draw call.
+	// first number: model matrix of the draw call
+	// second number: material index
+	root_parameters[0] = {
+		ParameterType = ._32BIT_CONSTANTS,
+		Constants = {ShaderRegister = 1, RegisterSpace = 0, Num32BitValues = 2},
+		ShaderVisibility = .ALL
+	}
+
+	desc := dx.VERSIONED_ROOT_SIGNATURE_DESC {
+		Version = ._1_0,
+		Desc_1_0 = {
+			NumParameters = root_parameters_len,
+			pParameters = &root_parameters[0],
+			NumStaticSamplers = 0,
+			pStaticSamplers = {},
+		},
+	}
+	
+	root_signature : ^dx.IRootSignature
+
+	desc.Desc_1_0.Flags = {.ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT, .CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED}
+	serialized_desc: ^dx.IBlob
+	hr := dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
+	check(hr, "Failed to serialize root signature")
+	hr = ct.device->CreateRootSignature(
+		0,
+		serialized_desc->GetBufferPointer(),
+		serialized_desc->GetBufferSize(),
+		dx.IRootSignature_UUID,
+		(^rawptr)(&root_signature),
+	)
+	check(hr, "Failed creating root signature")
+	sa.push(&resources_longterm, root_signature)
+	serialized_desc->Release()
+	
+	// create pso
+	
+	vertex_format := [?]dx.INPUT_ELEMENT_DESC {
+		{
+			SemanticName = "POSITION",
+			Format = .R32G32B32_FLOAT,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_VERTEX_DATA,
+		},
+	}
+
+	default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
+		BlendEnable = false,
+		LogicOpEnable = false,
+		SrcBlend = .ONE,
+		DestBlend = .ZERO,
+		BlendOp = .ADD,
+		SrcBlendAlpha = .ONE,
+		DestBlendAlpha = .ZERO,
+		BlendOpAlpha = .ADD,
+		LogicOp = .NOOP,
+		RenderTargetWriteMask = u8(dx.COLOR_WRITE_ENABLE_ALL),
+	}
+
+	// the swapchain rtv
+	rtv_formats := [8]dxgi.FORMAT {
+		0 = .R8G8B8A8_UNORM,
+		1 ..< 7 = .UNKNOWN,
+	}
+
+	pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
+		pRootSignature = root_signature,
+		VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
+		PS = {pShaderBytecode = ps->GetBufferPointer(), BytecodeLength = ps->GetBufferSize()},
+		StreamOutput = {},
+		BlendState = {
+			AlphaToCoverageEnable = false,
+			IndependentBlendEnable = false,
+			RenderTarget = {0 = default_blend_state, 1 ..< 7 = {}},
+		},
+		SampleMask = 0xFFFFFFFF,
+		RasterizerState = {
+			FillMode = .WIREFRAME,
+			CullMode = .BACK,
+			FrontCounterClockwise = false,
+			DepthBias = 0,
+			DepthBiasClamp = 0,
+			SlopeScaledDepthBias = 0,
+			DepthClipEnable = true,
+			MultisampleEnable = false,
+			AntialiasedLineEnable = false,
+			ForcedSampleCount = 0,
+			ConservativeRaster = .OFF,
+		},
+		// enabling depth testing
+		DepthStencilState = {DepthEnable = true, StencilEnable = false, DepthWriteMask = .ALL, DepthFunc = .LESS},
+		DSVFormat = .D32_FLOAT,
+		// no input layout. we don't need a vertex buffer.
+		InputLayout = {pInputElementDescs = &vertex_format[0], NumElements = u32(len(vertex_format))},
+		PrimitiveTopologyType = .TRIANGLE,
+		NumRenderTargets = 1,
+		RTVFormats = {0 = .R8G8B8A8_UNORM, 1 ..< 7 = .UNKNOWN},
+		SampleDesc = {Count = 1, Quality = 0},
+	}
+
+	pso: ^dx.IPipelineState
+
+	hr = ct.device->CreateGraphicsPipelineState(&pipeline_state_desc, dx.IPipelineState_UUID, (^rawptr)(&pso))
+	check(hr, "Pipeline creation failed")
+	pso->SetName("PSO for UI things (light gizmos, etc)")
+	sa.push(&resources_longterm, pso)
+
+	return root_signature, pso
+}
 
 create_lighting_pso_initial :: proc() {
 
 	c := &dx_context
 
 	vs, ps, ok := compile_shader(c.dxc_compiler, lighting_shader_filename)
+	
+	
 
 	if !ok {
 		lprintfln("could not compile shader!! check logs")
@@ -1908,8 +2038,6 @@ create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.
 
 	c := &dx_context
 
-	// This layout matches the vertices data defined further down
-	// this has to include the instance data!!
 	vertex_format := [?]dx.INPUT_ELEMENT_DESC {
 		{
 			SemanticName = "POSITION",
