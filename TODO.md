@@ -1,5 +1,14 @@
 # current todo
 
+
+- debug view of lights: a very simple PSO used after the lighting pass.
+
+- select scene to render at runtime
+
+- to verify for sure if the normal maps render well, we need:
+	- render multiple lights
+	- import lights from glb
+
 - handle transparency in textures (the flowers)
 
 - zed: go to file:line is broken in windows. report it.
