@@ -1,5 +1,6 @@
 package main
 
+import "core:slice"
 import "core:mem"
 import dx "vendor:directx/d3d12"
 import dxgi "vendor:directx/dxgi"
@@ -9,6 +10,8 @@ import "core:strings"
 import "core:os"
 import "core:sys/windows"
 import "core:fmt"
+import "base:runtime"
+import "core:math"
 
 execute_command_list_and_wait :: proc(cmd_list: ^dx.IGraphicsCommandList, queue: ^dx.ICommandQueue) {
 	
@@ -510,4 +513,65 @@ create_vertex_buffer_upload :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^
 		buffer_size = size_in_bytes,
 		buffer_stride = stride_in_bytes,
 	}
+}
+
+generate_uv_sphere :: proc(meridians: u32, parallels: u32, allocator: runtime.Allocator) -> ([]v3, []u32) {
+	
+	expected_verts := 2 + (parallels - 1) * meridians
+	verts := make([dynamic]v3, 0, expected_verts, allocator = allocator)
+	indices := make([dynamic]u32, 0, expected_verts * 6, allocator = allocator)
+	
+	append(&verts, v3{0.0, 1.0, 0})
+	
+	for j in 0..<parallels - 1 {
+		polar : f32 = math.PI * f32(j+1) / f32(parallels)
+		sp : f32 = math.sin(polar)
+		cp : f32 = math.cos(polar)
+		
+		for i in 0..<meridians {
+			
+			azimuth : f32 = 2.0 * math.PI * f32(i) / f32(meridians)
+			sa : f32 = math.sin(azimuth)
+			ca : f32 = math.cos(azimuth)
+			
+			append(&verts, v3{sp * ca, cp, sp * sa})
+		}
+	}
+	
+	append(&verts, v3{0, -1, 0})
+	
+	for i in 0..<meridians {
+		a : u32 = i + 1
+		b : u32 = (i + 1) % meridians + 1
+		// add tiangle? what is that
+		// 		mesh.addTriangle(0, b, a);
+		append(&indices, 0, b, a)
+	}
+	
+	for j in 0..<parallels - 2 {
+		aStart : u32 = j * meridians + 1
+		bStart : u32 = (j + 1) * meridians + 1
+		
+		for i in 0..<meridians {
+			a : u32 = aStart + i
+			a1 : u32 = aStart + (i + 1) % meridians
+			b: u32 = bStart + i
+			b1: u32 = bStart + (i + 1) % meridians
+			// add quad???? what is this
+			// mesh.addQuad(a, a1, b1, b);
+			
+			append(&indices, a, a1, b1)
+			append(&indices, a, b1, b)
+		}
+		
+	}
+	
+	last_ring_start := (parallels - 2) * meridians + 1
+	for i in 0..<meridians {
+        a := last_ring_start + i
+        b := last_ring_start + (i + 1) % meridians
+        append(&indices, u32(len(verts) - 1), a, b)
+    }
+	
+	return verts[:], indices[:]
 }

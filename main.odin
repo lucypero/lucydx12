@@ -72,6 +72,7 @@ wy := i32(1000)
 dx_context: Context
 start_time: time.Time
 light_pos: v3
+light_draw_gizmos: bool
 light_int: f32
 the_time_sec: f32
 exit_app: bool
@@ -80,6 +81,8 @@ exit_app: bool
 
 // dx resources to be freed at the end of the app
 resources_longterm: DXResourcePool
+
+uv_sphere_mesh: Mesh
 
 ModelMatrixData :: struct {
 	model_matrix: dxm,
@@ -305,6 +308,7 @@ Context :: struct {
 context_init :: proc(con: ^Context) {
 	cur_cam = camera_init()
 	light_pos = v3{4.1, 3.5, 4.5}
+	light_draw_gizmos = true
 	light_int = 1
 	con.meshes_to_render = len(g_meshes)
 }
@@ -571,7 +575,34 @@ init_dx_other :: proc() {
 	// creating and filling vertex and index buffers
 	{
 		// get vertex data from gltf file
-		vertices, indices := gltf_process_data()
+		vertices, indices := gltf_process_data(context.allocator)
+	
+		uv_sphere_index_offset := u32(len(indices))
+		uv_sphere_vertex_offset := u32(len(vertices)) 
+		
+		// add uv sphere
+		sphere_verts_base, sphere_indices := generate_uv_sphere(32, 32, context.allocator)
+		
+		for v in sphere_verts_base {
+			append(&vertices, VertexData {
+				pos = v
+			})
+		}
+		
+		for mesh_index in sphere_indices {
+			append(&indices, mesh_index + uv_sphere_vertex_offset)
+		}
+		
+		sphere_primitive := make([]Primitive, 1, context.allocator)
+		sphere_primitive[0] = Primitive {
+			index_offset = uv_sphere_index_offset,
+			index_count = u32(len(sphere_indices))
+		}
+		
+		uv_sphere_mesh = Mesh {
+			primitives = sphere_primitive
+		}
+		
 		ct.vertex_count = u32(len(vertices))
 
 		// VERTEXDATA
@@ -936,6 +967,7 @@ draw_imgui :: proc() {
 
 	im.DragFloat3("light pos", &light_pos, 0.1, -5000, 5000)
 	im.DragFloat("light intensity", &light_int, 0.1, 0, 20)
+	im.Checkbox("draw light gizmos", &light_draw_gizmos)
 	im.DragFloat("cam speed", &cur_cam.speed, 0.0001, 0, 20)
 
 	im.InputInt("mesh count to draw", (^i32)(&c.meshes_to_render))
@@ -985,7 +1017,7 @@ render :: proc() {
 
 	render_lighting_pass()
 	
-	render_gizmos()
+	if light_draw_gizmos do  render_gizmos()
 	
 	render_imgui()
 
@@ -1343,8 +1375,8 @@ TEXTURE_INDEX_BASE :: 400
 // model_filepath :: "models/main_sponza/sponza_blender.glb"
 
 // no decals (ruins solid rendering)
-// model_filepath :: "models/main_sponza/sponza_blender_no_decals.glb"
-model_filepath :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf"
+model_filepath :: "models/main_sponza/sponza_blender_no_decals.glb"
+// model_filepath :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf"
 // model_filepath :: "models/normal_map_test.glb"
 
 
@@ -2432,7 +2464,7 @@ render_gizmos :: proc () {
 		gizmos_instances := make([]InstanceData, gizmos_count, allocator = context.temp_allocator)
 		
 		gizmos_instances[0] = InstanceData {
-			world_mat = get_world_mat(light_pos, 0.01),
+			world_mat = get_world_mat(light_pos, 0.1),
 			color = v4{1,0,0, 0.5}
 		}
 		
@@ -2473,8 +2505,8 @@ render_gizmos :: proc () {
 	ct.cmdlist->IASetIndexBuffer(&ct.index_buffer_view)
 	
 	// TEST: use first mesh primitive from main vertex buffer
-	test_prim := g_meshes[0].primitives[0]
-	ct.cmdlist->DrawIndexedInstanced(test_prim.index_count, gizmos_count, test_prim.index_offset, 0, 0)
+	uv_sphere_primitive := uv_sphere_mesh.primitives[0]
+	ct.cmdlist->DrawIndexedInstanced(uv_sphere_primitive.index_count, gizmos_count, uv_sphere_primitive.index_offset, 0, 0)
 }
 
 print_ref_count :: proc(obj: ^dx.IUnknown) {

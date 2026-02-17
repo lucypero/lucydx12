@@ -9,8 +9,9 @@ import "core:slice"
 import "core:path/filepath"
 import "core:c"
 import dxgi "vendor:directx/dxgi"
+import "base:runtime"
 
-gltf_process_data :: proc() -> (vertices: []VertexData, indices: []u32) {
+gltf_process_data :: proc(allocator: runtime.Allocator) -> (vertices: [dynamic]VertexData, indices: [dynamic]u32) {
 	model_filepath_c := strings.clone_to_cstring(model_filepath, context.temp_allocator)
 
 	cgltf_options: cgltf.options
@@ -33,8 +34,8 @@ gltf_process_data :: proc() -> (vertices: []VertexData, indices: []u32) {
 
 	gltf_scene := data.scenes[0]
 
-	vertices_dyn := make([dynamic]VertexData)
-	indices_dyn := make([dynamic]u32)
+	vertices_dyn := make([dynamic]VertexData, allocator = allocator)
+	indices_dyn := make([dynamic]u32, allocator = allocator)
 
 	g_materials = gltf_load_materials(data)
 	g_meshes = gltf_load_meshes(data, &vertices_dyn, &indices_dyn)
@@ -52,7 +53,7 @@ gltf_process_data :: proc() -> (vertices: []VertexData, indices: []u32) {
 	//     gltf_load_nodes(data, root_node, &vertices_dyn, &indices_dyn)
 	// }
 
-	return vertices_dyn[:], indices_dyn[:]
+	return vertices_dyn, indices_dyn
 }
 
 
