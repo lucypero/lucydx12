@@ -97,7 +97,7 @@ PSInput VSMain(VSInput the_input) {
 	result.tangent_world = T;
 	
 	// Calculate Bitangent (B = N x T)
-	result.bitangent_world = cross(N, T) * the_input.tangent.w;
+	result.bitangent_world = cross(N, T) * the_input.tangent.w * -1;
 	
 	// Optional: If your mesh has mirrored UVs, you often store a 'w' 
 	// component in the tangent to flip the bitangent direction
@@ -153,8 +153,13 @@ PSOutput PSMain(PSInput input) {
 		float3 T = normalize(input.tangent_world); // T is tangent vector
 		float3 B = normalize(input.bitangent_world); // B is bitangent vector
 		
+		T = normalize(T - dot(T, N) * N);
+		// Recompute B to ensure a perfectly orthogonal system
+		B = cross(N, T);
+		
 		// Form the matrix
 		float3x3 TBN = float3x3(T, B, N);
+		TBN = transpose(TBN);
 		
 		// Sample and transform
 		Texture2D<float4> normalMapTexture = ResourceDescriptorHeap[mat.normal.texture_id];
@@ -165,9 +170,13 @@ PSOutput PSMain(PSInput input) {
 		}
 		
 		float3 normalSample = normalMapTexture.Sample(mySampler, normal_map_uv).rgb * 2.0 - 1.0;
-		const float normalStrength = 0.7f;
+		// flipping green channel
+		normalSample.y *= -1;
+		
+		const float normalStrength = 0.5f;
 		normalSample.xy *= normalStrength;
-		float3 worldNormal = normalize(mul(normalSample, TBN));
+		float3 worldNormal = normalize(mul(TBN, normalSample));
+		// float3 worldNormal = normalize(mul(normalSample, TBN));
 		
 		// enconding normal to map
 		float4 normalColor;

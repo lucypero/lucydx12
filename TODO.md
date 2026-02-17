@@ -1,17 +1,10 @@
 # current todo
 
-## today
+- handle normal strength that comes from the gltf file.
 
-- brush up on all u need to do for instanced rendering
-- extract things into helper functions
-- tidy up the init code so it's easier to add things
+- gizmos rendering:
+	- put a sphere in some vertex buffer and use that.
 
-## later
-
-- debug view of lights: a very simple PSO used after the lighting pass.
-	- what's remaining: sending mesh data, and instance data (model matrices)
-	- not sure what to reuse here.
-	- maybe just do instanced drawing of a cube? yeah do that
 
 - select scene to render at runtime
 

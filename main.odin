@@ -934,7 +934,7 @@ draw_imgui :: proc() {
 	c := &dx_context
 	im.Begin("lucydx12")
 
-	im.DragFloat3("light pos", &light_pos, 0.1, -5, 5)
+	im.DragFloat3("light pos", &light_pos, 0.1, -5000, 5000)
 	im.DragFloat("light intensity", &light_int, 0.1, 0, 20)
 	im.DragFloat("cam speed", &cur_cam.speed, 0.0001, 0, 20)
 
@@ -1344,8 +1344,8 @@ TEXTURE_INDEX_BASE :: 400
 
 // no decals (ruins solid rendering)
 // model_filepath :: "models/main_sponza/sponza_blender_no_decals.glb"
-// model_filepath :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf"
-model_filepath :: "models/normal_map_test.glb"
+model_filepath :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf"
+// model_filepath :: "models/normal_map_test.glb"
 
 
 create_depth_buffer :: proc() {
@@ -1575,7 +1575,6 @@ render_imgui :: proc() {
 
 
 // helpers
-
 get_descriptor_heap_gpu_address :: proc(
 	heap: ^dx.IDescriptorHeap,
 	offset: u32 = 0,
@@ -2433,7 +2432,7 @@ render_gizmos :: proc () {
 		gizmos_instances := make([]InstanceData, gizmos_count, allocator = context.temp_allocator)
 		
 		gizmos_instances[0] = InstanceData {
-			world_mat = get_world_mat(light_pos, 0.1),
+			world_mat = get_world_mat(light_pos, 0.01),
 			color = v4{1,0,0, 0.5}
 		}
 		
