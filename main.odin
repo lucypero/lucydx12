@@ -146,7 +146,7 @@ scene: Scene
 // struct that holds instance data, for an instance rendering example
 InstanceData :: struct #align (256) {
 	world_mat: dxm,
-	color: v3,
+	color: v4,
 }
 
 get_cbv :: proc() -> ConstantBufferData {
@@ -221,6 +221,8 @@ HotSwapState :: struct {
 	pso_index: int,
 }
 
+MAX_GIZMOS :: 20
+
 Context :: struct {
 	// sdl stuff
 	window: ^sdl.Window,
@@ -282,6 +284,21 @@ Context :: struct {
 	// hot swap shader state
 	lighting_hotswap: HotSwapState,
 	gbuffer_hotswap: HotSwapState, // todo this one (make helper functions for setting initial state and swapping code)
+	
+	// --- gizmos drawing ------
+	
+	pso_gizmos : ^dx.IPipelineState,
+	rs_gizmos : ^dx.IRootSignature,
+	
+	
+	
+	//
+	
+	
+	// - instance data buffer
+	vb_gizmos_instance_data : VertexBuffer
+	
+	// --- gizmos drawing end ----
 }
 
 // initializes app data in Context struct
@@ -307,6 +324,7 @@ main :: proc() {
 	defer trace.destroy(&global_trace_ctx)
 
 	ct := &dx_context
+	hr : dx.HRESULT
 
 	// setting up profiling
 	when PROFILE {
@@ -329,7 +347,7 @@ main :: proc() {
 	}
 
 	defer sdl.Quit()
-	dx_context.window = sdl.CreateWindow(
+	ct.window = sdl.CreateWindow(
 		"lucydx12",
 		sdl.WINDOWPOS_UNDEFINED,
 		sdl.WINDOWPOS_UNDEFINED,
@@ -338,283 +356,19 @@ main :: proc() {
 		{.ALLOW_HIGHDPI, .SHOWN, .RESIZABLE},
 	)
 
-	if dx_context.window == nil {
+	if ct.window == nil {
 		fmt.eprintln(sdl.GetError())
 		return
 	}
 
-	defer sdl.DestroyWindow(dx_context.window)
+	defer sdl.DestroyWindow(ct.window)
 
 	init_dx()
-
-	device := dx_context.device
 	
-	// Creating SRV heap used for all resources
-	
-	{
-		desc := dx.DESCRIPTOR_HEAP_DESC {
-			NumDescriptors = 1000000,
-			Type = .CBV_SRV_UAV,
-			Flags = {.SHADER_VISIBLE},
-		}
-
-		hr := device->CreateDescriptorHeap(&desc, dx.IDescriptorHeap_UUID, (^rawptr)(&dx_context.cbv_srv_uav_heap))
-		check(hr, "Failed creating descriptor heap")
-		dx_context.cbv_srv_uav_heap->SetName("lucy's uber CBV_SRV_UAV descriptor heap")
-		sa.push(&resources_longterm, dx_context.cbv_srv_uav_heap)
-	}
+	init_dx_other()
 
 
-	hr: dx.HRESULT
-
-	{
-		desc := dx.COMMAND_QUEUE_DESC {
-			Type = .DIRECT,
-		}
-
-		hr = device->CreateCommandQueue(&desc, dx.ICommandQueue_UUID, (^rawptr)(&dx_context.queue))
-		check(hr, "Failed creating command queue")
-		sa.push(&resources_longterm, dx_context.queue)
-	}
-
-	// Create the swapchain, it's the thing that contains render targets that we draw into.
-	//  It has 2 render targets (NUM_RENDERTARGETS), giving us double buffering.
-	dx_context.swapchain = create_swapchain(dx_context.factory, dx_context.queue, dx_context.window)
-
-	dx_context.frame_index = dx_context.swapchain->GetCurrentBackBufferIndex()
-
-	// Descriptors describe the GPU data and are allocated from a Descriptor Heap
-	{
-		desc := dx.DESCRIPTOR_HEAP_DESC {
-			NumDescriptors = NUM_RENDERTARGETS,
-			Type = .RTV,
-			Flags = {},
-		}
-
-		hr = device->CreateDescriptorHeap(
-			&desc,
-			dx.IDescriptorHeap_UUID,
-			(^rawptr)(&dx_context.swapchain_rtv_descriptor_heap),
-		)
-		check(hr, "Failed creating descriptor heap")
-		dx_context.swapchain_rtv_descriptor_heap->SetName("lucy's swapchain RTV descriptor heap")
-		sa.push(&resources_longterm, dx_context.swapchain_rtv_descriptor_heap)
-	}
-
-	// Fetch the two render targets from the swapchain
-
-	{
-		rtv_descriptor_size: u32 = device->GetDescriptorHandleIncrementSize(.RTV)
-		rtv_descriptor_handle: dx.CPU_DESCRIPTOR_HANDLE
-		dx_context.swapchain_rtv_descriptor_heap->GetCPUDescriptorHandleForHeapStart(&rtv_descriptor_handle)
-
-		for i: u32 = 0; i < NUM_RENDERTARGETS; i += 1 {
-			hr = dx_context.swapchain->GetBuffer(i, dx.IResource_UUID, (^rawptr)(&dx_context.targets[i]))
-			dx_context.targets[i]->Release()
-			check(hr, "Failed getting render target")
-			device->CreateRenderTargetView(dx_context.targets[i], nil, rtv_descriptor_handle)
-			rtv_descriptor_handle.ptr += uint(rtv_descriptor_size)
-		}
-	}
-
-	// The command allocator is used to create the commandlist that is used to tell the GPU what to draw
-	hr = device->CreateCommandAllocator(.DIRECT, dx.ICommandAllocator_UUID, (^rawptr)(&dx_context.command_allocator))
-	check(hr, "Failed creating command allocator")
-	sa.push(&resources_longterm, dx_context.command_allocator)
-
-	// Creating G-Buffer textures and RTV's
-	dx_context.gbuffer = create_gbuffer()
-
-	// constant buffer
-	{
-		heap_properties := dx.HEAP_PROPERTIES {
-			Type = .UPLOAD,
-		}
-		constant_buffer_desc := dx.RESOURCE_DESC {
-			Width = size_of(ConstantBufferData),
-			Dimension = .BUFFER,
-			Height = 1,
-			Layout = .ROW_MAJOR,
-			Format = .UNKNOWN,
-			DepthOrArraySize = 1,
-			MipLevels = 1,
-			SampleDesc = {Count = 1},
-		}
-
-		hr = device->CreateCommittedResource(
-			&heap_properties,
-			dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
-			&constant_buffer_desc,
-			dx.RESOURCE_STATE_GENERIC_READ,
-			nil,
-			dx.IResource_UUID,
-			(^rawptr)(&dx_context.constant_buffer),
-		)
-
-		check(hr, "failed creating constant buffer")
-		dx_context.constant_buffer->SetName("lucy's constant buffer")
-		sa.push(&resources_longterm, dx_context.constant_buffer)
-
-		// empty range means the cpu won't read from it
-		dx_context.constant_buffer->Map(0, &dx.RANGE{}, &dx_context.constant_buffer_map)
-	}
-
-	
-	/* 
-	From https://docs.microsoft.com/en-us/windows/win32/direct3d12/root-signatures-overview:
-	
-	A root signature is configured by the app and links command lists to the resources the shaders require.
-	The graphics command list has both a graphics and compute root signature. A compute command list will
-	simply have one compute root signature. These root signatures are independent of each other.
-	*/
-
-	create_gbuffer_pass_root_signature()
-
-	dx_context.instance_buffer = create_instance_buffer_example()
-
-	create_gbuffer_pso_initial()
-	create_lighting_pso_initial()
-	rs_ui, pso_ui := create_ui_pso()
-
-	// Create the commandlist that is reused further down.
-	hr = device->CreateCommandList(
-		0,
-		.DIRECT,
-		dx_context.command_allocator,
-		dx_context.pipeline_gbuffer,
-		dx.ICommandList_UUID,
-		(^rawptr)(&dx_context.cmdlist),
-	)
-	
-	// cmd list is ready to be used and it's open from now on.
-	
-	// check(hr, "Failed to create command list")
-	// hr = dx_context.cmdlist->Close()
-	// check(hr, "Failed to close command list")
-	sa.push(&resources_longterm, dx_context.cmdlist)
-	
-	// hr = ct.command_allocator->Reset()
-	// hr = ct.cmdlist->Reset(ct.command_allocator, nil)
-	create_depth_buffer()
-	close_and_execute_cmdlist()
-
-
-	vertex_buffer: ^dx.IResource
-	index_buffer: ^dx.IResource
-
-	imgui_init()
-
-	// creating and filling vertex and index buffers
-	{
-		// get vertex data from gltf file
-		vertices, indices := gltf_process_data()
-		dx_context.vertex_count = u32(len(vertices))
-
-		// VERTEXDATA
-		// vertex data and index data is in an upload heap.
-		// This isn't optimal for geometry that doesn't change much.
-		// If we want to make this fast, the vertex data needs to be in
-		// a DEFAULT heap (vram). you transfer the data from an upload heap
-		// to the default heap. but it's more complicated.
-		heap_props := dx.HEAP_PROPERTIES {
-			Type = .UPLOAD,
-		}
-
-		vertex_buffer_size := len(vertices) * size_of(vertices[0])
-
-		resource_desc := dx.RESOURCE_DESC {
-			Dimension = .BUFFER,
-			Alignment = 0,
-			Width = u64(vertex_buffer_size),
-			Height = 1,
-			DepthOrArraySize = 1,
-			MipLevels = 1,
-			Format = .UNKNOWN,
-			SampleDesc = {Count = 1, Quality = 0},
-			Layout = .ROW_MAJOR,
-			Flags = {},
-		}
-
-		hr = device->CreateCommittedResource(
-			&heap_props,
-			{},
-			&resource_desc,
-			dx.RESOURCE_STATE_GENERIC_READ,
-			nil,
-			dx.IResource_UUID,
-			(^rawptr)(&vertex_buffer),
-		)
-		check(hr, "Failed creating vertex buffer")
-		sa.push(&resources_longterm, vertex_buffer)
-
-		gpu_data: rawptr
-		read_range: dx.RANGE
-
-		hr = vertex_buffer->Map(0, &read_range, &gpu_data)
-		check(hr, "Failed creating vertex buffer resource")
-
-		mem.copy(gpu_data, &vertices[0], vertex_buffer_size)
-		vertex_buffer->Unmap(0, nil)
-
-		dx_context.vertex_buffer_view = dx.VERTEX_BUFFER_VIEW {
-			BufferLocation = vertex_buffer->GetGPUVirtualAddress(),
-			StrideInBytes = u32(vertex_buffer_size) / dx_context.vertex_count,
-			SizeInBytes = u32(vertex_buffer_size),
-		}
-
-		// creating index buffer resource
-
-		index_buffer_size := len(indices) * size_of(indices[0])
-		dx_context.index_count = u32(len(indices))
-
-		resource_desc.Width = u64(index_buffer_size)
-
-		hr = device->CreateCommittedResource(
-			&heap_props,
-			{},
-			&resource_desc,
-			dx.RESOURCE_STATE_GENERIC_READ,
-			nil,
-			dx.IResource_UUID,
-			(^rawptr)(&index_buffer),
-		)
-		check(hr, "failed index buffer")
-		index_buffer->SetName("lucy's index buffer")
-		sa.push(&resources_longterm, index_buffer)
-
-		dx_context.index_buffer_view = dx.INDEX_BUFFER_VIEW {
-			BufferLocation = index_buffer->GetGPUVirtualAddress(),
-			SizeInBytes = u32(index_buffer_size),
-			Format = .R32_UINT,
-		}
-
-		hr = index_buffer->Map(0, &dx.RANGE{}, &gpu_data)
-		check(hr, "failed mapping")
-
-		mem.copy(gpu_data, &indices[0], index_buffer_size)
-		index_buffer->Unmap(0, nil)
-	}
-
-	create_model_matrix_structured_buffer(&resources_longterm)
-	create_cbv_and_structured_buffer_srv()
-
-	// This fence is used to wait for frames to finish
-	{
-		hr = device->CreateFence(dx_context.fence_value, {}, dx.IFence_UUID, (^rawptr)(&dx_context.fence))
-		check(hr, "Failed to create fence")
-		sa.push(&resources_longterm, dx_context.fence)
-		dx_context.fence_value += 1
-		manual_reset: windows.BOOL = false
-		initial_state: windows.BOOL = false
-		dx_context.fence_event = windows.CreateEventW(nil, manual_reset, initial_state, nil)
-		if dx_context.fence_event == nil {
-			lprintln("Failed to create fence event")
-			return
-		}
-	}
-
-	context_init(&dx_context)
-
+	context_init(ct)
 
 	// looping
 
@@ -631,15 +385,15 @@ main :: proc() {
 	}
 
 	// this does nothing
-	sdl.DestroyWindow(dx_context.window)
+	sdl.DestroyWindow(ct.window)
 
 	when ODIN_DEBUG {
 		
 		debug_device: ^dx.IDebugDevice2
-		dx_context.device->QueryInterface(dx.IDebugDevice2_UUID, (^rawptr)(&debug_device))
+		ct.device->QueryInterface(dx.IDebugDevice2_UUID, (^rawptr)(&debug_device))
 		// Finally, release the device (it is not in any pool)
 		// The device will be freed after we release the debug device
-		dx_context.device->Release()
+		ct.device->Release()
 		debug_device->ReportLiveDeviceObjects({.DETAIL, .IGNORE_INTERNAL})
 		debug_device->Release()
 
@@ -738,9 +492,202 @@ create_swapchain :: proc(
 	return
 }
 
-// inits dx factory device
+init_dx_other :: proc() {
+	ct := &dx_context
+	hr : dx.HRESULT
+	
+	// Creating G-Buffer textures and RTV's
+	ct.gbuffer = create_gbuffer()
+
+	// constant buffer
+	{
+		heap_properties := dx.HEAP_PROPERTIES {
+			Type = .UPLOAD,
+		}
+		constant_buffer_desc := dx.RESOURCE_DESC {
+			Width = size_of(ConstantBufferData),
+			Dimension = .BUFFER,
+			Height = 1,
+			Layout = .ROW_MAJOR,
+			Format = .UNKNOWN,
+			DepthOrArraySize = 1,
+			MipLevels = 1,
+			SampleDesc = {Count = 1},
+		}
+
+		hr = ct.device->CreateCommittedResource(
+			&heap_properties,
+			dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
+			&constant_buffer_desc,
+			dx.RESOURCE_STATE_GENERIC_READ,
+			nil,
+			dx.IResource_UUID,
+			(^rawptr)(&ct.constant_buffer),
+		)
+
+		check(hr, "failed creating constant buffer")
+		ct.constant_buffer->SetName("lucy's constant buffer")
+		sa.push(&resources_longterm, ct.constant_buffer)
+
+		// empty range means the cpu won't read from it
+		ct.constant_buffer->Map(0, &dx.RANGE{}, &ct.constant_buffer_map)
+	}
+
+	
+	/* 
+	From https://docs.microsoft.com/en-us/windows/win32/direct3d12/root-signatures-overview:
+	
+	A root signature is configured by the app and links command lists to the resources the shaders require.
+	The graphics command list has both a graphics and compute root signature. A compute command list will
+	simply have one compute root signature. These root signatures are independent of each other.
+	*/
+
+	create_gbuffer_pass_root_signature()
+
+	ct.instance_buffer = create_instance_buffer_example()
+
+	create_gbuffer_pso_initial()
+	create_lighting_pso_initial()
+	ct.rs_gizmos, ct.pso_gizmos = create_gizmos_pso()
+	
+	// cmd list is ready to be used and it's open from now on.
+	
+	// check(hr, "Failed to create command list")
+	// hr = ct.cmdlist->Close()
+	// check(hr, "Failed to close command list")
+	sa.push(&resources_longterm, ct.cmdlist)
+	
+	// hr = ct.command_allocator->Reset()
+	// hr = ct.cmdlist->Reset(ct.command_allocator, nil)
+	create_depth_buffer()
+	close_and_execute_cmdlist()
+
+
+	vertex_buffer: ^dx.IResource
+	index_buffer: ^dx.IResource
+
+	imgui_init()
+
+	// creating and filling vertex and index buffers
+	{
+		// get vertex data from gltf file
+		vertices, indices := gltf_process_data()
+		ct.vertex_count = u32(len(vertices))
+
+		// VERTEXDATA
+		// vertex data and index data is in an upload heap.
+		// This isn't optimal for geometry that doesn't change much.
+		// If we want to make this fast, the vertex data needs to be in
+		// a DEFAULT heap (vram). you transfer the data from an upload heap
+		// to the default heap. but it's more complicated.
+		heap_props := dx.HEAP_PROPERTIES {
+			Type = .UPLOAD,
+		}
+
+		vertex_buffer_size := len(vertices) * size_of(vertices[0])
+
+		resource_desc := dx.RESOURCE_DESC {
+			Dimension = .BUFFER,
+			Alignment = 0,
+			Width = u64(vertex_buffer_size),
+			Height = 1,
+			DepthOrArraySize = 1,
+			MipLevels = 1,
+			Format = .UNKNOWN,
+			SampleDesc = {Count = 1, Quality = 0},
+			Layout = .ROW_MAJOR,
+			Flags = {},
+		}
+
+		hr = ct.device->CreateCommittedResource(
+			&heap_props,
+			{},
+			&resource_desc,
+			dx.RESOURCE_STATE_GENERIC_READ,
+			nil,
+			dx.IResource_UUID,
+			(^rawptr)(&vertex_buffer),
+		)
+		check(hr, "Failed creating vertex buffer")
+		sa.push(&resources_longterm, vertex_buffer)
+
+		gpu_data: rawptr
+		read_range: dx.RANGE
+
+		hr = vertex_buffer->Map(0, &read_range, &gpu_data)
+		check(hr, "Failed creating vertex buffer resource")
+
+		mem.copy(gpu_data, &vertices[0], vertex_buffer_size)
+		vertex_buffer->Unmap(0, nil)
+
+		ct.vertex_buffer_view = dx.VERTEX_BUFFER_VIEW {
+			BufferLocation = vertex_buffer->GetGPUVirtualAddress(),
+			StrideInBytes = u32(vertex_buffer_size) / ct.vertex_count,
+			SizeInBytes = u32(vertex_buffer_size),
+		}
+
+		// creating index buffer resource
+
+		index_buffer_size := len(indices) * size_of(indices[0])
+		ct.index_count = u32(len(indices))
+
+		resource_desc.Width = u64(index_buffer_size)
+
+		hr = ct.device->CreateCommittedResource(
+			&heap_props,
+			{},
+			&resource_desc,
+			dx.RESOURCE_STATE_GENERIC_READ,
+			nil,
+			dx.IResource_UUID,
+			(^rawptr)(&index_buffer),
+		)
+		check(hr, "failed index buffer")
+		index_buffer->SetName("lucy's index buffer")
+		sa.push(&resources_longterm, index_buffer)
+
+		ct.index_buffer_view = dx.INDEX_BUFFER_VIEW {
+			BufferLocation = index_buffer->GetGPUVirtualAddress(),
+			SizeInBytes = u32(index_buffer_size),
+			Format = .R32_UINT,
+		}
+
+		hr = index_buffer->Map(0, &dx.RANGE{}, &gpu_data)
+		check(hr, "failed mapping")
+
+		mem.copy(gpu_data, &indices[0], index_buffer_size)
+		index_buffer->Unmap(0, nil)
+	}
+
+	create_model_matrix_structured_buffer(&resources_longterm)
+	create_cbv_and_structured_buffer_srv()
+
+	// This fence is used to wait for frames to finish
+	{
+		hr = ct.device->CreateFence(ct.fence_value, {}, dx.IFence_UUID, (^rawptr)(&ct.fence))
+		check(hr, "Failed to create fence")
+		sa.push(&resources_longterm, ct.fence)
+		ct.fence_value += 1
+		manual_reset: windows.BOOL = false
+		initial_state: windows.BOOL = false
+		ct.fence_event = windows.CreateEventW(nil, manual_reset, initial_state, nil)
+		if ct.fence_event == nil {
+			lprintln("Failed to create fence event")
+			return
+		}
+	}
+	
+	// instance data for gizmos
+	{
+		instance_data := make([]InstanceData, MAX_GIZMOS, allocator = context.temp_allocator)
+		ct.vb_gizmos_instance_data = create_vertex_buffer_upload(size_of(instance_data[0]), u32(slice.size(instance_data)), pool = &resources_longterm)
+	}
+}
+
+// inits all basic dx resources.
 init_dx :: proc() {
 	hr: dx.HRESULT
+	ct := &dx_context
 
 	// Init DXGI factory. DXGI is the link between the window and DirectX
 	factory: ^dxgi.IFactory4
@@ -757,7 +704,7 @@ init_dx :: proc() {
 		sa.push(&resources_longterm, factory)
 	}
 
-	dx_context.factory = factory
+	ct.factory = factory
 
 	// Find the DXGI adapter (GPU)
 	adapter: ^dxgi.IAdapter1
@@ -786,7 +733,7 @@ init_dx :: proc() {
 		hr = dx.CreateDevice((^dxgi.IUnknown)(adapter), ._12_0, dx.IDevice_UUID, (^rawptr)(&device))
 
 		if hr >= 0 {
-			dx_context.device = device
+			ct.device = device
 			break
 		} else {
 			fmt.eprintfln("Failed to create device, err: %X", hr) // -2147467262
@@ -804,7 +751,7 @@ init_dx :: proc() {
 	// set up logging callback
 	when ODIN_DEBUG {
 		info_queue: ^dx.IInfoQueue1
-		dx_context.device->QueryInterface(dx.IInfoQueue1_UUID, (^rawptr)(&info_queue))
+		ct.device->QueryInterface(dx.IInfoQueue1_UUID, (^rawptr)(&info_queue))
 		cb_cookie: u32
 		hr = info_queue->RegisterMessageCallback(dx_log_callback, {.IGNORE_FILTERS}, nil, &cb_cookie)
 		info_queue->SetMuteDebugOutput(true)
@@ -812,7 +759,88 @@ init_dx :: proc() {
 		info_queue->Release()
 	}
 
-	dx_context.dxc_compiler = dxc_init()
+	ct.dxc_compiler = dxc_init()
+	
+	// Creating SRV heap used for all resources
+	{
+		desc := dx.DESCRIPTOR_HEAP_DESC {
+			NumDescriptors = 1000000,
+			Type = .CBV_SRV_UAV,
+			Flags = {.SHADER_VISIBLE},
+		}
+
+		hr = ct.device->CreateDescriptorHeap(&desc, dx.IDescriptorHeap_UUID, (^rawptr)(&ct.cbv_srv_uav_heap))
+		check(hr, "Failed creating descriptor heap")
+		ct.cbv_srv_uav_heap->SetName("lucy's uber CBV_SRV_UAV descriptor heap")
+		sa.push(&resources_longterm, ct.cbv_srv_uav_heap)
+	}
+
+
+
+	{
+		desc := dx.COMMAND_QUEUE_DESC {
+			Type = .DIRECT,
+		}
+
+		hr = ct.device->CreateCommandQueue(&desc, dx.ICommandQueue_UUID, (^rawptr)(&ct.queue))
+		check(hr, "Failed creating command queue")
+		sa.push(&resources_longterm, ct.queue)
+	}
+
+	// Create the swapchain, it's the thing that contains render targets that we draw into.
+	//  It has 2 render targets (NUM_RENDERTARGETS), giving us double buffering.
+	ct.swapchain = create_swapchain(ct.factory, ct.queue, ct.window)
+
+	ct.frame_index = ct.swapchain->GetCurrentBackBufferIndex()
+
+	// Descriptors describe the GPU data and are allocated from a Descriptor Heap
+	{
+		desc := dx.DESCRIPTOR_HEAP_DESC {
+			NumDescriptors = NUM_RENDERTARGETS,
+			Type = .RTV,
+			Flags = {},
+		}
+
+		hr = ct.device->CreateDescriptorHeap(
+			&desc,
+			dx.IDescriptorHeap_UUID,
+			(^rawptr)(&ct.swapchain_rtv_descriptor_heap),
+		)
+		check(hr, "Failed creating descriptor heap")
+		ct.swapchain_rtv_descriptor_heap->SetName("lucy's swapchain RTV descriptor heap")
+		sa.push(&resources_longterm, ct.swapchain_rtv_descriptor_heap)
+	}
+
+	// Fetch the two render targets from the swapchain
+
+	{
+		rtv_descriptor_size: u32 = ct.device->GetDescriptorHandleIncrementSize(.RTV)
+		rtv_descriptor_handle: dx.CPU_DESCRIPTOR_HANDLE
+		ct.swapchain_rtv_descriptor_heap->GetCPUDescriptorHandleForHeapStart(&rtv_descriptor_handle)
+
+		for i: u32 = 0; i < NUM_RENDERTARGETS; i += 1 {
+			hr = ct.swapchain->GetBuffer(i, dx.IResource_UUID, (^rawptr)(&ct.targets[i]))
+			ct.targets[i]->Release()
+			check(hr, "Failed getting render target")
+			ct.device->CreateRenderTargetView(ct.targets[i], nil, rtv_descriptor_handle)
+			rtv_descriptor_handle.ptr += uint(rtv_descriptor_size)
+		}
+	}
+
+	// The command allocator is used to create the commandlist that is used to tell the GPU what to draw
+	hr = ct.device->CreateCommandAllocator(.DIRECT, dx.ICommandAllocator_UUID, (^rawptr)(&ct.command_allocator))
+	check(hr, "Failed creating command allocator")
+	sa.push(&resources_longterm, ct.command_allocator)
+	
+	// Create the commandlist that is reused further down.
+	hr = ct.device->CreateCommandList(
+		0,
+		.DIRECT,
+		ct.command_allocator,
+		nil,
+		dx.ICommandList_UUID,
+		(^rawptr)(&ct.cmdlist),
+	)
 }
 
 global_trace_ctx: trace.Context
@@ -956,6 +984,10 @@ render :: proc() {
 	render_gbuffer_pass()
 
 	render_lighting_pass()
+	
+	render_gizmos()
+	
+	render_imgui()
 
 	// Cannot draw after this point!!
 
@@ -1033,7 +1065,7 @@ gen_just_one_instance_data :: proc() -> []InstanceData {
 
 	instance_data[0] = InstanceData {
 		world_mat = world_mat,
-		color = v3{1, 1, 1},
+		color = v4{1, 1, 1, 1},
 	}
 
 	return instance_data
@@ -1066,7 +1098,7 @@ gen_teapot_instance_data :: proc() -> []InstanceData {
 
 		rot_vec = linalg.vector_normalize(rot_vec)
 
-		col_vec := v3{rand.float32_range(0.5, 1), rand.float32_range(0.5, 1), rand.float32_range(0.5, 1)}
+		col_vec := v4{rand.float32_range(0.5, 1), rand.float32_range(0.5, 1), rand.float32_range(0.5, 1), 1.0}
 
 		// x_pos = 0
 		instance = InstanceData {
@@ -1090,11 +1122,10 @@ create_instance_buffer_example :: proc() -> VertexBuffer {
 
 	instance_data_size := len(instance_data) * size_of(instance_data[0])
 
-	vb := create_vertex_buffer(size_of(instance_data[0]), u32(instance_data_size), pool = &resources_longterm)
+	vb := create_vertex_buffer_upload(size_of(instance_data[0]), u32(instance_data_size), pool = &resources_longterm)
 	
 	// third: we copy the data to the buffer (map and unmap)									
-	copy_to_buffer(vb.buffer, slice.to_bytes(instance_data)
-)
+	copy_to_buffer(vb.buffer, slice.to_bytes(instance_data))
 
 	return vb
 }
@@ -1524,7 +1555,7 @@ imgui_destoy :: proc() {
 }
 
 // call this right before swapchain present
-imgui_update_after :: proc() {
+render_imgui :: proc() {
 
 	// setting imgui's descriptor heap
 	// if i don't do this, it errors out. seems like RenderDrawData doesn't set it
@@ -1595,57 +1626,6 @@ get_world_mat_quat :: proc(pos, scale: v3, rot_quat: quaternion128) -> dxm {
 	rot_mat := linalg.matrix4_from_quaternion_f32(rot_quat)
 
 	return translation_mat * scale_mat * rot_mat
-}
-
-// returns a vertex buffer view
-create_vertex_buffer :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^DXResourcePool) -> VertexBuffer {
-
-	vb: ^dx.IResource
-
-	// For now we'll just store stuff in an upload heap.
-	// it's not optimal for most things but it's more practical for me
-	heap_props := dx.HEAP_PROPERTIES {
-		Type = .UPLOAD,
-	}
-
-	resource_desc := dx.RESOURCE_DESC {
-		Dimension = .BUFFER,
-		Alignment = 0,
-		Width = u64(size_in_bytes),
-		Height = 1,
-		DepthOrArraySize = 1,
-		MipLevels = 1,
-		Format = .UNKNOWN,
-		SampleDesc = {Count = 1, Quality = 0},
-		Layout = .ROW_MAJOR,
-		Flags = {},
-	}
-
-	hr := dx_context.device->CreateCommittedResource(
-		&heap_props,
-		{},
-		&resource_desc,
-		dx.RESOURCE_STATE_GENERIC_READ,
-		nil,
-		dx.IResource_UUID,
-		(^rawptr)(&vb),
-	)
-	check(hr, "Failed creating vertex buffer")
-	sa.push(pool, vb)
-
-	vbv := dx.VERTEX_BUFFER_VIEW {
-		BufferLocation = vb->GetGPUVirtualAddress(),
-		StrideInBytes = stride_in_bytes,
-		SizeInBytes = size_in_bytes,
-	}
-
-	return VertexBuffer {
-		buffer = vb,
-		vbv = vbv,
-		vertex_count = size_in_bytes / stride_in_bytes,
-		buffer_size = size_in_bytes,
-		buffer_stride = stride_in_bytes,
-	}
 }
 
 create_gbuffer_unit :: proc(format: dxgi.FORMAT, 
@@ -1812,7 +1792,7 @@ create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc
 	return pso
 }
 
-create_ui_pso :: proc() -> (^dx.IRootSignature, ^dx.IPipelineState) {
+create_gizmos_pso :: proc() -> (^dx.IRootSignature, ^dx.IPipelineState) {
 	
 	ct := &dx_context
 	
@@ -1879,6 +1859,52 @@ create_ui_pso :: proc() -> (^dx.IRootSignature, ^dx.IPipelineState) {
 			Format = .R32G32B32_FLOAT,
 			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
 			InputSlotClass = .PER_VERTEX_DATA,
+		},
+		// per-instance data
+		{
+			SemanticName = "WORLDMATRIX",
+			SemanticIndex = 0,
+			Format = .R32G32B32A32_FLOAT,
+			InputSlot = 1,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_INSTANCE_DATA,
+			InstanceDataStepRate = 1,
+		},
+		{
+			SemanticName = "WORLDMATRIX",
+			SemanticIndex = 1,
+			Format = .R32G32B32A32_FLOAT,
+			InputSlot = 1,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_INSTANCE_DATA,
+			InstanceDataStepRate = 1,
+		},
+		{
+			SemanticName = "WORLDMATRIX",
+			SemanticIndex = 2,
+			Format = .R32G32B32A32_FLOAT,
+			InputSlot = 1,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_INSTANCE_DATA,
+			InstanceDataStepRate = 1,
+		},
+		{
+			SemanticName = "WORLDMATRIX",
+			SemanticIndex = 3,
+			Format = .R32G32B32A32_FLOAT,
+			InputSlot = 1,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_INSTANCE_DATA,
+			InstanceDataStepRate = 1,
+		},
+		{
+			SemanticName = "COLOR",
+			SemanticIndex = 0,
+			Format = .R32G32B32A32_FLOAT,
+			InputSlot = 1,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_INSTANCE_DATA,
+			InstanceDataStepRate = 1,
 		},
 	}
 
@@ -2208,34 +2234,17 @@ create_gbuffer_pso_initial :: proc() {
 
 render_gbuffer_pass :: proc() {
 
-	c := &dx_context
+	ct := &dx_context
 
 	// setting descriptor heap for our cbv srv uav's
-	c.cmdlist->SetDescriptorHeaps(1, &c.cbv_srv_uav_heap)
+	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap)
 	
 	// This state is reset everytime the cmd list is reset, so we need to rebind it
-	c.cmdlist->SetGraphicsRootSignature(dx_context.gbuffer_pass_root_signature)
+	ct.cmdlist->SetGraphicsRootSignature(ct.gbuffer_pass_root_signature)
 	
-	transition_resource(c.depth_stencil_res, c.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
-
-	{
-		viewport := dx.VIEWPORT {
-			Width = f32(wx),
-			Height = f32(wy),
-			MinDepth = 0,
-			MaxDepth = 1,
-		}
-
-		scissor_rect := dx.RECT {
-			left = 0,
-			right = wx,
-			top = 0,
-			bottom = wy,
-		}
-
-		c.cmdlist->RSSetViewports(1, &viewport)
-		c.cmdlist->RSSetScissorRects(1, &scissor_rect)
-	}
+	transition_resource(ct.depth_stencil_res, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
+	
+	set_viewport_stuff()
 
 	// Transitioning gbuffers from SRVs to render target
 	{
@@ -2256,15 +2265,15 @@ render_gbuffer_pass :: proc() {
 
 		// populating all res barriers with each gbuffer
 		res_barriers[0] = res_barriers[0]
-		res_barriers[0].Transition.pResource = c.gbuffer.gb_albedo.res
+		res_barriers[0].Transition.pResource = ct.gbuffer.gb_albedo.res
 
 		res_barriers[1] = res_barriers[0]
-		res_barriers[1].Transition.pResource = c.gbuffer.gb_normal.res
+		res_barriers[1].Transition.pResource = ct.gbuffer.gb_normal.res
 		
 		res_barriers[2] = res_barriers[0]
-		res_barriers[2].Transition.pResource = c.gbuffer.gb_ao_rough_metal.res
+		res_barriers[2].Transition.pResource = ct.gbuffer.gb_ao_rough_metal.res
 
-		c.cmdlist->ResourceBarrier(gbuffer_count, &res_barriers[0])
+		ct.cmdlist->ResourceBarrier(gbuffer_count, &res_barriers[0])
 	}
 
 	// Setting render targets. Clearing DSV and RTV.
@@ -2277,28 +2286,28 @@ render_gbuffer_pass :: proc() {
 		dsv_handle := get_descriptor_heap_cpu_address(dx_context.descriptor_heap_dsv, 0)
 
 		// setting depth buffer
-		c.cmdlist->OMSetRenderTargets(gbuffer_count, &rtv_handles[0], false, &dsv_handle)
+		ct.cmdlist->OMSetRenderTargets(gbuffer_count, &rtv_handles[0], false, &dsv_handle)
 
 		// clear backbuffer
 		clearcolor := [?]f32{0, 0, 0, 1.0}
 
 		// we should probably clear each gbuffer individually to a sane value...
-		c.cmdlist->ClearRenderTargetView(rtv_handles[0], &clearcolor, 0, nil)
-		c.cmdlist->ClearRenderTargetView(rtv_handles[1], &clearcolor, 0, nil)
-		c.cmdlist->ClearRenderTargetView(rtv_handles[2], &clearcolor, 0, nil)
+		ct.cmdlist->ClearRenderTargetView(rtv_handles[0], &clearcolor, 0, nil)
+		ct.cmdlist->ClearRenderTargetView(rtv_handles[1], &clearcolor, 0, nil)
+		ct.cmdlist->ClearRenderTargetView(rtv_handles[2], &clearcolor, 0, nil)
 
 		// clearing depth buffer
-		c.cmdlist->ClearDepthStencilView(dsv_handle, {.DEPTH, .STENCIL}, 1.0, 0, 0, nil)
+		ct.cmdlist->ClearDepthStencilView(dsv_handle, {.DEPTH, .STENCIL}, 1.0, 0, 0, nil)
 	}
 
 	// draw call
-	c.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
+	ct.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
 
 	// binding vertex buffer view and instance buffer view
 	vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW{dx_context.vertex_buffer_view, dx_context.instance_buffer.vbv}
 
-	c.cmdlist->IASetVertexBuffers(0, len(vertex_buffers_views), &vertex_buffers_views[0])
-	c.cmdlist->IASetIndexBuffer(&c.index_buffer_view)
+	ct.cmdlist->IASetVertexBuffers(0, len(vertex_buffers_views), &vertex_buffers_views[0])
+	ct.cmdlist->IASetIndexBuffer(&ct.index_buffer_view)
 
 	// rendering each mesh individually
 	// going through scene tree
@@ -2335,9 +2344,9 @@ render_gbuffer_pass :: proc() {
 
 render_lighting_pass :: proc() {
 
-	c := &dx_context
+	ct := &dx_context
 
-	c.cmdlist->SetPipelineState(c.pipeline_lighting)
+	ct.cmdlist->SetPipelineState(ct.pipeline_lighting)
 
 	// Transitioning gbuffers from render target to SRVs
 	{
@@ -2358,15 +2367,15 @@ render_lighting_pass :: proc() {
 
 		// populating all res barriers with each gbuffer
 		res_barriers[0] = res_barriers[0]
-		res_barriers[0].Transition.pResource = c.gbuffer.gb_albedo.res
+		res_barriers[0].Transition.pResource = ct.gbuffer.gb_albedo.res
 
 		res_barriers[1] = res_barriers[0]
-		res_barriers[1].Transition.pResource = c.gbuffer.gb_normal.res
+		res_barriers[1].Transition.pResource = ct.gbuffer.gb_normal.res
 		
 		res_barriers[2] = res_barriers[0]
-		res_barriers[2].Transition.pResource = c.gbuffer.gb_ao_rough_metal.res
+		res_barriers[2].Transition.pResource = ct.gbuffer.gb_ao_rough_metal.res
 
-		c.cmdlist->ResourceBarrier(gbuffer_count, &res_barriers[0])
+		ct.cmdlist->ResourceBarrier(gbuffer_count, &res_barriers[0])
 	}
 
 	// here u have to transition the swapchain buffer so it is a RT
@@ -2382,55 +2391,91 @@ render_lighting_pass :: proc() {
 			},
 		}
 
-		c.cmdlist->ResourceBarrier(1, &to_render_target_barrier)
+		ct.cmdlist->ResourceBarrier(1, &to_render_target_barrier)
 	}
 	
-	transition_resource(c.depth_stencil_res, c.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
+	transition_resource(ct.depth_stencil_res, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
 
 	// descriptor heap is directly accessed in the shader.
 	//  so we don't need to set a descriptor table or set texture slots.
-	c.cmdlist->SetDescriptorHeaps(1, &c.cbv_srv_uav_heap)
-	c.cmdlist->SetGraphicsRootSignature(c.lighting_pass_root_signature)
-
-	{
-		viewport := dx.VIEWPORT {
-			Width = f32(wx),
-			Height = f32(wy),
-			MinDepth = 0,
-			MaxDepth = 1,
-		}
-
-		scissor_rect := dx.RECT {
-			left = 0,
-			right = wx,
-			top = 0,
-			bottom = wy,
-		}
-
-		c.cmdlist->RSSetViewports(1, &viewport)
-		c.cmdlist->RSSetScissorRects(1, &scissor_rect)
-	}
+	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap)
+	ct.cmdlist->SetGraphicsRootSignature(ct.lighting_pass_root_signature)
+	
+	set_viewport_stuff()
 
 	// Setting render targets. Clearing RTV.
 	{
 		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
-			get_descriptor_heap_cpu_address(c.swapchain_rtv_descriptor_heap, c.frame_index),
+			get_descriptor_heap_cpu_address(ct.swapchain_rtv_descriptor_heap, ct.frame_index),
 		}
 
-		c.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
+		ct.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
 
 		// clear backbuffer
 		clearcolor := [?]f32{0.05, 0.05, 0.05, 1.0}
-		c.cmdlist->ClearRenderTargetView(rtv_handles[0], &clearcolor, 0, nil)
+		ct.cmdlist->ClearRenderTargetView(rtv_handles[0], &clearcolor, 0, nil)
 	}
 
 	// draw call
-	c.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
+	ct.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
 
 	// 3. Draw 3 vertices (which triggers the VS 3 times)
-	c.cmdlist->DrawInstanced(3, 1, 0, 0)
+	ct.cmdlist->DrawInstanced(3, 1, 0, 0)
+}
 
-	imgui_update_after()
+render_gizmos :: proc () {
+	
+	ct := &dx_context
+	
+	// updating gizmo data (looking at lights)
+	gizmos_count : u32 = 1
+	{
+		gizmos_instances := make([]InstanceData, gizmos_count, allocator = context.temp_allocator)
+		
+		gizmos_instances[0] = InstanceData {
+			world_mat = get_world_mat(light_pos, 0.1),
+			color = v4{1,0,0, 0.5}
+		}
+		
+		copy_to_buffer(ct.vb_gizmos_instance_data.buffer, slice.to_bytes(gizmos_instances))
+	}
+	
+	ct.cmdlist->SetPipelineState(ct.pso_gizmos)
+	
+	// setting descriptor heap for our cbv srv uav's
+	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap)
+	
+	// This state is reset everytime the cmd list is reset, so we need to rebind it
+	ct.cmdlist->SetGraphicsRootSignature(ct.rs_gizmos)
+	
+	// setting rtv and dsv
+	
+	transition_resource(ct.depth_stencil_res, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
+	defer {
+		transition_resource(ct.depth_stencil_res, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
+	}
+	
+	rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
+		get_descriptor_heap_cpu_address(ct.swapchain_rtv_descriptor_heap, ct.frame_index),
+	}
+	
+	dsv_handle := get_descriptor_heap_cpu_address(dx_context.descriptor_heap_dsv, 0)
+
+	ct.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, &dsv_handle)
+	
+	set_viewport_stuff()
+	
+	ct.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
+	
+	// binding vertex buffer view and instance buffer view
+	vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW{ct.vertex_buffer_view, ct.vb_gizmos_instance_data.vbv}
+	
+	ct.cmdlist->IASetVertexBuffers(0, len(vertex_buffers_views), &vertex_buffers_views[0])
+	ct.cmdlist->IASetIndexBuffer(&ct.index_buffer_view)
+	
+	// TEST: use first mesh primitive from main vertex buffer
+	test_prim := g_meshes[0].primitives[0]
+	ct.cmdlist->DrawIndexedInstanced(test_prim.index_count, gizmos_count, test_prim.index_offset, 0, 0)
 }
 
 print_ref_count :: proc(obj: ^dx.IUnknown) {
@@ -2571,4 +2616,25 @@ load_white_texture :: proc(upload_resources: ^DXResourcePoolDynamic) {
 	
 	// creating srv on uber heap
 	ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, TEXTURE_WHITE_INDEX))
+}
+
+set_viewport_stuff :: proc() {
+	ct := &dx_context
+	
+	viewport := dx.VIEWPORT {
+		Width = f32(wx),
+		Height = f32(wy),
+		MinDepth = 0,
+		MaxDepth = 1,
+	}
+
+	scissor_rect := dx.RECT {
+		left = 0,
+		right = wx,
+		top = 0,
+		bottom = wy,
+	}
+
+	ct.cmdlist->RSSetViewports(1, &viewport)
+	ct.cmdlist->RSSetScissorRects(1, &scissor_rect)
 }
