@@ -458,3 +458,56 @@ close_and_execute_cmdlist :: proc() {
 	cmdlists := [?]^dx.IGraphicsCommandList{ct.cmdlist}
 	dx_context.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
 }
+
+
+// it's a vertex buffer in the upload heap.
+// meant for buffers that are modified often.
+create_vertex_buffer_upload :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^DXResourcePool) -> VertexBuffer {
+
+	vb: ^dx.IResource
+
+	// For now we'll just store stuff in an upload heap.
+	// it's not optimal for most things but it's more practical for me
+	heap_props := dx.HEAP_PROPERTIES {
+		Type = .UPLOAD,
+	}
+
+	resource_desc := dx.RESOURCE_DESC {
+		Dimension = .BUFFER,
+		Alignment = 0,
+		Width = u64(size_in_bytes),
+		Height = 1,
+		DepthOrArraySize = 1,
+		MipLevels = 1,
+		Format = .UNKNOWN,
+		SampleDesc = {Count = 1, Quality = 0},
+		Layout = .ROW_MAJOR,
+		Flags = {},
+	}
+
+	hr := dx_context.device->CreateCommittedResource(
+		&heap_props,
+		{},
+		&resource_desc,
+		dx.RESOURCE_STATE_GENERIC_READ,
+		nil,
+		dx.IResource_UUID,
+		(^rawptr)(&vb),
+	)
+	check(hr, "Failed creating vertex buffer")
+	sa.push(pool, vb)
+
+	vbv := dx.VERTEX_BUFFER_VIEW {
+		BufferLocation = vb->GetGPUVirtualAddress(),
+		StrideInBytes = stride_in_bytes,
+		SizeInBytes = size_in_bytes,
+	}
+
+	return VertexBuffer {
+		buffer = vb,
+		vbv = vbv,
+		vertex_count = size_in_bytes / stride_in_bytes,
+		buffer_size = size_in_bytes,
+		buffer_stride = stride_in_bytes,
+	}
+}
