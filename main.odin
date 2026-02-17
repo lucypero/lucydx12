@@ -1375,8 +1375,8 @@ TEXTURE_INDEX_BASE :: 400
 // model_filepath :: "models/main_sponza/sponza_blender.glb"
 
 // no decals (ruins solid rendering)
-model_filepath :: "models/main_sponza/sponza_blender_no_decals.glb"
-// model_filepath :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf"
+// model_filepath :: "models/main_sponza/sponza_blender_no_decals.glb"
+model_filepath :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf"
 // model_filepath :: "models/normal_map_test.glb"
 
 
