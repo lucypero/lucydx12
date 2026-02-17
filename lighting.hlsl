@@ -95,6 +95,19 @@ float3 FresnelSchlick(float cosTheta, float3 F0) {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
+// Helper function to turn a 0.0 - 1.0 value into a rainbow
+float3 DebugHueGradient(float t)
+{
+    // These coefficients create a standard "Spectral" rainbow
+    // Formula: color = a + b * cos(2 * PI * (c * t + d))
+    float3 a = float3(0.5, 0.5, 0.5);
+    float3 b = float3(0.5, 0.5, 0.5);
+    float3 c = float3(1.0, 1.0, 1.0);
+    float3 d = float3(0.0, 0.33, 0.67);
+
+    return a + b * cos(6.28318 * (c * t + d));
+}
+
 //  / helper code
 
 float4 PSMain(PSInput input) : SV_TARGET
@@ -205,7 +218,21 @@ float4 PSMain(PSInput input) : SV_TARGET
     // -- Display g buffer 3
     // return float4(worldPosition, 1.0);
     
+    // hue debugging
+    // {
+	   //  // 2. Get the brightness (N dot L)
+    //     // We saturate to keep it in the 0-1 range
+    //     float diff = saturate(dot(norm, light_dir));
+    
+    //     // 3. Map that brightness to a rainbow hue
+    //     float3 debugColor = DebugHueGradient(diff);
+    
+    //     return float4(debugColor, 1.0);
+    // }
+    
+    // Debug
+    // return float4(depth, 0.0, 0.0, 1.0);
+    
     // -- Display Final image
     return float4(result, 1.0);
-    // return float4(depth, 0.0, 0.0, 1.0);
 }
