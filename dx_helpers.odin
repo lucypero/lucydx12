@@ -140,9 +140,9 @@ dxc_init :: proc() -> ^dxc.ICompiler3 {
 // compiles vertex and pixel shader
 compile_shader :: proc(compiler: ^dxc.ICompiler3, shader_filename: string) -> (vs, ps: ^dxc.IBlob, ok: bool) {
 
-	data, ok_f := os.read_entire_file(shader_filename)
+	data, ok_f := os.read_entire_file_from_path(shader_filename, context.allocator)
 	
-	if !ok_f {
+	if ok_f != os.General_Error.None {
 		lprintfln("could not read file")
 		os.exit(1)
 	}
@@ -309,7 +309,6 @@ create_texture_with_data :: proc(
 	format: dxgi.FORMAT,
 	pool_textures : ^DXResourcePool,
 	pool_upload_heap : ^DXResourcePoolDynamic,
-	cmdlist : ^dx.IGraphicsCommandList,
 	texture_name := ""
 ) -> (res: ^dx.IResource) {
 	
@@ -419,8 +418,8 @@ create_texture_with_data :: proc(
 		SubresourceIndex = 0,
 	}
 
-	cmdlist->CopyTextureRegion(&copy_location_dst, 0, 0, 0, &copy_location_src, nil)
-	transition_resource_from_copy_to_read(res, cmdlist)
+	ct.cmdlist->CopyTextureRegion(&copy_location_dst, 0, 0, 0, &copy_location_src, nil)
+	transition_resource_from_copy_to_read(res, ct.cmdlist)
 	return res
 }
 

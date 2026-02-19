@@ -7,3 +7,4 @@ imgui.ini
 *.raduser
 *.radproject
 *.spall
+cache/

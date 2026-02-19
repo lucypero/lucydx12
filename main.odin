@@ -69,6 +69,10 @@ when PROFILE {
 wx := i32(2000)
 wy := i32(1000)
 
+
+
+
+
 dx_context: Context
 start_time: time.Time
 light_pos: v3
@@ -216,7 +220,7 @@ GBuffer :: struct {
 
 HotSwapState :: struct {
 	// TODO: store more data here so u don't have to pass the data around in the hotswap methods
-	last_write_time: os.File_Time,
+	last_write_time: time.Time,
 	pso_swap: ^dx.IPipelineState,
 
 	// index in the queue array to free the resource
@@ -307,7 +311,7 @@ Context :: struct {
 // initializes app data in Context struct
 context_init :: proc(con: ^Context) {
 	cur_cam = camera_init()
-	light_pos = v3{4.1, 3.5, 4.5}
+	light_pos = v3{0,2,0}
 	light_draw_gizmos = true
 	light_int = 1
 	con.meshes_to_render = len(g_meshes)
@@ -323,7 +327,7 @@ check :: proc(res: dx.HRESULT, message: string) {
 }
 
 main :: proc() {
-
+	
 	trace.init(&global_trace_ctx)
 	defer trace.destroy(&global_trace_ctx)
 
@@ -2643,7 +2647,7 @@ load_white_texture :: proc(upload_resources: ^DXResourcePoolDynamic) {
 	defer img.image_free(image_data)
 	
 	texture_res := create_texture_with_data(image_data, u64(w), u32(h), u32(channels), .R8G8B8A8_UNORM, 
-		&resources_longterm, upload_resources, ct.cmdlist, "white")
+		&resources_longterm, upload_resources, "white")
 	
 	// creating srv on uber heap
 	ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, TEXTURE_WHITE_INDEX))
