@@ -1,4 +1,21 @@
+# mipmap plan
+
+- use texconv (already in path) see gemini answers for how to use it.
+
+example
+
+`texconv.exe -f BC7_UNORM -m 0 -y -o ./cache/ C:\Users\Lucy\third_party\glTF-Sample-Models\2.0\Sponza\glTF\332936164838540657.jpg`
+
+
+- cache: when loading the gltf images, the program will query a cache for the textures and load that.
+- prepass: we will use texconv.exe to create the compressed textures with mipmaps.
+- load: we will manually load the .dds textures at runtime. parsing it is easy.
+
 # current todo
+
+- mipmaps: enable them.
+- sample with a good filtering algo that uses mipmaps.
+- increase rendering res in some way. or AA
 
 - handle normal strength that comes from the gltf file.
 

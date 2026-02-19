@@ -1,5 +1,9 @@
 package main
 
+import "core:image"
+import "core:crypto/hash"
+import base64 "core:encoding/base64"
+import "core:os"
 import "core:fmt"
 import "vendor:cgltf"
 import "core:strings"
@@ -10,6 +14,8 @@ import "core:path/filepath"
 import "core:c"
 import dxgi "vendor:directx/dxgi"
 import "base:runtime"
+
+ENC_TABLE := [64]byte { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '_', }
 
 gltf_process_data :: proc(allocator: runtime.Allocator) -> (vertices: [dynamic]VertexData, indices: [dynamic]u32) {
 	model_filepath_c := strings.clone_to_cstring(model_filepath, context.temp_allocator)
@@ -40,7 +46,7 @@ gltf_process_data :: proc(allocator: runtime.Allocator) -> (vertices: [dynamic]V
 	g_materials = gltf_load_materials(data)
 	g_meshes = gltf_load_meshes(data, &vertices_dyn, &indices_dyn)
 	
-	gltf_load_textures(data)
+	gltf_load_textures(model_filepath, data)
 	
 	scene = gltf_load_nodes(data)
 
@@ -211,7 +217,7 @@ gltf_load_nodes :: proc(data: ^cgltf.data) -> Scene {
 }
 
 
-gltf_load_textures :: proc(data : ^cgltf.data) {
+gltf_load_textures :: proc(model_filepath: string, data : ^cgltf.data) {
 	
 	ct := dx_context
 	
@@ -237,16 +243,23 @@ gltf_load_textures :: proc(data : ^cgltf.data) {
 		image_name : string
 		
 		if image.uri != nil {
+			// image data is a file. just pass the file to texconv now
+			
 			channel_count :: 4
 			//  u gotta concatenate the name
 			image_dir := filepath.dir(model_filepath, context.temp_allocator)
-			image_path := filepath.join({image_dir, string(image.uri)}, context.temp_allocator)
+			image_path, alloc_err := filepath.join({image_dir, string(image.uri)}, context.temp_allocator)
+			if alloc_err != .None {
+				lprintfln("alloc error")
+				os.exit(1)
+			}
 			image_path_cstring := strings.clone_to_cstring(image_path, context.temp_allocator)
 			
 			image_data = img.load(image_path_cstring, &w, &h, &channels, channel_count)
 			image_name = string(image.uri)
 			assert(image_data != nil)
 		} else {
+			// the image data is inside the gltf file. caching this will be harder.
 			png_data := cgltf.buffer_view_data(image.buffer_view)
 			png_size := image.buffer_view.size
 			
@@ -255,12 +268,14 @@ gltf_load_textures :: proc(data : ^cgltf.data) {
 			assert(image_data != nil)
 		}
 		
+		texture_final_path := texture_cache_query(model_filepath, image_name)
+		
 		defer img.image_free(image_data)
 		
 		texture_format : dxgi.FORMAT : .R8G8B8A8_UNORM
 		
 		texture_res := create_texture_with_data(auto_cast(image_data), u64(w), u32(h), channel_count, texture_format, 
-			&resources_longterm, &upload_resources, ct.cmdlist, string(image.name))
+			&resources_longterm, &upload_resources, string(image.name))
 		
 		// lprintfln("name: %v, index in the heap: %v", image.name, textures_srv_index)
 		
@@ -346,4 +361,65 @@ gltf_load_materials :: proc(data: ^cgltf.data) -> []Material {
 	create_srv_on_uber_heap(ct.sb_materials, true, "materials srv", &srv_desc)
 	
 	return mats
+}
+
+hash_thing :: proc(thing:string) -> string {
+	thing_hash_temp := hash.hash_string(.SHA256, thing, allocator = context.temp_allocator)
+	thing_hash, ok := base64.encode(thing_hash_temp, ENC_TABLE)
+	assert(ok == .None)
+	return thing_hash
+}
+
+texture_cache_query :: proc(model_filepath, image_name: string) -> (texture_out_path: string) {
+	
+	// test if this exists already
+	
+	// lprintln("image texture cache miss. creating texture with mipmaps")
+	alloc_err : runtime.Allocator_Error
+	os_err : os.Error
+	
+	filepath_hash := hash_thing(model_filepath)
+	// image_name_hash := hash_thing(image_name)
+	
+	cache_dir : string
+	cache_dir, alloc_err = filepath.join({"cache", filepath_hash}, context.temp_allocator)
+	assert(alloc_err == .None)
+	
+	image_name_dss := strings.concatenate({filepath.stem(image_name), ".dds"}, context.temp_allocator)
+	texture_out_path, alloc_err = filepath.join({cache_dir, image_name_dss}, context.temp_allocator)
+	assert(alloc_err == os.ERROR_NONE)
+	
+	// checking if it exists already
+	if os.exists(texture_out_path) {
+		return texture_out_path
+	}
+	
+	// create dirs
+	dir_err := os.make_directory_all(cache_dir)
+	
+	assert(dir_err == os.ERROR_NONE)
+	
+	input_image_dir := filepath.dir(model_filepath, context.temp_allocator)
+	input_image_path, alloc_err_2 := filepath.join({input_image_dir, image_name}, context.temp_allocator)
+	assert(alloc_err_2 == .None)
+	
+	state, stdout, stderr, err := os.process_exec(os.Process_Desc {
+		command = {
+			"texconv.exe",
+			"-f", "BC7_UNORM", // select output format
+			"-m", "0", // all mip levels
+			"-y", // overwrite
+			"-o", cache_dir,
+			"-nologo",
+			input_image_path
+		}
+	}, context.temp_allocator)
+	
+	// lprintln(string(stdout))
+	// lprintln(string(stderr))
+	assert(state.exited && state.exit_code == 0 && err == os.General_Error.None)
+	
+	lprintfln("texture %v converted correctly", image_name)
+	
+	return texture_out_path
 }
