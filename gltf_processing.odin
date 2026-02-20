@@ -239,50 +239,57 @@ gltf_load_textures :: proc(model_filepath: string, data : ^cgltf.data) {
 		// assert(image.mime_type == "image/png")
 		w, h, channels : c.int
 		channel_count :: 4
-		image_data : [^]byte
+		// image_data : [^]byte
 		image_name : string
 		
 		if image.uri != nil {
 			// image data is a file. just pass the file to texconv now
 			
-			channel_count :: 4
+			// channel_count :: 4
 			//  u gotta concatenate the name
-			image_dir := filepath.dir(model_filepath, context.temp_allocator)
-			image_path, alloc_err := filepath.join({image_dir, string(image.uri)}, context.temp_allocator)
-			if alloc_err != .None {
-				lprintfln("alloc error")
-				os.exit(1)
-			}
-			image_path_cstring := strings.clone_to_cstring(image_path, context.temp_allocator)
 			
-			image_data = img.load(image_path_cstring, &w, &h, &channels, channel_count)
+			// image_dir := filepath.dir(model_filepath, context.temp_allocator)
+			// image_path, alloc_err := filepath.join({image_dir, string(image.uri)}, context.temp_allocator)
+			// if alloc_err != .None {
+			// 	lprintfln("alloc error")
+			// 	os.exit(1)
+			// }
+			// image_path_cstring := strings.clone_to_cstring(image_path, context.temp_allocator)
+			
+			// image_data = img.load(image_path_cstring, &w, &h, &channels, channel_count)
 			image_name = string(image.uri)
-			assert(image_data != nil)
+			// assert(image_data != nil)
 		} else {
 			// the image data is inside the gltf file. caching this will be harder.
-			png_data := cgltf.buffer_view_data(image.buffer_view)
-			png_size := image.buffer_view.size
 			
-			image_data = img.load_from_memory(png_data, i32(png_size), &w, &h, &channels, channel_count)
+			// TODO: you will need to write this to a file first.
+			
+			// png_data := cgltf.buffer_view_data(image.buffer_view)
+			// png_size := image.buffer_view.size
+			// image_data = img.load_from_memory(png_data, i32(png_size), &w, &h, &channels, channel_count)
+			
 			image_name = string(image.name)
-			assert(image_data != nil)
+			// assert(image_data != nil)
 		}
 		
 		texture_final_path := texture_cache_query(model_filepath, image_name)
 		
-		defer img.image_free(image_data)
+		// TODO: use the DDS file instead of the png file.
+		
+		// defer img.image_free(image_data)
 		
 		texture_format : dxgi.FORMAT : .R8G8B8A8_UNORM
 		
-		texture_res := create_texture_with_data(auto_cast(image_data), u64(w), u32(h), channel_count, texture_format, 
-			&resources_longterm, &upload_resources, string(image.name))
+		dds_file := parse_dds_file(texture_final_path)
+		
+		// texture_res := create_texture_with_data(auto_cast(image_data), u64(w), u32(h), channel_count, texture_format, 
+		// 	&resources_longterm, &upload_resources, string(image.name))
 		
 		// lprintfln("name: %v, index in the heap: %v", image.name, textures_srv_index)
 		
 		// creating srv on uber heap
-		ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, textures_srv_index))
+		// ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, textures_srv_index))
 		textures_srv_index += 1
-		
 		
 		// enforcing a limit bc it's so slow
 		if i > TEXTURE_LIMIT do break

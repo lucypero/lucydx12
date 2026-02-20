@@ -1,5 +1,6 @@
 package main
 
+import "core:encoding/endian"
 import "core:slice"
 import "core:mem"
 import dx "vendor:directx/d3d12"
@@ -298,6 +299,13 @@ create_structured_buffer_with_data :: proc(
 	return default_res
 }
 
+DDSFile :: struct {
+	format: dxgi.FORMAT,
+	mipmap_levels: u32,
+	mipmap_data: [][]byte,
+}
+	
+
 // creates texture then uploads data to it then transitions to a default heap
 // it doesn't execute the command list. u have to do that later.
 // release upload resources after executing command list.
@@ -573,4 +581,162 @@ generate_uv_sphere :: proc(meridians: u32, parallels: u32, allocator: runtime.Al
     }
 	
 	return verts[:], indices[:]
+}
+
+// DDS file format docs: https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dds-header
+// TODO: proper memory handling
+// TODO: try to not hold so much memory at once without need. use checkpoints
+parse_dds_file :: proc(dds_filepath: string) -> DDSFile {
+	
+	file_data, err := os.read_entire_file_from_path(dds_filepath, context.temp_allocator)
+	
+	magic_num, ok := endian.get_u32(file_data, .Little)
+	
+	assert(magic_num == 0x20534444)
+	
+	PixelFormatFlagsEnum :: enum {
+		ALPHAPIXELS = 0,
+		DDPF_ALPHA = 1,
+		DDPF_FOURCC = 2,
+		DDPF_RGB = 6,
+		DDPF_YUV = 9,
+		DDPF_LUMINANCE = 17,
+	}
+
+	DDSPixelFormat :: struct #packed {
+		Size: u32,
+		Flags: bit_set[PixelFormatFlagsEnum;u32],
+		FourCC: u32,
+		RGBBitCount: u32,
+		RBitMask: u32,
+		GBitMask: u32,
+		BBitMask: u32,
+		ABitMask: u32,
+	}
+	
+	DDSHeader :: struct #packed {
+	  magic_num: u32,
+	  Size : u32,
+	  Flags: u32,
+	  Height: u32,
+	  Width: u32,
+	  PitchOrLinearSize: u32,
+	  Depth: u32,
+	  MipMapCount: u32,
+	  Reserved1 : [11]u32,
+	  pixel_format : DDSPixelFormat,
+	  Caps : u32,
+	  Caps2: u32,
+	  Caps3: u32,
+	  Caps4: u32,
+	  Reserved2: u32
+	}
+	
+	DDSHeaderDXT10 :: struct #packed {
+		dxgi_format: dxgi.FORMAT,
+		resource_dimension: dx.RESOURCE_DIMENSION,
+		miscFlag: u32,
+		arraySize: u32,
+		miscFlags2: u32,
+	}
+	
+	// lprintfln("it's a dds file!")
+	
+	advance :u32
+	
+	header := (^DDSHeader)(raw_data(file_data))
+	
+	advance += size_of(DDSHeader)
+	
+	// If the DDS_PIXELFORMAT dwFlags is set to DDPF_FOURCC and dwFourCC is set to "DX10" an additional DDS_HEADER_DXT10 structure will be present to accommodate texture arrays or DXGI formats that cannot be expressed as an RGB pixel format such as floating point formats, sRGB formats etc. When the DDS_HEADER_DXT10 structure is present the entire data description will looks like this.
+	// flags_u32 := cast(^u32)(&header.pixel_format.Flags)
+	
+	is_compressed := false
+	bytes_per_block : u32 = 2
+	text_format: dxgi.FORMAT
+	
+	if .DDPF_FOURCC in header.pixel_format.Flags && header.pixel_format.FourCC == 0x30315844 { 
+		// it has the dx10 header.
+		
+		header_dx10 := (^DDSHeaderDXT10)(raw_data(file_data[advance:]))
+		advance += size_of(DDSHeaderDXT10)
+		
+		// lprintfln("it has a dx10 header!!!")
+		
+// 		For an uncompressed texture, use the DDSD_PITCH and DDPF_RGB flags; 
+// for a compressed texture, use the DDSD_LINEARSIZE and DDPF_FOURCC flags. For a mipmapped texture, use the DDSD_MIPMAPCOUNT, DDSCAPS_MIPMAP, and DDSCAPS_COMPLEX flags also as well as the mipmap count member. If mipmaps are generated, all levels down to 1-by-1 are usually written.
+// For a compressed texture, the size of each mipmap level image is typically one-fourth the size of the previous, with a minimum of 8 (DXT1) or 16 (DXT2-5) bytes (for square textures). Use the following formula to calculate the size of each level for a non-square texture:
+
+		text_format = header_dx10.dxgi_format
+		format_num :i32 = cast(i32)header_dx10.dxgi_format 
+		
+		
+		if (format_num >= 70 && format_num <= 84) || (format_num >= 94 && format_num <= 99) {
+			// compressed
+			is_compressed = true
+		} else {
+			// uncompressed
+			is_compressed = false
+		}
+		
+		switch format_num {
+		case 70..=72: // BC1
+		case 79..=81: // BC4
+			bytes_per_block = 8
+		case: // Rest of BCs
+			bytes_per_block = 16
+		}
+		
+	} else {
+		// TODO: not handled yet. but all textures u use should have the dx10 header. so we're probably good
+		assert(false)
+	}
+	
+	current_w := header.Width
+	current_h := header.Height
+	
+	// TODO handle freeing
+	
+	dds_output := DDSFile {
+		format = text_format,
+		mipmap_levels = header.MipMapCount,
+		mipmap_data = make([][]byte, header.MipMapCount)
+	}
+	
+	for i in 0..<header.MipMapCount {
+	    level_size := get_mip_level_size(current_w, current_h, is_compressed, bytes_per_block)
+	    
+	    // Slice the specific mip level data
+	    mip_data := file_data[advance : advance + level_size]
+	    
+	    // Move cursor and halve dimensions for next level
+	    advance += level_size
+	    current_w = max(1, current_w >> 1)
+	    current_h = max(1, current_h >> 1)
+					
+		// TODO: this memory lives in the allocator used for the file read
+		dds_output.mipmap_data[i] = mip_data
+	    
+	    // lprintfln("Level %v: %v bytes", i, len(mip_data))
+	}
+	
+	// here is the data:
+	// file_data[advance:]
+	// lprintfln("check the header")
+	
+	return dds_output
+}
+
+get_mip_level_size :: proc(width, height: u32, format_is_compressed: bool, bytes_per_block_or_pixel: u32) -> u32 {
+    w := max(1, width)
+    h := max(1, height)
+    
+    if format_is_compressed {
+        // Round up to the nearest 4-pixel block
+        bw := max(1, (w + 3) / 4)
+        bh := max(1, (h + 3) / 4)
+        return bw * bh * bytes_per_block_or_pixel // 8 or 16
+    } else {
+        return w * h * bytes_per_block_or_pixel // e.g., 4 for RGBA8
+    }
 }
