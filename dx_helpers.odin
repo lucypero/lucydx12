@@ -315,7 +315,6 @@ create_texture_with_data :: proc(
 	image_data: [][]byte, // slice of mipmap data
 	width: u64,
 	height: u32,
-	channels: u32,
 	format: dxgi.FORMAT,
 	pool_textures : ^DXResourcePool,
 	pool_upload_heap : ^DXResourcePoolDynamic,
@@ -362,17 +361,17 @@ create_texture_with_data :: proc(
 	sa.push(pool_textures, res)
 
 	// getting data from texture that we'll use later
-	text_footprint: dx.PLACED_SUBRESOURCE_FOOTPRINT
+	text_footprint := make([]dx.PLACED_SUBRESOURCE_FOOTPRINT, mip_levels, context.temp_allocator)
+	num_rows:= make([]u32, mip_levels, context.temp_allocator)
+	row_size:= make([]u64, mip_levels, context.temp_allocator)
 	text_bytes: u64
-	num_rows: u32
-	row_size: u64
 
 	// GetCopyableFootprints:            proc "system" (this: ^IDevice, pResourceDesc: ^RESOURCE_DESC, 
 	// FirstSubresource: u32, NumSubresources: u32, BaseOffset: u64, pLayouts: [^]PLACED_SUBRESOURCE_FOOTPRINT,
 	// pNumRows: [^]u32, pRowSizeInBytes: [^]u64, pTotalBytes: ^u64),
 	
-	ct.device->GetCopyableFootprints(&texture_desc, 0, auto_cast mip_levels, 0, &text_footprint, &num_rows, 
-		&row_size, &text_bytes)
+	ct.device->GetCopyableFootprints(&texture_desc, 0, cast(u32)mip_levels, 0, &text_footprint[0], &num_rows[0], 
+		&row_size[0], &text_bytes)
 
 	// creating upload heap and resource (needed to upload texture data from cpu to the default heap)
 
@@ -413,18 +412,20 @@ create_texture_with_data :: proc(
 	texture_upload->Map(0, &dx.RANGE{}, &texture_map_start)
 	texture_map_start_mp: [^]u8 = auto_cast texture_map_start
 	
-	offset: int
 	
 	for mip in 0 ..< mip_levels {
-		for row in 0 ..< height {
-			source_data : [^]byte = slice.as_ptr(image_data[mip])
+		fp := text_footprint[mip].Footprint
+		mip_width := cast(u64)fp.Width
+		mip_height := fp.Height
+		source_data : [^]byte = slice.as_ptr(image_data[mip])
+		mip_row_size := row_size[mip]
+		for row in 0 ..< num_rows[mip] {
 			mem.copy(
-				texture_map_start_mp[u32(text_footprint.Footprint.RowPitch) * u32(row) + cast(u32)offset:],
-				source_data[width * u64(channels) * u64(row):],
-				int(width * u64(channels)),
+				texture_map_start_mp[u64(fp.RowPitch) * u64(row) + cast(u64)text_footprint[mip].Offset:],
+				source_data[mip_row_size * u64(row):],
+				int(mip_row_size)
 			)
 		}
-		offset += len(image_data[mip])
 	}
 	
 	// here you send the gpu command to copy the data to the texture resource.
@@ -432,7 +433,7 @@ create_texture_with_data :: proc(
 	copy_location_src := dx.TEXTURE_COPY_LOCATION {
 		pResource = texture_upload,
 		Type = .PLACED_FOOTPRINT,
-		PlacedFootprint = text_footprint,
+		PlacedFootprint = text_footprint[0],
 	}
 
 	copy_location_dst := dx.TEXTURE_COPY_LOCATION {
@@ -442,6 +443,7 @@ create_texture_with_data :: proc(
 	}
 	
 	for i in 0..<mip_levels {
+		copy_location_src.PlacedFootprint = text_footprint[i]
 		copy_location_dst.SubresourceIndex = auto_cast i
 		ct.cmdlist->CopyTextureRegion(&copy_location_dst, 0, 0, 0, &copy_location_src, nil)
 	}

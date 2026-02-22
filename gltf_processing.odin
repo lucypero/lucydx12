@@ -237,7 +237,7 @@ gltf_load_textures :: proc(model_filepath: string, data : ^cgltf.data) {
 	for image, i in data.images {
 		// lprintfln("loading image %v", image.name)
 		// assert(image.mime_type == "image/png")
-		channel_count :: 4
+		// channel_count :: 4
 		// image_data : [^]byte
 		image_name : string
 		
@@ -278,13 +278,13 @@ gltf_load_textures :: proc(model_filepath: string, data : ^cgltf.data) {
 		// defer img.image_free(image_data)
 		dds_file := parse_dds_file(texture_final_path)
 		
-		texture_res := create_texture_with_data(dds_file.mipmap_data, u64(dds_file.width), dds_file.height, channel_count, dds_file.format, 
+		texture_res := create_texture_with_data(dds_file.mipmap_data, u64(dds_file.width), dds_file.height, dds_file.format, 
 			&resources_longterm, &upload_resources, string(image.name))
 		
 		// lprintfln("name: %v, index in the heap: %v", image.name, textures_srv_index)
 		
 		// creating srv on uber heap
-		// ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, textures_srv_index))
+		ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, textures_srv_index))
 		textures_srv_index += 1
 		
 		// enforcing a limit bc it's so slow

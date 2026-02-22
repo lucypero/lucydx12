@@ -2647,7 +2647,7 @@ load_white_texture :: proc(upload_resources: ^DXResourcePoolDynamic) {
 		slice.from_ptr(image_data, cast(int)(w * h * channels))
 	}
 	
-	texture_res := create_texture_with_data(img_data_mipmaps[:], u64(w), u32(h), u32(channels), .R8G8B8A8_UNORM, 
+	texture_res := create_texture_with_data(img_data_mipmaps[:], u64(w), u32(h), .R8G8B8A8_UNORM, 
 		&resources_longterm, upload_resources, "white")
 	
 	// creating srv on uber heap
