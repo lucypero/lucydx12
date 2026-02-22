@@ -1219,12 +1219,12 @@ create_gbuffer_pass_root_signature :: proc() {
 
 	// We'll define a static sampler description
 	sampler_desc := dx.STATIC_SAMPLER_DESC {
-		Filter = .MIN_MAG_MIP_LINEAR, // Tri-linear filtering
+		Filter = .ANISOTROPIC, // Tri-linear filtering
 		AddressU = .WRAP, // Repeat the texture in the U direction
 		AddressV = .WRAP, // Repeat the texture in the V direction
 		AddressW = .WRAP, // Repeat the texture in the W direction
 		MipLODBias = 0.0,
-		MaxAnisotropy = 0,
+		MaxAnisotropy = 16,
 		ComparisonFunc = .NEVER,
 		BorderColor = .OPAQUE_BLACK,
 		MinLOD = 0.0,
@@ -2189,8 +2189,6 @@ create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.
 		RenderTargetWriteMask = u8(dx.COLOR_WRITE_ENABLE_ALL),
 	}
 
-	// all formats of the g buffers
-	// HERE
 	rtv_formats := [8]dxgi.FORMAT {
 		0 = dx_context.gbuffer.gb_albedo.format,
 		1 = dx_context.gbuffer.gb_normal.format,
