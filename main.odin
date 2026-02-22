@@ -70,9 +70,6 @@ wx := i32(2000)
 wy := i32(1000)
 
 
-
-
-
 dx_context: Context
 start_time: time.Time
 light_pos: v3
@@ -2646,7 +2643,11 @@ load_white_texture :: proc(upload_resources: ^DXResourcePoolDynamic) {
 	assert(image_data != nil)
 	defer img.image_free(image_data)
 	
-	texture_res := create_texture_with_data(image_data, u64(w), u32(h), u32(channels), .R8G8B8A8_UNORM, 
+	img_data_mipmaps := [?][]byte{
+		slice.from_ptr(image_data, cast(int)(w * h * channels))
+	}
+	
+	texture_res := create_texture_with_data(img_data_mipmaps[:], u64(w), u32(h), u32(channels), .R8G8B8A8_UNORM, 
 		&resources_longterm, upload_resources, "white")
 	
 	// creating srv on uber heap

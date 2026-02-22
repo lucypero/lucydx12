@@ -237,7 +237,6 @@ gltf_load_textures :: proc(model_filepath: string, data : ^cgltf.data) {
 	for image, i in data.images {
 		// lprintfln("loading image %v", image.name)
 		// assert(image.mime_type == "image/png")
-		w, h, channels : c.int
 		channel_count :: 4
 		// image_data : [^]byte
 		image_name : string
@@ -277,13 +276,10 @@ gltf_load_textures :: proc(model_filepath: string, data : ^cgltf.data) {
 		// TODO: use the DDS file instead of the png file.
 		
 		// defer img.image_free(image_data)
-		
-		texture_format : dxgi.FORMAT : .R8G8B8A8_UNORM
-		
 		dds_file := parse_dds_file(texture_final_path)
 		
-		// texture_res := create_texture_with_data(auto_cast(image_data), u64(w), u32(h), channel_count, texture_format, 
-		// 	&resources_longterm, &upload_resources, string(image.name))
+		texture_res := create_texture_with_data(dds_file.mipmap_data, u64(dds_file.width), dds_file.height, channel_count, dds_file.format, 
+			&resources_longterm, &upload_resources, string(image.name))
 		
 		// lprintfln("name: %v, index in the heap: %v", image.name, textures_srv_index)
 		
@@ -296,7 +292,7 @@ gltf_load_textures :: proc(model_filepath: string, data : ^cgltf.data) {
 	}
 	
 	// execute command list
-	execute_command_list_and_wait(ct.cmdlist, ct.queue)
+	execute_command_list_and_wait()
 	
 	// free upload resources
 	for res in upload_resources {

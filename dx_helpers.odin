@@ -14,22 +14,25 @@ import "core:fmt"
 import "base:runtime"
 import "core:math"
 
-execute_command_list_and_wait :: proc(cmd_list: ^dx.IGraphicsCommandList, queue: ^dx.ICommandQueue) {
+execute_command_list_and_wait :: proc() {
+	
+	ct := &dx_context
+	
 	
 	fence_value: u64
 	fence: ^dx.IFence
-	hr := dx_context.device->CreateFence(fence_value, {}, dx.IFence_UUID, (^rawptr)(&fence))
+	hr := ct.device->CreateFence(fence_value, {}, dx.IFence_UUID, (^rawptr)(&fence))
 	defer fence->Release()
 	fence_value += 1
 	
 	// close command list and execute
-	cmd_list->Close()
-	cmdlists := [?]^dx.IGraphicsCommandList{cmd_list}
-	queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
+	ct.cmdlist->Close()
+	cmdlists := [?]^dx.IGraphicsCommandList{ct.cmdlist}
+	ct.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
 	
 	// we signal only after executing the command list.
 	// otherwise we are not sure that the gpu is done with the upload resource.
-	hr = queue->Signal(fence, fence_value)
+	hr = ct.queue->Signal(fence, fence_value)
 	
 	// 4. Wait for the GPU to reach the signal point.
 	// First, create an event handle.
@@ -291,26 +294,25 @@ create_structured_buffer_with_data :: proc(
 	cmdlist->CopyResource(default_res, upload_res)
 
 	// transition resource to shader readable.
-
 	transition_resource_from_copy_to_read(default_res, cmdlist)
 
-	execute_command_list_and_wait(cmdlist, ct.queue)
+	execute_command_list_and_wait()
 	
 	return default_res
 }
 
 DDSFile :: struct {
+	width: u32,
+	height: u32,
 	format: dxgi.FORMAT,
-	mipmap_levels: u32,
 	mipmap_data: [][]byte,
 }
 	
-
 // creates texture then uploads data to it then transitions to a default heap
 // it doesn't execute the command list. u have to do that later.
 // release upload resources after executing command list.
 create_texture_with_data :: proc(
-	image_data: [^]byte,
+	image_data: [][]byte, // slice of mipmap data
 	width: u64,
 	height: u32,
 	channels: u32,
@@ -321,11 +323,14 @@ create_texture_with_data :: proc(
 ) -> (res: ^dx.IResource) {
 	
 	ct := &dx_context
+	
+	mip_levels := cast(u16)len(image_data)
 
 	// default heap (this is where the final texture will reside)
 	heap_properties := dx.HEAP_PROPERTIES {
 		Type = .DEFAULT,
 	}
+	
 	texture_desc := dx.RESOURCE_DESC {
 		Width = (u64)(width),
 		Height = (u32)(height),
@@ -333,7 +338,7 @@ create_texture_with_data :: proc(
 		Layout = .UNKNOWN,
 		Format = format,
 		DepthOrArraySize = 1,
-		MipLevels = 1,
+		MipLevels = mip_levels,
 		SampleDesc = {Count = 1},
 	}
 
@@ -362,7 +367,11 @@ create_texture_with_data :: proc(
 	num_rows: u32
 	row_size: u64
 
-	ct.device->GetCopyableFootprints(&texture_desc, 0, 1, 0, &text_footprint, &num_rows, 
+	// GetCopyableFootprints:            proc "system" (this: ^IDevice, pResourceDesc: ^RESOURCE_DESC, 
+	// FirstSubresource: u32, NumSubresources: u32, BaseOffset: u64, pLayouts: [^]PLACED_SUBRESOURCE_FOOTPRINT,
+	// pNumRows: [^]u32, pRowSizeInBytes: [^]u64, pTotalBytes: ^u64),
+	
+	ct.device->GetCopyableFootprints(&texture_desc, 0, auto_cast mip_levels, 0, &text_footprint, &num_rows, 
 		&row_size, &text_bytes)
 
 	// creating upload heap and resource (needed to upload texture data from cpu to the default heap)
@@ -403,13 +412,19 @@ create_texture_with_data :: proc(
 	texture_map_start: rawptr
 	texture_upload->Map(0, &dx.RANGE{}, &texture_map_start)
 	texture_map_start_mp: [^]u8 = auto_cast texture_map_start
-
-	for row in 0 ..< height {
-		mem.copy(
-			texture_map_start_mp[u32(text_footprint.Footprint.RowPitch) * u32(row):],
-			image_data[width * u64(channels) * u64(row):],
-			int(width * u64(channels)),
-		)
+	
+	offset: int
+	
+	for mip in 0 ..< mip_levels {
+		for row in 0 ..< height {
+			source_data : [^]byte = slice.as_ptr(image_data[mip])
+			mem.copy(
+				texture_map_start_mp[u32(text_footprint.Footprint.RowPitch) * u32(row) + cast(u32)offset:],
+				source_data[width * u64(channels) * u64(row):],
+				int(width * u64(channels)),
+			)
+		}
+		offset += len(image_data[mip])
 	}
 	
 	// here you send the gpu command to copy the data to the texture resource.
@@ -425,8 +440,12 @@ create_texture_with_data :: proc(
 		Type = .SUBRESOURCE_INDEX,
 		SubresourceIndex = 0,
 	}
-
-	ct.cmdlist->CopyTextureRegion(&copy_location_dst, 0, 0, 0, &copy_location_src, nil)
+	
+	for i in 0..<mip_levels {
+		copy_location_dst.SubresourceIndex = auto_cast i
+		ct.cmdlist->CopyTextureRegion(&copy_location_dst, 0, 0, 0, &copy_location_src, nil)
+	}
+	
 	transition_resource_from_copy_to_read(res, ct.cmdlist)
 	return res
 }
@@ -698,8 +717,9 @@ parse_dds_file :: proc(dds_filepath: string) -> DDSFile {
 	// TODO handle freeing
 	
 	dds_output := DDSFile {
+		width = header.Width,
+		height = header.Height,
 		format = text_format,
-		mipmap_levels = header.MipMapCount,
 		mipmap_data = make([][]byte, header.MipMapCount)
 	}
 	
