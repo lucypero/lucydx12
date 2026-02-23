@@ -613,9 +613,7 @@ generate_uv_sphere :: proc(meridians: u32, parallels: u32, allocator: runtime.Al
 parse_dds_file :: proc(dds_filepath: string) -> DDSFile {
 	
 	file_data, err := os.read_entire_file_from_path(dds_filepath, context.temp_allocator)
-	
 	magic_num, ok := endian.get_u32(file_data, .Little)
-	
 	assert(magic_num == 0x20534444)
 	
 	PixelFormatFlagsEnum :: enum {
@@ -639,7 +637,6 @@ parse_dds_file :: proc(dds_filepath: string) -> DDSFile {
 	}
 	
 	DDSHeader :: struct #packed {
-	  magic_num: u32,
 	  Size : u32,
 	  Flags: u32,
 	  Height: u32,
@@ -664,56 +661,30 @@ parse_dds_file :: proc(dds_filepath: string) -> DDSFile {
 		miscFlags2: u32,
 	}
 	
-	// lprintfln("it's a dds file!")
-	
 	advance :u32
-	
-	header := (^DDSHeader)(raw_data(file_data))
-	
+	advance += size_of(magic_num)
+	header := (^DDSHeader)(raw_data(file_data[advance:]))
 	advance += size_of(DDSHeader)
 	
-	// If the DDS_PIXELFORMAT dwFlags is set to DDPF_FOURCC and dwFourCC is set to "DX10" an additional DDS_HEADER_DXT10 structure will be present to accommodate texture arrays or DXGI formats that cannot be expressed as an RGB pixel format such as floating point formats, sRGB formats etc. When the DDS_HEADER_DXT10 structure is present the entire data description will looks like this.
-	// flags_u32 := cast(^u32)(&header.pixel_format.Flags)
+	// assume we have the DX10 header.
+	assert(.DDPF_FOURCC in header.pixel_format.Flags && header.pixel_format.FourCC == 0x30315844)
 	
-	is_compressed := false
-	bytes_per_block : u32 = 2
-	text_format: dxgi.FORMAT
+	header_dx10 := (^DDSHeaderDXT10)(raw_data(file_data[advance:]))
+	advance += size_of(DDSHeaderDXT10)
 	
-	if .DDPF_FOURCC in header.pixel_format.Flags && header.pixel_format.FourCC == 0x30315844 { 
-		// it has the dx10 header.
-		
-		header_dx10 := (^DDSHeaderDXT10)(raw_data(file_data[advance:]))
-		advance += size_of(DDSHeaderDXT10)
-		
-		// lprintfln("it has a dx10 header!!!")
-		
-// 		For an uncompressed texture, use the DDSD_PITCH and DDPF_RGB flags; 
-// for a compressed texture, use the DDSD_LINEARSIZE and DDPF_FOURCC flags. For a mipmapped texture, use the DDSD_MIPMAPCOUNT, DDSCAPS_MIPMAP, and DDSCAPS_COMPLEX flags also as well as the mipmap count member. If mipmaps are generated, all levels down to 1-by-1 are usually written.
-// For a compressed texture, the size of each mipmap level image is typically one-fourth the size of the previous, with a minimum of 8 (DXT1) or 16 (DXT2-5) bytes (for square textures). Use the following formula to calculate the size of each level for a non-square texture:
-
-		text_format = header_dx10.dxgi_format
-		format_num :i32 = cast(i32)header_dx10.dxgi_format 
-		
-		
-		if (format_num >= 70 && format_num <= 84) || (format_num >= 94 && format_num <= 99) {
-			// compressed
-			is_compressed = true
-		} else {
-			// uncompressed
-			is_compressed = false
-		}
-		
-		switch format_num {
-		case 70..=72: // BC1
-		case 79..=81: // BC4
-			bytes_per_block = 8
-		case: // Rest of BCs
-			bytes_per_block = 16
-		}
-		
-	} else {
-		// TODO: not handled yet. but all textures u use should have the dx10 header. so we're probably good
-		assert(false)
+	text_format : dxgi.FORMAT = header_dx10.dxgi_format
+	format_num :i32 = cast(i32)header_dx10.dxgi_format 
+	
+	// It's compressed if it's a BC format
+	is_compressed : bool = (format_num >= 70 && format_num <= 84) || (format_num >= 94 && format_num <= 99)
+	
+	bytes_per_block : u32 = 0
+	switch format_num {
+	case 70..=72: // BC1
+	case 79..=81: // BC4
+		bytes_per_block = 8
+	case: // Rest of BCs
+		bytes_per_block = 16
 	}
 	
 	current_w := header.Width
@@ -741,13 +712,7 @@ parse_dds_file :: proc(dds_filepath: string) -> DDSFile {
 					
 		// TODO: this memory lives in the allocator used for the file read
 		dds_output.mipmap_data[i] = mip_data
-	    
-	    // lprintfln("Level %v: %v bytes", i, len(mip_data))
 	}
-	
-	// here is the data:
-	// file_data[advance:]
-	// lprintfln("check the header")
 	
 	return dds_output
 }
