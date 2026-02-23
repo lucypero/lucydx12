@@ -1,8 +1,9 @@
-- invalidate the cache when it's required.
-- fix DDS bug on normal map now
+- figure out why there's dx resource leaks now.
+
+- take care of transparency. for the vegetation
+- invalidate the cache when it's required (how though)
 - clean up new code ASAP
 - handle memory. there's leaks.
-- figure out why there's dx resource leaks now.
 
 # mipmap plan
 

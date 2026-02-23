@@ -161,6 +161,7 @@ PSOutput PSMain(PSInput input) {
 		float3x3 TBN = float3x3(T, B, N);
 		TBN = transpose(TBN);
 		
+		
 		// Sample and transform
 		Texture2D<float4> normalMapTexture = ResourceDescriptorHeap[mat.normal.texture_id];
 		

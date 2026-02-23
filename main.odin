@@ -44,8 +44,7 @@ v4 :: linalg.Vector4f32
 
 dxm :: matrix[4, 4]f32
 
-DXResourcePool :: sa.Small_Array(100, ^dx.IUnknown)
-DXResourcePoolDynamic :: [dynamic]^dx.IUnknown
+DXResourcePool :: [dynamic]^dx.IUnknown
 
 gbuffer_shader_filename :: "shader.hlsl"
 lighting_shader_filename :: "lighting.hlsl"
@@ -383,7 +382,7 @@ main :: proc() {
 
 	imgui_destoy()
 
-	#reverse for i in sa.slice(&resources_longterm) {
+	#reverse for &i in resources_longterm {
 		i->Release()
 	}
 
@@ -490,7 +489,7 @@ create_swapchain :: proc(
 		(^^dxgi.ISwapChain1)(&swapchain),
 	)
 	check(hr, "Failed to create swap chain")
-	sa.push(&resources_longterm, swapchain)
+	append(&resources_longterm, swapchain)
 
 	return
 }
@@ -530,7 +529,7 @@ init_dx_other :: proc() {
 
 		check(hr, "failed creating constant buffer")
 		ct.constant_buffer->SetName("lucy's constant buffer")
-		sa.push(&resources_longterm, ct.constant_buffer)
+		append(&resources_longterm, ct.constant_buffer)
 
 		// empty range means the cpu won't read from it
 		ct.constant_buffer->Map(0, &dx.RANGE{}, &ct.constant_buffer_map)
@@ -558,7 +557,7 @@ init_dx_other :: proc() {
 	// check(hr, "Failed to create command list")
 	// hr = ct.cmdlist->Close()
 	// check(hr, "Failed to close command list")
-	sa.push(&resources_longterm, ct.cmdlist)
+	append(&resources_longterm, ct.cmdlist)
 	
 	// hr = ct.command_allocator->Reset()
 	// hr = ct.cmdlist->Reset(ct.command_allocator, nil)
@@ -639,7 +638,7 @@ init_dx_other :: proc() {
 			(^rawptr)(&vertex_buffer),
 		)
 		check(hr, "Failed creating vertex buffer")
-		sa.push(&resources_longterm, vertex_buffer)
+		append(&resources_longterm, vertex_buffer)
 
 		gpu_data: rawptr
 		read_range: dx.RANGE
@@ -674,7 +673,7 @@ init_dx_other :: proc() {
 		)
 		check(hr, "failed index buffer")
 		index_buffer->SetName("lucy's index buffer")
-		sa.push(&resources_longterm, index_buffer)
+		append(&resources_longterm, index_buffer)
 
 		ct.index_buffer_view = dx.INDEX_BUFFER_VIEW {
 			BufferLocation = index_buffer->GetGPUVirtualAddress(),
@@ -696,7 +695,7 @@ init_dx_other :: proc() {
 	{
 		hr = ct.device->CreateFence(ct.fence_value, {}, dx.IFence_UUID, (^rawptr)(&ct.fence))
 		check(hr, "Failed to create fence")
-		sa.push(&resources_longterm, ct.fence)
+		append(&resources_longterm, ct.fence)
 		ct.fence_value += 1
 		manual_reset: windows.BOOL = false
 		initial_state: windows.BOOL = false
@@ -731,7 +730,7 @@ init_dx :: proc() {
 
 		hr = dxgi.CreateDXGIFactory2(flags, dxgi.IFactory4_UUID, cast(^rawptr)&factory)
 		check(hr, "Failed creating factory")
-		sa.push(&resources_longterm, factory)
+		append(&resources_longterm, factory)
 	}
 
 	ct.factory = factory
@@ -754,7 +753,7 @@ init_dx :: proc() {
 	for i: u32 = 0; factory->EnumAdapters1(i, &adapter) != error_not_found; i += 1 {
 		desc: dxgi.ADAPTER_DESC1
 		adapter->GetDesc1(&desc)
-		sa.push(&resources_longterm, adapter)
+		append(&resources_longterm, adapter)
 		if .SOFTWARE in desc.Flags {
 			continue
 		}
@@ -802,7 +801,7 @@ init_dx :: proc() {
 		hr = ct.device->CreateDescriptorHeap(&desc, dx.IDescriptorHeap_UUID, (^rawptr)(&ct.cbv_srv_uav_heap))
 		check(hr, "Failed creating descriptor heap")
 		ct.cbv_srv_uav_heap->SetName("lucy's uber CBV_SRV_UAV descriptor heap")
-		sa.push(&resources_longterm, ct.cbv_srv_uav_heap)
+		append(&resources_longterm, ct.cbv_srv_uav_heap)
 	}
 
 
@@ -814,7 +813,7 @@ init_dx :: proc() {
 
 		hr = ct.device->CreateCommandQueue(&desc, dx.ICommandQueue_UUID, (^rawptr)(&ct.queue))
 		check(hr, "Failed creating command queue")
-		sa.push(&resources_longterm, ct.queue)
+		append(&resources_longterm, ct.queue)
 	}
 
 	// Create the swapchain, it's the thing that contains render targets that we draw into.
@@ -838,7 +837,7 @@ init_dx :: proc() {
 		)
 		check(hr, "Failed creating descriptor heap")
 		ct.swapchain_rtv_descriptor_heap->SetName("lucy's swapchain RTV descriptor heap")
-		sa.push(&resources_longterm, ct.swapchain_rtv_descriptor_heap)
+		append(&resources_longterm, ct.swapchain_rtv_descriptor_heap)
 	}
 
 	// Fetch the two render targets from the swapchain
@@ -860,7 +859,7 @@ init_dx :: proc() {
 	// The command allocator is used to create the commandlist that is used to tell the GPU what to draw
 	hr = ct.device->CreateCommandAllocator(.DIRECT, dx.ICommandAllocator_UUID, (^rawptr)(&ct.command_allocator))
 	check(hr, "Failed creating command allocator")
-	sa.push(&resources_longterm, ct.command_allocator)
+	append(&resources_longterm, ct.command_allocator)
 	
 	// Create the commandlist that is reused further down.
 	hr = ct.device->CreateCommandList(
@@ -1254,7 +1253,7 @@ create_gbuffer_pass_root_signature :: proc() {
 		(^rawptr)(&dx_context.gbuffer_pass_root_signature),
 	)
 	check(hr, "Failed creating root signature")
-	sa.push(&resources_longterm, dx_context.gbuffer_pass_root_signature)
+	append(&resources_longterm, dx_context.gbuffer_pass_root_signature)
 	serialized_desc->Release()
 }
 
@@ -1417,7 +1416,7 @@ create_depth_buffer :: proc() {
 
 	check(hr, "failed creating depth resource")
 	c.depth_stencil_res->SetName("depth stencil texture")
-	sa.push(&resources_longterm, c.depth_stencil_res)
+	append(&resources_longterm, c.depth_stencil_res)
 
 	// depth stencil view descriptor heap
 
@@ -1433,7 +1432,7 @@ create_depth_buffer :: proc() {
 	c.descriptor_heap_dsv->SetName("lucy's DSV (depth-stencil-view) descriptor heap")
 
 	check(hr, "could not create descriptor heap for DSV")
-	sa.push(&resources_longterm, c.descriptor_heap_dsv)
+	append(&resources_longterm, c.descriptor_heap_dsv)
 
 	// creating depth stencil view
 
@@ -1539,7 +1538,7 @@ imgui_init :: proc() {
 	)
 	check(hr, "could ont create imgui descriptor heap")
 	dx_context.imgui_descriptor_heap->SetName("imgui's cbv srv uav descriptor heap")
-	sa.push(&resources_longterm, dx_context.imgui_descriptor_heap)
+	append(&resources_longterm, dx_context.imgui_descriptor_heap)
 
 	dx_context.imgui_allocator = descriptor_heap_allocator_create(dx_context.imgui_descriptor_heap, .CBV_SRV_UAV)
 
@@ -1704,7 +1703,7 @@ create_gbuffer :: proc() -> GBuffer {
 
 	hr := ct.device->CreateDescriptorHeap(&desc, dx.IDescriptorHeap_UUID, (^rawptr)(&gb_rtv_dh))
 	check(hr, "Failed creating descriptor heap")
-	sa.push(&resources_longterm, gb_rtv_dh)
+	append(&resources_longterm, gb_rtv_dh)
 	gb_rtv_dh->SetName("lucy's g-buffer RTV descriptor heap")
 
 	rtv_descriptor_size: u32 = ct.device->GetDescriptorHandleIncrementSize(.RTV)
@@ -1878,7 +1877,7 @@ create_gizmos_pso :: proc() -> (^dx.IRootSignature, ^dx.IPipelineState) {
 		(^rawptr)(&root_signature),
 	)
 	check(hr, "Failed creating root signature")
-	sa.push(&resources_longterm, root_signature)
+	append(&resources_longterm, root_signature)
 	serialized_desc->Release()
 	
 	// create pso
@@ -1997,7 +1996,7 @@ create_gizmos_pso :: proc() -> (^dx.IRootSignature, ^dx.IPipelineState) {
 	hr = ct.device->CreateGraphicsPipelineState(&pipeline_state_desc, dx.IPipelineState_UUID, (^rawptr)(&pso))
 	check(hr, "Pipeline creation failed")
 	pso->SetName("PSO for UI things (light gizmos, etc)")
-	sa.push(&resources_longterm, pso)
+	append(&resources_longterm, pso)
 
 	return root_signature, pso
 }
@@ -2020,8 +2019,8 @@ create_lighting_pso_initial :: proc() {
 
 	c.pipeline_lighting = create_new_lighting_pso(c.lighting_pass_root_signature, vs, ps)
 
-	pso_index := sa.len(resources_longterm)
-	sa.push(&resources_longterm, c.pipeline_lighting)
+	pso_index := len(resources_longterm)
+	append(&resources_longterm, c.pipeline_lighting)
 
 	hotswap_init(&c.lighting_hotswap, lighting_shader_filename, pso_index)
 
@@ -2086,7 +2085,7 @@ create_lighting_root_signature :: proc() {
 		(^rawptr)(&c.lighting_pass_root_signature),
 	)
 	check(hr, "Failed creating root signature")
-	sa.push(&resources_longterm, c.lighting_pass_root_signature)
+	append(&resources_longterm, c.lighting_pass_root_signature)
 	serialized_desc->Release()
 }
 
@@ -2251,8 +2250,8 @@ create_gbuffer_pso_initial :: proc() {
 
 	c.pipeline_gbuffer = create_new_gbuffer_pso(c.gbuffer_pass_root_signature, vs, ps)
 
-	pso_index := sa.len(resources_longterm)
-	sa.push(&resources_longterm, c.pipeline_gbuffer)
+	pso_index := len(resources_longterm)
+	append(&resources_longterm, c.pipeline_gbuffer)
 
 	hotswap_init(&c.gbuffer_hotswap, gbuffer_shader_filename, pso_index)
 
@@ -2624,14 +2623,14 @@ hotswap_swap :: proc(hs: ^HotSwapState, pso: ^^dx.IPipelineState) {
 		pso^->Release()
 		pso^ = hs.pso_swap
 		// replace pointer from freeing queue
-		pso_pointer := sa.get_ptr(&resources_longterm, hs.pso_index)
+		pso_pointer := &resources_longterm[hs.pso_index]
 		pso_pointer^ = pso^
 		hs.pso_swap = nil
 	}
 }
 
 
-load_white_texture :: proc(upload_resources: ^DXResourcePoolDynamic) {
+load_white_texture :: proc(upload_resources: ^DXResourcePool) {
 	ct := dx_context
 	
 	w, h, channels : c.int
