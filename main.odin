@@ -38,8 +38,6 @@ NUM_RENDERTARGETS :: 2
 
 TURNS_TO_RAD :: math.PI * 2
 
-TEXTURE_LIMIT :: 9999999999
-
 v2 :: linalg.Vector2f32
 v3 :: linalg.Vector3f32
 v4 :: linalg.Vector4f32
@@ -1219,17 +1217,17 @@ create_gbuffer_pass_root_signature :: proc() {
 
 	// We'll define a static sampler description
 	sampler_desc := dx.STATIC_SAMPLER_DESC {
-		Filter = .ANISOTROPIC, // Tri-linear filtering
-		AddressU = .WRAP, // Repeat the texture in the U direction
-		AddressV = .WRAP, // Repeat the texture in the V direction
-		AddressW = .WRAP, // Repeat the texture in the W direction
+		Filter = .ANISOTROPIC,
+		AddressU = .WRAP,
+		AddressV = .WRAP,
+		AddressW = .WRAP,
 		MipLODBias = 0.0,
 		MaxAnisotropy = 16,
 		ComparisonFunc = .NEVER,
 		BorderColor = .OPAQUE_BLACK,
 		MinLOD = 0.0,
 		MaxLOD = dx.FLOAT32_MAX,
-		ShaderRegister = 0, // This corresponds to the s0 register in the shader
+		ShaderRegister = 0,
 		RegisterSpace = 0,
 		ShaderVisibility = .PIXEL,
 	}

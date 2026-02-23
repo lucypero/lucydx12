@@ -10,7 +10,6 @@ import "core:strings"
 import dx "vendor:directx/d3d12"
 import img "vendor:stb/image"
 import "core:slice"
-import "core:path/filepath"
 import "core:c"
 import dxgi "vendor:directx/dxgi"
 import "base:runtime"
@@ -45,8 +44,6 @@ gltf_process_data :: proc(allocator: runtime.Allocator) -> (vertices: [dynamic]V
 
 	g_materials = gltf_load_materials(data)
 	g_meshes = gltf_load_meshes(data, &vertices_dyn, &indices_dyn)
-	
-	gltf_load_textures(model_filepath, data)
 	
 	scene = gltf_load_nodes(data)
 
@@ -216,88 +213,62 @@ gltf_load_nodes :: proc(data: ^cgltf.data) -> Scene {
 	return Scene{nodes = nodes, root_nodes = root_nodes, mesh_count = mesh_count}
 }
 
-
-gltf_load_textures :: proc(model_filepath: string, data : ^cgltf.data) {
+load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT,
+					 upload_resources: ^[dynamic]^dx.IUnknown, textures_srv_index: ^u32) {
 	
-	ct := dx_context
+	ct := &dx_context
 	
-	upload_resources := make([dynamic]^dx.IUnknown, 0, len(data.images))
-	defer delete(upload_resources)
+	// lprintfln("loading image %v", image.name)
+	// assert(image.mime_type == "image/png")
+	// channel_count :: 4
+	// image_data : [^]byte
+	image_name : string
 	
-	dx_context.cmdlist->Reset(dx_context.command_allocator, ct.pipeline_gbuffer)
-	
-	load_white_texture(&upload_resources)
-	
-	if TEXTURE_LIMIT == 0 {
-		return
-	}
-	
-	textures_srv_index : u32 = TEXTURE_INDEX_BASE // starting at 100 to not interfere with other views
-	
-	for image, i in data.images {
-		// lprintfln("loading image %v", image.name)
-		// assert(image.mime_type == "image/png")
+	if image.uri != nil {
+		// image data is a file. just pass the file to texconv now
+		
 		// channel_count :: 4
-		// image_data : [^]byte
-		image_name : string
+		//  u gotta concatenate the name
 		
-		if image.uri != nil {
-			// image data is a file. just pass the file to texconv now
-			
-			// channel_count :: 4
-			//  u gotta concatenate the name
-			
-			// image_dir := filepath.dir(model_filepath, context.temp_allocator)
-			// image_path, alloc_err := filepath.join({image_dir, string(image.uri)}, context.temp_allocator)
-			// if alloc_err != .None {
-			// 	lprintfln("alloc error")
-			// 	os.exit(1)
-			// }
-			// image_path_cstring := strings.clone_to_cstring(image_path, context.temp_allocator)
-			
-			// image_data = img.load(image_path_cstring, &w, &h, &channels, channel_count)
-			image_name = string(image.uri)
-			// assert(image_data != nil)
-		} else {
-			// the image data is inside the gltf file. caching this will be harder.
-			
-			// TODO: you will need to write this to a file first.
-			
-			// png_data := cgltf.buffer_view_data(image.buffer_view)
-			// png_size := image.buffer_view.size
-			// image_data = img.load_from_memory(png_data, i32(png_size), &w, &h, &channels, channel_count)
-			
-			image_name = string(image.name)
-			// assert(image_data != nil)
-		}
+		// image_dir := filepath.dir(model_filepath, context.temp_allocator)
+		// image_path, alloc_err := filepath.join({image_dir, string(image.uri)}, context.temp_allocator)
+		// if alloc_err != .None {
+		// 	lprintfln("alloc error")
+		// 	os.exit(1)
+		// }
+		// image_path_cstring := strings.clone_to_cstring(image_path, context.temp_allocator)
 		
-		texture_final_path := texture_cache_query(model_filepath, image_name)
+		// image_data = img.load(image_path_cstring, &w, &h, &channels, channel_count)
+		image_name = string(image.uri)
+		// assert(image_data != nil)
+	} else {
+		// the image data is inside the gltf file. caching this will be harder.
 		
-		// TODO: use the DDS file instead of the png file.
+		// TODO: you will need to write this to a file first.
 		
-		// defer img.image_free(image_data)
-		dds_file := parse_dds_file(texture_final_path)
+		// png_data := cgltf.buffer_view_data(image.buffer_view)
+		// png_size := image.buffer_view.size
+		// image_data = img.load_from_memory(png_data, i32(png_size), &w, &h, &channels, channel_count)
 		
-		texture_res := create_texture_with_data(dds_file.mipmap_data, u64(dds_file.width), dds_file.height, dds_file.format, 
-			&resources_longterm, &upload_resources, string(image.name))
-		
-		// lprintfln("name: %v, index in the heap: %v", image.name, textures_srv_index)
-		
-		// creating srv on uber heap
-		ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, textures_srv_index))
-		textures_srv_index += 1
-		
-		// enforcing a limit bc it's so slow
-		if i > TEXTURE_LIMIT do break
+		image_name = string(image.name)
+		// assert(image_data != nil)
 	}
 	
-	// execute command list
-	execute_command_list_and_wait()
+	texture_final_path := texture_cache_query(model_filepath, image_name, format)
 	
-	// free upload resources
-	for res in upload_resources {
-		res->Release()
-	}
+	// TODO: use the DDS file instead of the png file.
+	
+	// defer img.image_free(image_data)
+	dds_file := parse_dds_file(texture_final_path)
+	
+	texture_res := create_texture_with_data(dds_file.mipmap_data, u64(dds_file.width), dds_file.height, dds_file.format, 
+		&resources_longterm, upload_resources, string(image.name))
+	
+	// lprintfln("name: %v, index in the heap: %v", image.name, textures_srv_index)
+	
+	// creating srv on uber heap
+	ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, textures_srv_index^))
+	textures_srv_index^ += 1
 }
 
 @(private="file")
@@ -307,7 +278,7 @@ get_texture_index_uv :: proc(data: ^cgltf.data, tex_view: cgltf.texture_view) ->
 	base_color_uv_index : u32 = 0
 	texture_name : cstring = "no base texture"
 	
-	if TEXTURE_LIMIT != 0 && tex_view.texture != nil {
+	if tex_view.texture != nil {
 		base_color_img_index = TEXTURE_INDEX_BASE + u32(cgltf.image_index(data, tex_view.texture.image_))
 		texture_name = tex_view.texture.image_.name
 		base_color_uv_index = u32(tex_view.texcoord)
@@ -316,30 +287,88 @@ get_texture_index_uv :: proc(data: ^cgltf.data, tex_view: cgltf.texture_view) ->
 	return TextureUV{texture_id = base_color_img_index, uv_id = base_color_uv_index}
 }
 
+
+get_texture_uv :: proc(data: ^cgltf.data, tex_view: cgltf.texture_view) -> u32 {
+	
+	if tex_view.texture != nil {
+		return u32(tex_view.texcoord)
+	}
+	
+	assert(false)
+	return 0
+}
+
 gltf_load_materials :: proc(data: ^cgltf.data) -> []Material {
 	
 	ct := &dx_context
 	
 	mats := make([]Material, len(data.materials))
 	
+	upload_resources := make([dynamic]^dx.IUnknown, 0, len(data.images))
+	defer delete(upload_resources)
+	
+	dx_context.cmdlist->Reset(dx_context.command_allocator, ct.pipeline_gbuffer)
+	
+	load_white_texture(&upload_resources)
+	
+	textures_srv_index : u32 = TEXTURE_INDEX_BASE // starting at 100 to not interfere with other views
+	
 	for mat, i in data.materials {
 		assert(bool(mat.has_pbr_metallic_roughness))
 		
-		// loading base color
-		// mat.pbr_metallic_roughness.base_color_texture.
-		
 		// TODO take evrything else into consideration. (scale, uvs, etc...)
 		
-		// metallic roughness texture
-		// mat.pbr_metallic_roughness.metallic_roughness_texture
+		mats[i] = Material {}
 		
-		// lprintfln("name: %v, cgltf index: %v", texture_name, base_color_img_index)
-		
-		mats[i] = Material {
-			base_color = get_texture_index_uv(data, mat.pbr_metallic_roughness.base_color_texture),
-			metallic_roughness = get_texture_index_uv(data, mat.pbr_metallic_roughness.metallic_roughness_texture),
-			normal = get_texture_index_uv(data, mat.normal_texture),
+		// base color
+		if mat.pbr_metallic_roughness.base_color_texture.texture != nil {
+			// process base color (BC 7 SRGB)
+			// load mat.pbr_metallic_roughness.base_color_texture.texture.image_
+			
+			mats[i].base_color = TextureUV {
+				texture_id = textures_srv_index,
+				uv_id = get_texture_uv(data, mat.pbr_metallic_roughness.base_color_texture),
+			}
+			
+			load_texture(mat.pbr_metallic_roughness.base_color_texture.texture.image_, 
+				.BC7_UNORM_SRGB, &upload_resources, &textures_srv_index)
 		}
+		
+		// metallic roughness
+		if mat.pbr_metallic_roughness.metallic_roughness_texture.texture != nil {
+			// process metallic roughness (BC 7 UNORM)
+			// load mat.pbr_metallic_roughness.metallic_roughness_texture.texture.image_
+			
+			mats[i].metallic_roughness = TextureUV {
+				texture_id = textures_srv_index,
+				uv_id = get_texture_uv(data, mat.pbr_metallic_roughness.metallic_roughness_texture),
+			}
+			
+			load_texture(mat.pbr_metallic_roughness.metallic_roughness_texture.texture.image_,
+			 .BC7_UNORM,  &upload_resources, &textures_srv_index)
+		}
+		
+		// normal
+		if mat.normal_texture.texture != nil {
+			// process normal texture (BC 5 UNORM)
+			// load mat.normal_texture.texture.image_
+			
+			mats[i].normal = TextureUV {
+				texture_id = textures_srv_index,
+				uv_id = get_texture_uv(data, mat.normal_texture),
+			}
+			
+			load_texture(mat.normal_texture.texture.image_,
+			 .BC5_UNORM,  &upload_resources, &textures_srv_index)
+		}
+	}
+	
+	// execute command list
+	execute_command_list_and_wait()
+	
+	// free upload resources
+	for res in upload_resources {
+		res->Release()
 	}
 	
 	ct.sb_materials = create_structured_buffer_with_data(
@@ -371,58 +400,4 @@ hash_thing :: proc(thing:string) -> string {
 	thing_hash, ok := base64.encode(thing_hash_temp, ENC_TABLE)
 	assert(ok == .None)
 	return thing_hash
-}
-
-texture_cache_query :: proc(model_filepath, image_name: string) -> (texture_out_path: string) {
-	
-	// test if this exists already
-	
-	// lprintln("image texture cache miss. creating texture with mipmaps")
-	alloc_err : runtime.Allocator_Error
-	os_err : os.Error
-	
-	filepath_hash := hash_thing(model_filepath)
-	// image_name_hash := hash_thing(image_name)
-	
-	cache_dir : string
-	cache_dir, alloc_err = filepath.join({"cache", filepath_hash}, context.temp_allocator)
-	assert(alloc_err == .None)
-	
-	image_name_dss := strings.concatenate({filepath.stem(image_name), ".dds"}, context.temp_allocator)
-	texture_out_path, alloc_err = filepath.join({cache_dir, image_name_dss}, context.temp_allocator)
-	assert(alloc_err == os.ERROR_NONE)
-	
-	// checking if it exists already
-	if os.exists(texture_out_path) {
-		return texture_out_path
-	}
-	
-	// create dirs
-	dir_err := os.make_directory_all(cache_dir)
-	
-	assert(dir_err == os.ERROR_NONE)
-	
-	input_image_dir := filepath.dir(model_filepath, context.temp_allocator)
-	input_image_path, alloc_err_2 := filepath.join({input_image_dir, image_name}, context.temp_allocator)
-	assert(alloc_err_2 == .None)
-	
-	state, stdout, stderr, err := os.process_exec(os.Process_Desc {
-		command = {
-			"texconv.exe",
-			"-f", "BC7_UNORM", // select output format
-			"-m", "0", // all mip levels
-			"-y", // overwrite
-			"-o", cache_dir,
-			"-nologo",
-			input_image_path
-		}
-	}, context.temp_allocator)
-	
-	// lprintln(string(stdout))
-	// lprintln(string(stderr))
-	assert(state.exited && state.exit_code == 0 && err == os.General_Error.None)
-	
-	lprintfln("texture %v converted correctly", image_name)
-	
-	return texture_out_path
 }

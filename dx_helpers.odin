@@ -1,5 +1,8 @@
 package main
 
+import "core:reflect"
+
+import "core:path/filepath"
 import "core:encoding/endian"
 import "core:slice"
 import "core:mem"
@@ -761,4 +764,59 @@ get_mip_level_size :: proc(width, height: u32, format_is_compressed: bool, bytes
     } else {
         return w * h * bytes_per_block_or_pixel // e.g., 4 for RGBA8
     }
+}
+
+texture_cache_query :: proc(model_filepath, image_name: string, format: dxgi.FORMAT) -> (texture_out_path: string) {
+	
+	// test if this exists already
+	
+	// lprintln("image texture cache miss. creating texture with mipmaps")
+	alloc_err : runtime.Allocator_Error
+	os_err : os.Error
+	
+	filepath_hash := hash_thing(model_filepath)
+	// image_name_hash := hash_thing(image_name)
+	
+	cache_dir : string
+	cache_dir, alloc_err = filepath.join({"cache", filepath_hash}, context.temp_allocator)
+	assert(alloc_err == .None)
+	
+	image_name_dss := strings.concatenate({filepath.stem(image_name), ".dds"}, context.temp_allocator)
+	texture_out_path, alloc_err = filepath.join({cache_dir, image_name_dss}, context.temp_allocator)
+	assert(alloc_err == os.ERROR_NONE)
+	
+	// checking if it exists already
+	if os.exists(texture_out_path) {
+		return texture_out_path
+	}
+	
+	// create dirs
+	dir_err := os.make_directory_all(cache_dir)
+	
+	assert(dir_err == os.ERROR_NONE)
+	
+	input_image_dir := filepath.dir(model_filepath, context.temp_allocator)
+	input_image_path, alloc_err_2 := filepath.join({input_image_dir, image_name}, context.temp_allocator)
+	assert(alloc_err_2 == .None)
+	
+	state, stdout, stderr, err := os.process_exec(os.Process_Desc {
+		command = {
+			"texconv.exe",
+			"-f", reflect.enum_string(format), // select output format
+			"-m", "0", // all mip levels
+			"-y", // overwrite
+			"-dx10", // force adding dx10 header
+			"-o", cache_dir,
+			"-nologo",
+			input_image_path
+		}
+	}, context.temp_allocator)
+	
+	// lprintln(string(stdout))
+	// lprintln(string(stderr))
+	assert(state.exited && state.exit_code == 0 && err == os.General_Error.None)
+	
+	lprintfln("texture %v converted correctly", image_name)
+	
+	return texture_out_path
 }
