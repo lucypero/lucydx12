@@ -169,9 +169,19 @@ PSOutput PSMain(PSInput input) {
 			normal_map_uv = input.uvs_2;
 		}
 		
-		float3 normalSample = normalMapTexture.Sample(mySampler, normal_map_uv).rgb * 2.0 - 1.0;
+		float2 normalXY = normalMapTexture.Sample(mySampler, normal_map_uv).rg;
+		normalXY = normalXY * 2.0 - 1.0;
+		
 		// flipping green channel
-		normalSample.y *= -1;
+		normalXY.y *= -1;
+		
+		// 2. Reconstruct Z (the blue channel)
+		// Since the normal is a unit vector, z = sqrt(1 - x^2 - y^2)
+		// We use saturate to ensure we don't sqrt a negative number due to precision
+		float normalZ = sqrt(saturate(1.0 - dot(normalXY, normalXY)));
+		
+		// 3. Final reconstructed normal in Tangent Space
+		float3 normalSample = float3(normalXY, normalZ);
 		
 		const float normalStrength = 0.5f;
 		normalSample.xy *= normalStrength;

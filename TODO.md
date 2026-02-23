@@ -1,3 +1,9 @@
+- invalidate the cache when it's required.
+- fix DDS bug on normal map now
+- clean up new code ASAP
+- handle memory. there's leaks.
+- figure out why there's dx resource leaks now.
+
 # mipmap plan
 
 - use texconv (already in path) see gemini answers for how to use it.
