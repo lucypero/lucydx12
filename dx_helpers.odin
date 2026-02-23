@@ -124,7 +124,7 @@ create_texture :: proc(width: u64, height: u32, format: dxgi.FORMAT, resource_fl
 		(^rawptr)(&res),
 	)
 	
-	sa.push(pool, res)
+	append(pool, res)
 
 	return res
 }
@@ -264,7 +264,7 @@ create_structured_buffer_with_data :: proc(
 	
 	buffer_name_cstring := windows.utf8_to_wstring_alloc(buffer_name, allocator = context.temp_allocator)
 	default_res->SetName(buffer_name_cstring)
-	sa.push(pool_resource, default_res)
+	append(pool_resource, default_res)
 
 	// creating UPLOAD resource
 
@@ -320,7 +320,7 @@ create_texture_with_data :: proc(
 	height: u32,
 	format: dxgi.FORMAT,
 	pool_textures : ^DXResourcePool,
-	pool_upload_heap : ^DXResourcePoolDynamic,
+	pool_upload_heap : ^DXResourcePool,
 	texture_name := ""
 ) -> (res: ^dx.IResource) {
 	
@@ -361,7 +361,7 @@ create_texture_with_data :: proc(
 		res->SetName(texture_name_cstring)
 	}
 	
-	sa.push(pool_textures, res)
+	append(pool_textures, res)
 
 	// getting data from texture that we'll use later
 	text_footprint := make([]dx.PLACED_SUBRESOURCE_FOOTPRINT, mip_levels, context.temp_allocator)
@@ -529,7 +529,7 @@ create_vertex_buffer_upload :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^
 		(^rawptr)(&vb),
 	)
 	check(hr, "Failed creating vertex buffer")
-	sa.push(pool, vb)
+	append(pool, vb)
 
 	vbv := dx.VERTEX_BUFFER_VIEW {
 		BufferLocation = vb->GetGPUVirtualAddress(),

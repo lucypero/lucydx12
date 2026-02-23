@@ -214,7 +214,7 @@ gltf_load_nodes :: proc(data: ^cgltf.data) -> Scene {
 }
 
 load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT,
-					 upload_resources: ^[dynamic]^dx.IUnknown, textures_srv_index: ^u32) {
+					 upload_resources: ^DXResourcePool, textures_srv_index: ^u32) {
 	
 	ct := &dx_context
 	
@@ -304,7 +304,7 @@ gltf_load_materials :: proc(data: ^cgltf.data) -> []Material {
 	
 	mats := make([]Material, len(data.materials))
 	
-	upload_resources := make([dynamic]^dx.IUnknown, 0, len(data.images))
+	upload_resources := make(DXResourcePool, 0, len(data.images))
 	defer delete(upload_resources)
 	
 	dx_context.cmdlist->Reset(dx_context.command_allocator, ct.pipeline_gbuffer)
