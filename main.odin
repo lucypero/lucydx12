@@ -1,5 +1,6 @@
 package main
 
+import "core:mem/virtual"
 import "core:debug/trace"
 import "core:reflect"
 import img "vendor:stb/image"
@@ -30,6 +31,11 @@ import "../odin-imgui/imgui_impl_sdl2"
 // imgui dx12 implementation
 import "../odin-imgui/imgui_impl_dx12"
 
+// Global allocators
+
+temp_arena : virtual.Arena
+temp_allocator : mem.Allocator
+
 // --- const definitions / aliases ---
 
 PROFILE :: #config(PROFILE, false)
@@ -52,7 +58,7 @@ ui_shader_filename :: "ui.hlsl"
 
 gbuffer_count :: 3
 
-// ---- all state ----
+// ---- GLOBAL STATE ----
 
 // profiling stuff
 
@@ -62,11 +68,14 @@ when PROFILE {
 	spall_buffer: spall.Buffer
 }
 
+
 // window dimensions
 wx := i32(2000)
 wy := i32(1000)
 
-
+global_trace_ctx: trace.Context
+g_frame_dt : f64 = 0.2 // in ms
+g_mesh_drawn_count: int = 0
 dx_context: Context
 start_time: time.Time
 light_pos: v3
@@ -78,9 +87,11 @@ exit_app: bool
 // last_write time for shaders
 
 // dx resources to be freed at the end of the app
-resources_longterm: DXResourcePool
+g_scene: Scene
+g_resources_longterm: DXResourcePool
+g_uv_sphere_mesh: Mesh
 
-uv_sphere_mesh: Mesh
+// ----- //// GLOBAL STATE ------
 
 ModelMatrixData :: struct {
 	model_matrix: dxm,
@@ -88,7 +99,6 @@ ModelMatrixData :: struct {
 
 // all meshes use the same index/vertex buffer.
 // so we just have to store the offset and index count to render a specific mesh
-// TODO: u now need to break apart meshes into primitives. because it is the primitives that index the materials.
 Mesh :: struct {
 	primitives: []Primitive,
 }
@@ -123,13 +133,13 @@ ConstantBufferData :: struct #align (256) {
 }
 
 // testing
-g_materials: []Material
-g_meshes: []Mesh
 
 Scene :: struct {
 	nodes: []Node,
 	root_nodes: []int,
 	mesh_count: uint,
+	meshes: []Mesh,
+	allocator: virtual.Arena
 }
 
 Node :: struct {
@@ -142,7 +152,6 @@ Node :: struct {
 	mesh: int, // mesh index to render. -1 for no mesh
 }
 
-scene: Scene
 
 // struct that holds instance data, for an instance rendering example
 InstanceData :: struct #align (256) {
@@ -308,7 +317,7 @@ context_init :: proc(con: ^Context) {
 	light_pos = v3{0,2,0}
 	light_draw_gizmos = true
 	light_int = 1
-	con.meshes_to_render = len(g_meshes)
+	con.meshes_to_render = len(g_scene.meshes)
 }
 
 check :: proc(res: dx.HRESULT, message: string) {
@@ -320,7 +329,66 @@ check :: proc(res: dx.HRESULT, message: string) {
 	os.exit(-1)
 }
 
+tracking_allocator_report :: proc(allocator_name: string, track: mem.Tracking_Allocator, report_leaks_and_double_frees: bool) {
+	lprintfln("=== %v - Memory Report ===", allocator_name)
+	lprintfln("Peak Memory Used: %v MB", cast(f32)track.peak_memory_allocated / cast(f32)mem.Megabyte)
+	lprintfln("Total Memory Allocated: %v MB", cast(f32)track.total_memory_allocated / cast(f32)mem.Megabyte)
+	lprintfln("Total Memory Freed: %v MB", cast(f32)track.total_free_count / cast(f32)mem.Megabyte) // Note: this is a count of free *operations*
+	
+	if !report_leaks_and_double_frees do return
+	
+	// Check for leaks
+	if len(track.allocation_map) > 1 { // skipping 1 because 1 is the tracker itself
+		lprintfln("\n=== %v - MEMORY LEAKS (%v) ===", allocator_name, len(track.allocation_map))
+	    for _, entry in track.allocation_map {
+	     lprintfln("- %v bytes leaked at %v", entry.size, entry.location)
+	    }
+	}
+	
+	// Check for bad frees (double frees, freeing wrong pointers)
+	if len(track.bad_free_array) > 0 {
+	    lprintfln("\n=== %v, BAD FREES (%v) ===", allocator_name, len(track.bad_free_array))
+	    for entry in track.bad_free_array {
+		     lprintfln("- Bad free at %v", entry.location)
+	    }
+	}
+}
+
 main :: proc() {
+	
+	// set up memory
+	alloc_err := virtual.arena_init_growing(&temp_arena, mem.Megabyte)
+	assert(alloc_err == .None)
+	temp_allocator = virtual.arena_allocator(&temp_arena)
+	context.temp_allocator = temp_allocator
+	
+	when ODIN_DEBUG {
+		track: mem.Tracking_Allocator
+		mem.tracking_allocator_init(&track, context.allocator)
+		context.allocator = mem.tracking_allocator(&track)
+		
+		temp_track: mem.Tracking_Allocator
+		mem.tracking_allocator_init(&temp_track, context.temp_allocator)
+		context.temp_allocator = mem.tracking_allocator(&temp_track)
+		
+		defer {
+			tracking_allocator_report("context.allocator", track, true)
+			// tracking_allocator_report("context.temp_allocator", temp_track, false)
+			arena_report("temp arena", temp_arena)
+			mem.tracking_allocator_destroy(&track)
+		}
+	}
+	
+	g_resources_longterm = make([dynamic]^dx.IUnknown)
+	defer delete(g_resources_longterm)
+	
+	// /set up memory
+	
+	// destroy test scene
+	scene_destroy(&g_scene)
+	
+	// destroy stray meshes (gizmo sphere)
+	defer delete(g_uv_sphere_mesh.primitives)
 	
 	trace.init(&global_trace_ctx)
 	defer trace.destroy(&global_trace_ctx)
@@ -382,7 +450,7 @@ main :: proc() {
 
 	imgui_destoy()
 
-	#reverse for &i in resources_longterm {
+	#reverse for &i in g_resources_longterm {
 		i->Release()
 	}
 
@@ -412,7 +480,6 @@ main :: proc() {
 	
 }
 
-g_frame_dt : f64 = 0.2 // in ms
 
 do_main_loop :: proc() {
 	
@@ -489,7 +556,7 @@ create_swapchain :: proc(
 		(^^dxgi.ISwapChain1)(&swapchain),
 	)
 	check(hr, "Failed to create swap chain")
-	append(&resources_longterm, swapchain)
+	append(&g_resources_longterm, swapchain)
 
 	return
 }
@@ -529,7 +596,7 @@ init_dx_other :: proc() {
 
 		check(hr, "failed creating constant buffer")
 		ct.constant_buffer->SetName("lucy's constant buffer")
-		append(&resources_longterm, ct.constant_buffer)
+		append(&g_resources_longterm, ct.constant_buffer)
 
 		// empty range means the cpu won't read from it
 		ct.constant_buffer->Map(0, &dx.RANGE{}, &ct.constant_buffer_map)
@@ -557,7 +624,7 @@ init_dx_other :: proc() {
 	// check(hr, "Failed to create command list")
 	// hr = ct.cmdlist->Close()
 	// check(hr, "Failed to close command list")
-	append(&resources_longterm, ct.cmdlist)
+	append(&g_resources_longterm, ct.cmdlist)
 	
 	// hr = ct.command_allocator->Reset()
 	// hr = ct.cmdlist->Reset(ct.command_allocator, nil)
@@ -574,12 +641,20 @@ init_dx_other :: proc() {
 	{
 		// get vertex data from gltf file
 		vertices, indices := gltf_process_data(context.allocator)
+		defer {
+			delete(vertices)
+			delete(indices)
+		}
 	
 		uv_sphere_index_offset := u32(len(indices))
 		uv_sphere_vertex_offset := u32(len(vertices)) 
 		
 		// add uv sphere
 		sphere_verts_base, sphere_indices := generate_uv_sphere(32, 32, context.allocator)
+		defer {
+			delete(sphere_verts_base)
+			delete(sphere_indices)
+		}
 		
 		for v in sphere_verts_base {
 			append(&vertices, VertexData {
@@ -597,7 +672,7 @@ init_dx_other :: proc() {
 			index_count = u32(len(sphere_indices))
 		}
 		
-		uv_sphere_mesh = Mesh {
+		g_uv_sphere_mesh = Mesh {
 			primitives = sphere_primitive
 		}
 		
@@ -638,7 +713,7 @@ init_dx_other :: proc() {
 			(^rawptr)(&vertex_buffer),
 		)
 		check(hr, "Failed creating vertex buffer")
-		append(&resources_longterm, vertex_buffer)
+		append(&g_resources_longterm, vertex_buffer)
 
 		gpu_data: rawptr
 		read_range: dx.RANGE
@@ -673,7 +748,7 @@ init_dx_other :: proc() {
 		)
 		check(hr, "failed index buffer")
 		index_buffer->SetName("lucy's index buffer")
-		append(&resources_longterm, index_buffer)
+		append(&g_resources_longterm, index_buffer)
 
 		ct.index_buffer_view = dx.INDEX_BUFFER_VIEW {
 			BufferLocation = index_buffer->GetGPUVirtualAddress(),
@@ -688,14 +763,14 @@ init_dx_other :: proc() {
 		index_buffer->Unmap(0, nil)
 	}
 
-	create_model_matrix_structured_buffer(&resources_longterm)
+	create_model_matrix_structured_buffer(&g_resources_longterm)
 	create_cbv_and_structured_buffer_srv()
 
 	// This fence is used to wait for frames to finish
 	{
 		hr = ct.device->CreateFence(ct.fence_value, {}, dx.IFence_UUID, (^rawptr)(&ct.fence))
 		check(hr, "Failed to create fence")
-		append(&resources_longterm, ct.fence)
+		append(&g_resources_longterm, ct.fence)
 		ct.fence_value += 1
 		manual_reset: windows.BOOL = false
 		initial_state: windows.BOOL = false
@@ -709,7 +784,7 @@ init_dx_other :: proc() {
 	// instance data for gizmos
 	{
 		instance_data := make([]InstanceData, MAX_GIZMOS, allocator = context.temp_allocator)
-		ct.vb_gizmos_instance_data = create_vertex_buffer_upload(size_of(instance_data[0]), u32(slice.size(instance_data)), pool = &resources_longterm)
+		ct.vb_gizmos_instance_data = create_vertex_buffer_upload(size_of(instance_data[0]), u32(slice.size(instance_data)), pool = &g_resources_longterm)
 	}
 }
 
@@ -730,7 +805,7 @@ init_dx :: proc() {
 
 		hr = dxgi.CreateDXGIFactory2(flags, dxgi.IFactory4_UUID, cast(^rawptr)&factory)
 		check(hr, "Failed creating factory")
-		append(&resources_longterm, factory)
+		append(&g_resources_longterm, factory)
 	}
 
 	ct.factory = factory
@@ -753,7 +828,7 @@ init_dx :: proc() {
 	for i: u32 = 0; factory->EnumAdapters1(i, &adapter) != error_not_found; i += 1 {
 		desc: dxgi.ADAPTER_DESC1
 		adapter->GetDesc1(&desc)
-		append(&resources_longterm, adapter)
+		append(&g_resources_longterm, adapter)
 		if .SOFTWARE in desc.Flags {
 			continue
 		}
@@ -801,7 +876,7 @@ init_dx :: proc() {
 		hr = ct.device->CreateDescriptorHeap(&desc, dx.IDescriptorHeap_UUID, (^rawptr)(&ct.cbv_srv_uav_heap))
 		check(hr, "Failed creating descriptor heap")
 		ct.cbv_srv_uav_heap->SetName("lucy's uber CBV_SRV_UAV descriptor heap")
-		append(&resources_longterm, ct.cbv_srv_uav_heap)
+		append(&g_resources_longterm, ct.cbv_srv_uav_heap)
 	}
 
 
@@ -813,7 +888,7 @@ init_dx :: proc() {
 
 		hr = ct.device->CreateCommandQueue(&desc, dx.ICommandQueue_UUID, (^rawptr)(&ct.queue))
 		check(hr, "Failed creating command queue")
-		append(&resources_longterm, ct.queue)
+		append(&g_resources_longterm, ct.queue)
 	}
 
 	// Create the swapchain, it's the thing that contains render targets that we draw into.
@@ -837,7 +912,7 @@ init_dx :: proc() {
 		)
 		check(hr, "Failed creating descriptor heap")
 		ct.swapchain_rtv_descriptor_heap->SetName("lucy's swapchain RTV descriptor heap")
-		append(&resources_longterm, ct.swapchain_rtv_descriptor_heap)
+		append(&g_resources_longterm, ct.swapchain_rtv_descriptor_heap)
 	}
 
 	// Fetch the two render targets from the swapchain
@@ -859,7 +934,7 @@ init_dx :: proc() {
 	// The command allocator is used to create the commandlist that is used to tell the GPU what to draw
 	hr = ct.device->CreateCommandAllocator(.DIRECT, dx.ICommandAllocator_UUID, (^rawptr)(&ct.command_allocator))
 	check(hr, "Failed creating command allocator")
-	append(&resources_longterm, ct.command_allocator)
+	append(&g_resources_longterm, ct.command_allocator)
 	
 	// Create the commandlist that is reused further down.
 	hr = ct.device->CreateCommandList(
@@ -872,7 +947,6 @@ init_dx :: proc() {
 	)
 }
 
-global_trace_ctx: trace.Context
 
 dx_log_callback :: proc "c" (
 	category: dx.MESSAGE_CATEGORY,
@@ -991,7 +1065,6 @@ draw_imgui :: proc() {
 	// }
 }
 
-g_mesh_drawn_count: int = 0
 render :: proc() {
 
 	ct := &dx_context
@@ -1152,7 +1225,7 @@ create_instance_buffer_example :: proc() -> VertexBuffer {
 
 	instance_data_size := len(instance_data) * size_of(instance_data[0])
 
-	vb := create_vertex_buffer_upload(size_of(instance_data[0]), u32(instance_data_size), pool = &resources_longterm)
+	vb := create_vertex_buffer_upload(size_of(instance_data[0]), u32(instance_data_size), pool = &g_resources_longterm)
 	
 	// third: we copy the data to the buffer (map and unmap)									
 	copy_to_buffer(vb.buffer, slice.to_bytes(instance_data))
@@ -1188,7 +1261,7 @@ create_cbv_and_structured_buffer_srv :: proc() {
 		Shader4ComponentMapping = dx.ENCODE_SHADER_4_COMPONENT_MAPPING(0, 1, 2, 3), // this is the default mapping
 		Buffer = {
 			FirstElement = 0,
-			NumElements = u32(scene.mesh_count),
+			NumElements = u32(g_scene.mesh_count),
 			StructureByteStride = size_of(ModelMatrixData),
 			Flags = {},
 		},
@@ -1253,7 +1326,7 @@ create_gbuffer_pass_root_signature :: proc() {
 		(^rawptr)(&dx_context.gbuffer_pass_root_signature),
 	)
 	check(hr, "Failed creating root signature")
-	append(&resources_longterm, dx_context.gbuffer_pass_root_signature)
+	append(&g_resources_longterm, dx_context.gbuffer_pass_root_signature)
 	serialized_desc->Release()
 }
 
@@ -1295,7 +1368,7 @@ get_node_world_matrix :: proc(node: Node, scene: Scene) -> dxm {
 	return res
 }
 
-proc_walk :: proc(node: Node, scene: Scene, data: rawptr)
+proc_walk :: proc(node: Node, g_scene: Scene, data: rawptr)
 
 // Walks through the scene tree and runs a proc per node
 scene_walk :: proc(scene: Scene, data: rawptr, thing_to_do: proc_walk) {
@@ -1363,7 +1436,6 @@ scene_walk :: proc(scene: Scene, data: rawptr, thing_to_do: proc_walk) {
 	}
 }
 
-
 TEXTURE_WHITE_INDEX :: TEXTURE_INDEX_BASE - 1
 TEXTURE_INDEX_BASE :: 400
 
@@ -1416,7 +1488,7 @@ create_depth_buffer :: proc() {
 
 	check(hr, "failed creating depth resource")
 	c.depth_stencil_res->SetName("depth stencil texture")
-	append(&resources_longterm, c.depth_stencil_res)
+	append(&g_resources_longterm, c.depth_stencil_res)
 
 	// depth stencil view descriptor heap
 
@@ -1432,7 +1504,7 @@ create_depth_buffer :: proc() {
 	c.descriptor_heap_dsv->SetName("lucy's DSV (depth-stencil-view) descriptor heap")
 
 	check(hr, "could not create descriptor heap for DSV")
-	append(&resources_longterm, c.descriptor_heap_dsv)
+	append(&g_resources_longterm, c.descriptor_heap_dsv)
 
 	// creating depth stencil view
 
@@ -1475,7 +1547,6 @@ create_depth_buffer :: proc() {
 	create_srv_on_uber_heap(c.depth_stencil_res, true, "Depth SRV", srv_desc = &srv_desc)
 	transition_resource(c.depth_stencil_res, c.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
 }
-
 
 imgui_init :: proc() {
 
@@ -1538,7 +1609,7 @@ imgui_init :: proc() {
 	)
 	check(hr, "could ont create imgui descriptor heap")
 	dx_context.imgui_descriptor_heap->SetName("imgui's cbv srv uav descriptor heap")
-	append(&resources_longterm, dx_context.imgui_descriptor_heap)
+	append(&g_resources_longterm, dx_context.imgui_descriptor_heap)
 
 	dx_context.imgui_allocator = descriptor_heap_allocator_create(dx_context.imgui_descriptor_heap, .CBV_SRV_UAV)
 
@@ -1671,7 +1742,7 @@ create_gbuffer_unit :: proc(format: dxgi.FORMAT,
 		format,
 		{.ALLOW_RENDER_TARGET},
 		initial_state = {.PIXEL_SHADER_RESOURCE},
-		pool = &resources_longterm,
+		pool = &g_resources_longterm,
 	)
 	
 	gb_name := windows.utf8_to_wstring_alloc(debug_name, allocator = context.temp_allocator)
@@ -1703,7 +1774,7 @@ create_gbuffer :: proc() -> GBuffer {
 
 	hr := ct.device->CreateDescriptorHeap(&desc, dx.IDescriptorHeap_UUID, (^rawptr)(&gb_rtv_dh))
 	check(hr, "Failed creating descriptor heap")
-	append(&resources_longterm, gb_rtv_dh)
+	append(&g_resources_longterm, gb_rtv_dh)
 	gb_rtv_dh->SetName("lucy's g-buffer RTV descriptor heap")
 
 	rtv_descriptor_size: u32 = ct.device->GetDescriptorHandleIncrementSize(.RTV)
@@ -1739,11 +1810,11 @@ create_model_matrix_structured_buffer :: proc(pool: ^DXResourcePool) {
 	}
 
 	data := CallbackData {
-		sample_matrix_data = make([]ModelMatrixData, scene.mesh_count, allocator = context.temp_allocator),
+		sample_matrix_data = make([]ModelMatrixData, g_scene.mesh_count, allocator = context.temp_allocator),
 		mesh_i = 0,
 	}
 
-	scene_walk(scene, &data, proc(node: Node, scene: Scene, data: rawptr) {
+	scene_walk(g_scene, &data, proc(node: Node, scene: Scene, data: rawptr) {
 		if node.mesh == -1 do return
 		data := cast(^CallbackData)data
 		data.sample_matrix_data[data.mesh_i].model_matrix = get_node_world_matrix(node, scene)
@@ -1751,7 +1822,7 @@ create_model_matrix_structured_buffer :: proc(pool: ^DXResourcePool) {
 	})
 	
 	ct.sb_model_matrices = create_structured_buffer_with_data(ct.cmdlist, "model matrix data",
-	 	&resources_longterm,
+	 	&g_resources_longterm,
 		slice.to_bytes(data.sample_matrix_data))
 }
 
@@ -1877,7 +1948,7 @@ create_gizmos_pso :: proc() -> (^dx.IRootSignature, ^dx.IPipelineState) {
 		(^rawptr)(&root_signature),
 	)
 	check(hr, "Failed creating root signature")
-	append(&resources_longterm, root_signature)
+	append(&g_resources_longterm, root_signature)
 	serialized_desc->Release()
 	
 	// create pso
@@ -1996,7 +2067,7 @@ create_gizmos_pso :: proc() -> (^dx.IRootSignature, ^dx.IPipelineState) {
 	hr = ct.device->CreateGraphicsPipelineState(&pipeline_state_desc, dx.IPipelineState_UUID, (^rawptr)(&pso))
 	check(hr, "Pipeline creation failed")
 	pso->SetName("PSO for UI things (light gizmos, etc)")
-	append(&resources_longterm, pso)
+	append(&g_resources_longterm, pso)
 
 	return root_signature, pso
 }
@@ -2019,8 +2090,8 @@ create_lighting_pso_initial :: proc() {
 
 	c.pipeline_lighting = create_new_lighting_pso(c.lighting_pass_root_signature, vs, ps)
 
-	pso_index := len(resources_longterm)
-	append(&resources_longterm, c.pipeline_lighting)
+	pso_index := len(g_resources_longterm)
+	append(&g_resources_longterm, c.pipeline_lighting)
 
 	hotswap_init(&c.lighting_hotswap, lighting_shader_filename, pso_index)
 
@@ -2085,7 +2156,7 @@ create_lighting_root_signature :: proc() {
 		(^rawptr)(&c.lighting_pass_root_signature),
 	)
 	check(hr, "Failed creating root signature")
-	append(&resources_longterm, c.lighting_pass_root_signature)
+	append(&g_resources_longterm, c.lighting_pass_root_signature)
 	serialized_desc->Release()
 }
 
@@ -2250,8 +2321,8 @@ create_gbuffer_pso_initial :: proc() {
 
 	c.pipeline_gbuffer = create_new_gbuffer_pso(c.gbuffer_pass_root_signature, vs, ps)
 
-	pso_index := len(resources_longterm)
-	append(&resources_longterm, c.pipeline_gbuffer)
+	pso_index := len(g_resources_longterm)
+	append(&g_resources_longterm, c.pipeline_gbuffer)
 
 	hotswap_init(&c.gbuffer_hotswap, gbuffer_shader_filename, pso_index)
 
@@ -2346,14 +2417,14 @@ render_gbuffer_pass :: proc() {
 	    material_index: u32,
 	}
 
-	scene_walk(scene, nil, proc(node: Node, scene: Scene, data: rawptr) {
+	scene_walk(g_scene, nil, proc(node: Node, scene: Scene, data: rawptr) {
 		ct := &dx_context
 
 		if node.mesh == -1 {
 			return
 		}
 
-		mesh_to_render := g_meshes[node.mesh]
+		mesh_to_render := scene.meshes[node.mesh]
 
 		if g_mesh_drawn_count < ct.meshes_to_render {
 			for prim in mesh_to_render.primitives {
@@ -2501,7 +2572,7 @@ render_gizmos :: proc () {
 	ct.cmdlist->IASetIndexBuffer(&ct.index_buffer_view)
 	
 	// TEST: use first mesh primitive from main vertex buffer
-	uv_sphere_primitive := uv_sphere_mesh.primitives[0]
+	uv_sphere_primitive := g_uv_sphere_mesh.primitives[0]
 	ct.cmdlist->DrawIndexedInstanced(uv_sphere_primitive.index_count, gizmos_count, uv_sphere_primitive.index_offset, 0, 0)
 }
 
@@ -2623,7 +2694,7 @@ hotswap_swap :: proc(hs: ^HotSwapState, pso: ^^dx.IPipelineState) {
 		pso^->Release()
 		pso^ = hs.pso_swap
 		// replace pointer from freeing queue
-		pso_pointer := &resources_longterm[hs.pso_index]
+		pso_pointer := &g_resources_longterm[hs.pso_index]
 		pso_pointer^ = pso^
 		hs.pso_swap = nil
 	}
@@ -2643,7 +2714,7 @@ load_white_texture :: proc(upload_resources: ^DXResourcePool) {
 	}
 	
 	texture_res := create_texture_with_data(img_data_mipmaps[:], u64(w), u32(h), .R8G8B8A8_UNORM, 
-		&resources_longterm, upload_resources, "white")
+		&g_resources_longterm, upload_resources, "white")
 	
 	// creating srv on uber heap
 	ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, TEXTURE_WHITE_INDEX))
@@ -2668,4 +2739,27 @@ set_viewport_stuff :: proc() {
 
 	ct.cmdlist->RSSetViewports(1, &viewport)
 	ct.cmdlist->RSSetScissorRects(1, &scissor_rect)
+}
+
+// Convenience function for clearing used memory in scope
+@(deferred_out=virtual.arena_temp_end)
+TEMP_GUARD :: #force_inline proc(arena: ^virtual.Arena, loc := #caller_location) -> (virtual.Arena_Temp, runtime.Source_Code_Location) {
+	return virtual.arena_temp_begin(arena, loc), loc
+}
+
+arena_report :: proc(arena_name: string, arena: virtual.Arena) {
+	lprintfln("===== Arena Report: name: \"%v\": total used: %vMB, total reserved: %vMB", arena_name, cast(f32)arena.total_used / cast(f32)mem.Megabyte,
+	 		cast(f32)arena.total_reserved / cast(f32)mem.Megabyte)
+}
+
+// TODO: implement global tracking here
+arena_new :: proc() -> virtual.Arena {
+	arena : virtual.Arena
+	alloc_err := virtual.arena_init_growing(&arena, mem.Megabyte)
+	assert(alloc_err == .None)
+	return arena
+}
+
+scene_destroy :: proc(scene: ^Scene) {
+	virtual.arena_destroy(&scene.allocator)
 }

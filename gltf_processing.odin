@@ -13,6 +13,8 @@ import "core:slice"
 import "core:c"
 import dxgi "vendor:directx/dxgi"
 import "base:runtime"
+import "core:mem/virtual"
+import "core:mem"
 
 ENC_TABLE := [64]byte { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '_', }
 
@@ -39,13 +41,13 @@ gltf_process_data :: proc(allocator: runtime.Allocator) -> (vertices: [dynamic]V
 
 	gltf_scene := data.scenes[0]
 
-	vertices_dyn := make([dynamic]VertexData, allocator = allocator)
-	indices_dyn := make([dynamic]u32, allocator = allocator)
+	vertices_dyn := make([dynamic]VertexData, allocator)
+	indices_dyn := make([dynamic]u32, allocator)
 
-	g_materials = gltf_load_materials(data)
-	g_meshes = gltf_load_meshes(data, &vertices_dyn, &indices_dyn)
+	gltf_load_materials(data)
 	
-	scene = gltf_load_nodes(data)
+	g_scene = gltf_new_scene(data)
+	g_scene.meshes = gltf_load_meshes(data, &vertices_dyn, &indices_dyn, &g_scene.allocator)
 
 	// printing nodes
 	// scene_walk(scene, nil, proc(node: Node, scene: Scene, data: rawptr) {
@@ -59,16 +61,17 @@ gltf_process_data :: proc(allocator: runtime.Allocator) -> (vertices: [dynamic]V
 	return vertices_dyn, indices_dyn
 }
 
-
-gltf_load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indices: ^[dynamic]u32) -> []Mesh {
-
-	the_meshes := make_slice([]Mesh, len(data.meshes))
+gltf_load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indices: ^[dynamic]u32, arena: ^virtual.Arena) -> []Mesh {
+	
+	allocator := virtual.arena_allocator(arena)
+	
+	the_meshes := make_slice([]Mesh, len(data.meshes), allocator)
 	index_count: u32
 	index_count_total: u32 = 0
 
 	for mesh, i in data.meshes {
 		
-		the_meshes[i].primitives = make_slice([]Primitive, len(mesh.primitives))
+		the_meshes[i].primitives = make_slice([]Primitive, len(mesh.primitives), allocator)
 		
 		for prim, prim_i in mesh.primitives {
 			
@@ -158,10 +161,11 @@ gltf_load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indi
 }
 
 
-gltf_load_nodes :: proc(data: ^cgltf.data) -> Scene {
-
-	// TODO: don't leak this
-	nodes := make([]Node, len(data.nodes))
+gltf_new_scene :: proc(data: ^cgltf.data) -> Scene {
+	scene_arena := arena_new()
+	scene_arena_alloc := virtual.arena_allocator(&scene_arena)
+	
+	nodes := make([]Node, len(data.nodes), scene_arena_alloc)
 	root_node_count: int = 0
 
 	for node, i in data.nodes {
@@ -170,14 +174,13 @@ gltf_load_nodes :: proc(data: ^cgltf.data) -> Scene {
 		}
 	}
 
-	// TODO: don't leak this
-	root_nodes := make([]int, root_node_count)
+	root_nodes := make([]int, root_node_count, scene_arena_alloc)
 	root_node_i := 0
 	mesh_count: uint
 
 	for node, i in data.nodes {
 		// TODO: don't leak this
-		node_children := make([]int, len(node.children))
+		node_children := make([]int, len(node.children), scene_arena_alloc)
 
 		for n_child, child_i in node.children {
 			node_children[child_i] = int(cgltf.node_index(data, n_child))
@@ -210,13 +213,14 @@ gltf_load_nodes :: proc(data: ^cgltf.data) -> Scene {
 		}
 	}
 
-	return Scene{nodes = nodes, root_nodes = root_nodes, mesh_count = mesh_count}
+	return Scene{nodes = nodes, root_nodes = root_nodes, mesh_count = mesh_count, allocator = scene_arena}
 }
 
 load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT,
 					 upload_resources: ^DXResourcePool, textures_srv_index: ^u32) {
 	
 	ct := &dx_context
+	TEMP_GUARD(&temp_arena)
 	
 	// lprintfln("loading image %v", image.name)
 	// assert(image.mime_type == "image/png")
@@ -262,7 +266,7 @@ load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT,
 	dds_file := parse_dds_file(texture_final_path)
 	
 	texture_res := create_texture_with_data(dds_file.mipmap_data, u64(dds_file.width), dds_file.height, dds_file.format, 
-		&resources_longterm, upload_resources, string(image.name))
+		&g_resources_longterm, upload_resources, string(image.name))
 	
 	// lprintfln("name: %v, index in the heap: %v", image.name, textures_srv_index)
 	
@@ -298,11 +302,11 @@ get_texture_uv :: proc(data: ^cgltf.data, tex_view: cgltf.texture_view) -> u32 {
 	return 0
 }
 
-gltf_load_materials :: proc(data: ^cgltf.data) -> []Material {
+gltf_load_materials :: proc(data: ^cgltf.data) {
 	
 	ct := &dx_context
 	
-	mats := make([]Material, len(data.materials))
+	mats := make([]Material, len(data.materials), temp_allocator)
 	
 	upload_resources := make(DXResourcePool, 0, len(data.images))
 	defer delete(upload_resources)
@@ -374,7 +378,7 @@ gltf_load_materials :: proc(data: ^cgltf.data) -> []Material {
 	ct.sb_materials = create_structured_buffer_with_data(
 		ct.cmdlist,
 		"material buffer",
-		&resources_longterm,
+		&g_resources_longterm,
 		slice.to_bytes(mats)
 	)
 	
@@ -391,13 +395,11 @@ gltf_load_materials :: proc(data: ^cgltf.data) -> []Material {
 	}
 	
 	create_srv_on_uber_heap(ct.sb_materials, true, "materials srv", &srv_desc)
-	
-	return mats
 }
 
 hash_thing :: proc(thing:string) -> string {
-	thing_hash_temp := hash.hash_string(.SHA256, thing, allocator = context.temp_allocator)
-	thing_hash, ok := base64.encode(thing_hash_temp, ENC_TABLE)
+	thing_hash_temp := hash.hash_string(.SHA256, thing, temp_allocator)
+	thing_hash, ok := base64.encode(thing_hash_temp, ENC_TABLE, temp_allocator)
 	assert(ok == .None)
 	return thing_hash
 }
