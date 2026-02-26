@@ -1,3 +1,8 @@
+- try making the temp arena a static sized arena so u have a better idea of how much memory was used.
+- implement global tracking of all arenas in the app.
+- implement runtime scene switching with no memory leaks
+
+- set up Tracy
 - take care of transparency. for the vegetation
 - invalidate the cache when it's required (how though)
 - clean up new code ASAP

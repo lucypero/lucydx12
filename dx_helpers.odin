@@ -549,8 +549,8 @@ create_vertex_buffer_upload :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^
 generate_uv_sphere :: proc(meridians: u32, parallels: u32, allocator: runtime.Allocator) -> ([]v3, []u32) {
 	
 	expected_verts := 2 + (parallels - 1) * meridians
-	verts := make([dynamic]v3, 0, expected_verts, allocator = allocator)
-	indices := make([dynamic]u32, 0, expected_verts * 6, allocator = allocator)
+	verts := make([dynamic]v3, 0, expected_verts, allocator)
+	indices := make([dynamic]u32, 0, expected_verts * 6, allocator)
 	
 	append(&verts, v3{0.0, 1.0, 0})
 	
@@ -696,7 +696,7 @@ parse_dds_file :: proc(dds_filepath: string) -> DDSFile {
 		width = header.Width,
 		height = header.Height,
 		format = text_format,
-		mipmap_data = make([][]byte, header.MipMapCount)
+		mipmap_data = make([][]byte, header.MipMapCount, temp_allocator)
 	}
 	
 	for i in 0..<header.MipMapCount {
