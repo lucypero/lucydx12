@@ -17,10 +17,8 @@ import sdl "vendor:sdl2"
 import "core:c"
 import "core:math"
 import "core:math/linalg"
-import sa "core:container/small_array"
 import "base:runtime"
 import "core:math/rand"
-import "core:sync"
 import dxc "vendor:directx/dxc"
 import "core:prof/spall"
 
@@ -278,10 +276,6 @@ Context :: struct {
 	cbv_srv_uav_heap: ^dx.IDescriptorHeap,
 	descriptor_count : u32, // count for how many descriptors are in the srv heap
 
-	// vertex count
-	vertex_count: u32,
-	index_count: u32,
-
 	// depth buffer
 	depth_stencil_res: ^dx.IResource,
 	descriptor_heap_dsv: ^dx.IDescriptorHeap,
@@ -300,13 +294,8 @@ Context :: struct {
 	pso_gizmos : ^dx.IPipelineState,
 	rs_gizmos : ^dx.IRootSignature,
 	
-	
-	
-	//
-	
-	
 	// - instance data buffer
-	vb_gizmos_instance_data : VertexBuffer
+	vb_gizmos_instance_data : VertexBuffer,
 	
 	// --- gizmos drawing end ----
 }
@@ -394,7 +383,6 @@ main :: proc() {
 	defer trace.destroy(&global_trace_ctx)
 
 	ct := &dx_context
-	hr : dx.HRESULT
 
 	// setting up profiling
 	when PROFILE {
@@ -436,7 +424,6 @@ main :: proc() {
 	init_dx()
 	
 	init_dx_other()
-
 
 	context_init(ct)
 
@@ -676,7 +663,7 @@ init_dx_other :: proc() {
 			primitives = sphere_primitive
 		}
 		
-		ct.vertex_count = u32(len(vertices))
+		vertex_count := u32(len(vertices))
 
 		// VERTEXDATA
 		// vertex data and index data is in an upload heap.
@@ -726,15 +713,13 @@ init_dx_other :: proc() {
 
 		ct.vertex_buffer_view = dx.VERTEX_BUFFER_VIEW {
 			BufferLocation = vertex_buffer->GetGPUVirtualAddress(),
-			StrideInBytes = u32(vertex_buffer_size) / ct.vertex_count,
+			StrideInBytes = u32(vertex_buffer_size) / vertex_count,
 			SizeInBytes = u32(vertex_buffer_size),
 		}
 
 		// creating index buffer resource
 
 		index_buffer_size := len(indices) * size_of(indices[0])
-		ct.index_count = u32(len(indices))
-
 		resource_desc.Width = u64(index_buffer_size)
 
 		hr = ct.device->CreateCommittedResource(
@@ -783,7 +768,7 @@ init_dx_other :: proc() {
 	
 	// instance data for gizmos
 	{
-		instance_data := make([]InstanceData, MAX_GIZMOS, allocator = context.temp_allocator)
+		instance_data := make([]InstanceData, MAX_GIZMOS, temp_allocator)
 		ct.vb_gizmos_instance_data = create_vertex_buffer_upload(size_of(instance_data[0]), u32(slice.size(instance_data)), pool = &g_resources_longterm)
 	}
 }
@@ -970,8 +955,8 @@ dx_log_callback :: proc "c" (
 	// ignore if it tells me the device is live
 	if id == .LIVE_DEVICE do return
 	
-	severity_string, ok_2 := reflect.enum_name_from_value(severity)
-	cat, ok := reflect.enum_name_from_value(category)
+	severity_string, _ := reflect.enum_name_from_value(severity)
+	cat, _ := reflect.enum_name_from_value(category)
 	
 	lprintfln("%v: (%v) %v", severity_string, cat, msg)
 	
@@ -984,7 +969,7 @@ dx_log_callback :: proc "c" (
 		// filtering by frames where we actually have info
 		real_counter := 0
 		
-		for f, i in frames {
+		for f in frames {
 			fl := trace.resolve(&global_trace_ctx, f, context.temp_allocator)
 			if fl.loc.file_path == "" && fl.loc.line == 0 do continue
 			if real_counter == 0 do lprintfln("At:")
@@ -1025,16 +1010,16 @@ update :: proc() {
 	// imgui stuff
 	// im.ShowDemoWindow()
 	
-	draw_imgui()
+	do_imgui_ui()
 
 
 	camera_tick(keyboard)
 	// lprintfln("%v", g_frame_dt)
 }
 
-draw_imgui :: proc() {
+do_imgui_ui :: proc() {
 	
-	c := &dx_context
+	ct := &dx_context
 	im.Begin("lucydx12")
 
 	im.DragFloat3("light pos", &light_pos, 0.1, -5000, 5000)
@@ -1042,11 +1027,11 @@ draw_imgui :: proc() {
 	im.Checkbox("draw light gizmos", &light_draw_gizmos)
 	im.DragFloat("cam speed", &cur_cam.speed, 0.0001, 0, 20)
 
-	im.InputInt("mesh count to draw", (^i32)(&c.meshes_to_render))
+	im.InputInt("mesh count to draw", (^i32)(&ct.meshes_to_render))
 	
 	// Drawing delta time
 	{
-		sb := strings.builder_make_len_cap(0, 30, allocator = context.temp_allocator)
+		sb := strings.builder_make_len_cap(0, 30, temp_allocator)
 		fmt.sbprintfln(&sb, "DT: %.2f", g_frame_dt)
 		dt_cstring := strings.to_cstring(&sb)
 		im.Text(dt_cstring)
@@ -1054,11 +1039,30 @@ draw_imgui :: proc() {
 	
 	// Drawing cam position
 	{
-		sb := strings.builder_make_len_cap(0, 30, allocator = context.temp_allocator)
+		sb := strings.builder_make_len_cap(0, 30, temp_allocator)
 		fmt.sbprintfln(&sb, "cam position: %.2v", cur_cam.pos)
 		dt_cstring := strings.to_cstring(&sb)
 		im.Text(dt_cstring)
 	}
+	
+	// const char* items[] = { "AAAA", "BBBB", "CCCC", "DDDD", "EEEE", "FFFF", "GGGG", "HHHH", "IIIIIII", "JJJJ", "KKKKKKK" };
+ //            static int item_current = 0;
+ //            ImGui::Combo("combo", &item_current, items, IM_ARRAYSIZE(items));
+ 
+	@static current_selected : c.int = 0
+	items := [?]cstring{"sponza", "something else"}
+	new_selected: c.int
+	im.ComboChar("scene", &new_selected, raw_data(&items), len(items))
+	
+	if current_selected != new_selected {
+		current_selected = new_selected
+		
+		// load the new scene
+		// it's gonna be hard.. from the cpu side it's easy but from the gpu..
+		// u'll have to unload all the buffers related to the scene and load them with the new scene.
+	}
+	
+	// im.ShowDemoWindow()
 	
 	// if im.Button("Re-roll teapots") {
 	// 	reroll_teapots()
@@ -1174,12 +1178,15 @@ gen_just_one_instance_data :: proc() -> []InstanceData {
 	return instance_data
 }
 
+
+// unused
+/*
 gen_teapot_instance_data :: proc() -> []InstanceData {
 	teapot_count := 50
 
 	instance_data := make([]InstanceData, teapot_count, context.temp_allocator)
 
-	for &instance, i in instance_data {
+	for &instance in instance_data {
 
 		spread :: 10
 
@@ -1212,6 +1219,7 @@ gen_teapot_instance_data :: proc() -> []InstanceData {
 
 	return instance_data
 }
+*/
 
 // creates instance buffer and fills it with some data
 create_instance_buffer_example :: proc() -> VertexBuffer {
@@ -1233,10 +1241,13 @@ create_instance_buffer_example :: proc() -> VertexBuffer {
 	return vb
 }
 
+// unused
+/*
 reroll_teapots :: proc() {
 	instance_data := gen_teapot_instance_data()
 	copy_to_buffer(dx_context.instance_buffer.buffer, slice.to_bytes(instance_data))
 }
+*/
 
 // creates:
 // - constant buffer with some global info
@@ -1676,6 +1687,10 @@ render_imgui :: proc() {
 
 
 // helpers
+
+//unused
+
+/*
 get_descriptor_heap_gpu_address :: proc(
 	heap: ^dx.IDescriptorHeap,
 	offset: u32 = 0,
@@ -1689,7 +1704,7 @@ get_descriptor_heap_gpu_address :: proc(
 	gpu_descriptor_handle.ptr += u64(offset * increment)
 	return
 }
-
+*/
 
 get_descriptor_heap_cpu_address :: proc(
 	heap: ^dx.IDescriptorHeap,
@@ -1718,6 +1733,8 @@ get_world_mat :: proc(pos, scale: v3, rot_rads: f32 = 0, rot_vec: v3 = {1, 0, 0}
 	return translation_mat * scale_mat * rot_mat
 }
 
+//unused
+/*
 get_world_mat_quat :: proc(pos, scale: v3, rot_quat: quaternion128) -> dxm {
 
 	translation_mat := linalg.matrix4_translate_f32(pos)
@@ -1727,6 +1744,7 @@ get_world_mat_quat :: proc(pos, scale: v3, rot_quat: quaternion128) -> dxm {
 
 	return translation_mat * scale_mat * rot_mat
 }
+*/
 
 create_gbuffer_unit :: proc(format: dxgi.FORMAT, 
 			debug_name: string,
@@ -1841,12 +1859,6 @@ create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc
 		BlendOpAlpha = .ADD,
 		LogicOp = .NOOP,
 		RenderTargetWriteMask = u8(dx.COLOR_WRITE_ENABLE_ALL),
-	}
-
-	// the swapchain rtv
-	rtv_formats := [8]dxgi.FORMAT {
-		0 = .R8G8B8A8_UNORM,
-		1 ..< 7 = .UNKNOWN,
 	}
 
 	pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
@@ -2019,12 +2031,6 @@ create_gizmos_pso :: proc() -> (^dx.IRootSignature, ^dx.IPipelineState) {
 		BlendOpAlpha = .ADD,
 		LogicOp = .NOOP,
 		RenderTargetWriteMask = u8(dx.COLOR_WRITE_ENABLE_ALL),
-	}
-
-	// the swapchain rtv
-	rtv_formats := [8]dxgi.FORMAT {
-		0 = .R8G8B8A8_UNORM,
-		1 ..< 7 = .UNKNOWN,
 	}
 
 	pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
@@ -2528,7 +2534,7 @@ render_gizmos :: proc () {
 	// updating gizmo data (looking at lights)
 	gizmos_count : u32 = 1
 	{
-		gizmos_instances := make([]InstanceData, gizmos_count, allocator = context.temp_allocator)
+		gizmos_instances := make([]InstanceData, gizmos_count, temp_allocator)
 		
 		gizmos_instances[0] = InstanceData {
 			world_mat = get_world_mat(light_pos, 0.1),
@@ -2576,17 +2582,21 @@ render_gizmos :: proc () {
 	ct.cmdlist->DrawIndexedInstanced(uv_sphere_primitive.index_count, gizmos_count, uv_sphere_primitive.index_offset, 0, 0)
 }
 
+
+// unused
+/*
 print_ref_count :: proc(obj: ^dx.IUnknown) {
 	obj->AddRef()
 	count := obj->Release()
 	lprintfln("count: %v", count)
 }
+*/
 
 // Prints to windows debug, with a lprintln() interface
 lprintln :: proc(args: ..any, sep := " ") {
 	str: strings.Builder
 	strings.builder_init(&str, context.temp_allocator)
-	final_string := fmt.sbprintln(&str, ..args, sep = sep)
+	fmt.sbprintln(&str, ..args, sep = sep)
 	final_string_c, err := strings.to_cstring(&str)
 
 	if err != .None {

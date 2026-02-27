@@ -9,7 +9,6 @@ import "core:mem"
 import dx "vendor:directx/d3d12"
 import dxgi "vendor:directx/dxgi"
 import dxc "vendor:directx/dxc"
-import sa "core:container/small_array"
 import "core:strings"
 import "core:os"
 import "core:sys/windows"
@@ -418,13 +417,11 @@ create_texture_with_data :: proc(
 	
 	for mip in 0 ..< mip_levels {
 		fp := text_footprint[mip].Footprint
-		mip_width := cast(u64)fp.Width
-		mip_height := fp.Height
 		source_data : [^]byte = slice.as_ptr(image_data[mip])
 		mip_row_size := row_size[mip]
 		for row in 0 ..< num_rows[mip] {
 			mem.copy(
-				texture_map_start_mp[u64(fp.RowPitch) * u64(row) + cast(u64)text_footprint[mip].Offset:],
+				texture_map_start_mp[u64(fp.RowPitch) * u64(row) + text_footprint[mip].Offset:],
 				source_data[mip_row_size * u64(row):],
 				int(mip_row_size)
 			)
@@ -613,7 +610,9 @@ generate_uv_sphere :: proc(meridians: u32, parallels: u32, allocator: runtime.Al
 parse_dds_file :: proc(dds_filepath: string) -> DDSFile {
 	
 	file_data, err := os.read_entire_file_from_path(dds_filepath, context.temp_allocator)
+	assert(err == os.General_Error.None)
 	magic_num, ok := endian.get_u32(file_data, .Little)
+	assert(ok)
 	assert(magic_num == 0x20534444)
 	
 	PixelFormatFlagsEnum :: enum {
@@ -737,7 +736,6 @@ texture_cache_query :: proc(model_filepath, image_name: string, format: dxgi.FOR
 	
 	// lprintln("image texture cache miss. creating texture with mipmaps")
 	alloc_err : runtime.Allocator_Error
-	os_err : os.Error
 	
 	filepath_hash := hash_thing(model_filepath)
 	// image_name_hash := hash_thing(image_name)
@@ -764,7 +762,7 @@ texture_cache_query :: proc(model_filepath, image_name: string, format: dxgi.FOR
 	input_image_path, alloc_err_2 := filepath.join({input_image_dir, image_name}, context.temp_allocator)
 	assert(alloc_err_2 == .None)
 	
-	state, stdout, stderr, err := os.process_exec(os.Process_Desc {
+	state, _, _, err := os.process_exec(os.Process_Desc {
 		command = {
 			"texconv.exe",
 			"-f", reflect.enum_string(format), // select output format

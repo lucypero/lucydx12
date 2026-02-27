@@ -1,3 +1,20 @@
+# switching scenes in runtime
+
+- get scene related initialization out of init_dx_other
+
+- reload buffers;
+   - vertex_buffer
+   - vertex_buffer_view
+   - index_buffer
+   - index_buffer_view
+   
+   - TODO. there's more. fill this in.
+
+
+
+# other
+
+- is there something for odin vet to ignore a specific proc that is unused? (maybe export it?)
 - try making the temp arena a static sized arena so u have a better idea of how much memory was used.
 - implement global tracking of all arenas in the app.
 - implement runtime scene switching with no memory leaks
