@@ -9,12 +9,6 @@ struct VSInput {
 	float4 tangent : TANGENT;
 	float2 uvs : TEXCOORD0;
 	float2 uvs_2 : TEXCOORD1;
-	// instance data
-	float4 worldM0  : WORLDMATRIX0; // Per-instance data (Slot 1)
-	float4 worldM1  : WORLDMATRIX1;
-	float4 worldM2  : WORLDMATRIX2;
-	float4 worldM3  : WORLDMATRIX3;
-	float3 color : COLOR;
 };
 
 struct TextureUV {
@@ -50,7 +44,6 @@ struct PSInput {
 	float3 bitangent_world: BITANGENT;
 	float2 uvs : TEXCOORD0;
 	float2 uvs_2 : TEXCOORD1;
-	float3 color: COLOR;
 };
 
 PSInput VSMain(VSInput the_input) {
@@ -108,8 +101,6 @@ PSInput VSMain(VSInput the_input) {
 	
 	result.uvs_2 = the_input.uvs_2.xy;
 	// result.uvs_2.y = 1.0f - result.uvs_2.y;
-	
-	result.color = the_input.color;
 	return result;
 }
 
