@@ -1,20 +1,15 @@
 package main
 
-import "core:image"
 import "core:crypto/hash"
 import base64 "core:encoding/base64"
-import "core:os"
 import "core:fmt"
 import "vendor:cgltf"
 import "core:strings"
 import dx "vendor:directx/d3d12"
-import img "vendor:stb/image"
 import "core:slice"
-import "core:c"
 import dxgi "vendor:directx/dxgi"
 import "base:runtime"
 import "core:mem/virtual"
-import "core:mem"
 
 ENC_TABLE := [64]byte { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '_', }
 
@@ -38,8 +33,6 @@ gltf_process_data :: proc(allocator: runtime.Allocator) -> (vertices: [dynamic]V
 	// new stuff start
 
 	assert(len(data.scenes) == 1)
-
-	gltf_scene := data.scenes[0]
 
 	vertices_dyn := make([dynamic]VertexData, allocator)
 	indices_dyn := make([dynamic]u32, allocator)
@@ -168,7 +161,7 @@ gltf_new_scene :: proc(data: ^cgltf.data) -> Scene {
 	nodes := make([]Node, len(data.nodes), scene_arena_alloc)
 	root_node_count: int = 0
 
-	for node, i in data.nodes {
+	for node in data.nodes {
 		if node.parent == nil {
 			root_node_count += 1
 		}
@@ -274,23 +267,6 @@ load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT,
 	ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, textures_srv_index^))
 	textures_srv_index^ += 1
 }
-
-@(private="file")
-get_texture_index_uv :: proc(data: ^cgltf.data, tex_view: cgltf.texture_view) -> TextureUV {
-	
-	base_color_img_index : u32 = TEXTURE_WHITE_INDEX
-	base_color_uv_index : u32 = 0
-	texture_name : cstring = "no base texture"
-	
-	if tex_view.texture != nil {
-		base_color_img_index = TEXTURE_INDEX_BASE + u32(cgltf.image_index(data, tex_view.texture.image_))
-		texture_name = tex_view.texture.image_.name
-		base_color_uv_index = u32(tex_view.texcoord)
-	}
-	
-	return TextureUV{texture_id = base_color_img_index, uv_id = base_color_uv_index}
-}
-
 
 get_texture_uv :: proc(data: ^cgltf.data, tex_view: cgltf.texture_view) -> u32 {
 	
