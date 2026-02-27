@@ -280,9 +280,6 @@ Context :: struct {
 	depth_stencil_res: ^dx.IResource,
 	descriptor_heap_dsv: ^dx.IDescriptorHeap,
 
-	// instance buffer
-	instance_buffer: VertexBuffer,
-
 	meshes_to_render: int,
 
 	// hot swap shader state
@@ -467,7 +464,6 @@ main :: proc() {
 	
 }
 
-
 do_main_loop :: proc() {
 	
 	last_time := time.now()
@@ -599,8 +595,6 @@ init_dx_other :: proc() {
 	*/
 
 	create_gbuffer_pass_root_signature()
-
-	ct.instance_buffer = create_instance_buffer_example()
 
 	create_gbuffer_pso_initial()
 	create_lighting_pso_initial()
@@ -1160,94 +1154,8 @@ render :: proc() {
 	}
 }
 
-gen_just_one_instance_data :: proc() -> []InstanceData {
-	// returning one instance with no transformations
-	// we're rendering sponza now. we only want one.
 
 
-	instance_data := make([]InstanceData, 1, context.temp_allocator)
-
-	world_mat: dxm
-	world_mat = 1
-
-	instance_data[0] = InstanceData {
-		world_mat = world_mat,
-		color = v4{1, 1, 1, 1},
-	}
-
-	return instance_data
-}
-
-
-// unused
-/*
-gen_teapot_instance_data :: proc() -> []InstanceData {
-	teapot_count := 50
-
-	instance_data := make([]InstanceData, teapot_count, context.temp_allocator)
-
-	for &instance in instance_data {
-
-		spread :: 10
-
-		// fill it with random stuff
-		x_pos := rand.float32_range(-spread, spread)
-		y_pos := rand.float32_range(-spread, spread)
-		z_pos := rand.float32_range(-spread, spread)
-
-		scale := rand.float32_range(0.5, 5)
-
-		rot_fac :: 1
-
-		rot_val := rand.float32_range(0, math.TAU)
-		rot_vec := v3 {
-			rand.float32_range(-rot_fac, rot_fac),
-			rand.float32_range(-rot_fac, rot_fac),
-			rand.float32_range(-rot_fac, rot_fac),
-		}
-
-		rot_vec = linalg.vector_normalize(rot_vec)
-
-		col_vec := v4{rand.float32_range(0.5, 1), rand.float32_range(0.5, 1), rand.float32_range(0.5, 1), 1.0}
-
-		// x_pos = 0
-		instance = InstanceData {
-			world_mat = get_world_mat({x_pos, y_pos, z_pos}, {scale, scale, scale}, rot_val, rot_vec),
-			color = col_vec,
-		}
-	}
-
-	return instance_data
-}
-*/
-
-// creates instance buffer and fills it with some data
-create_instance_buffer_example :: proc() -> VertexBuffer {
-
-	// first: we create the data
-	instance_data := gen_just_one_instance_data()
-	// instance_data := gen_teapot_instance_data()
-
-	// second: we create the DX buffer, passing the size we want. and stride
-	//   it needs to return the vertex buffer view
-
-	instance_data_size := len(instance_data) * size_of(instance_data[0])
-
-	vb := create_vertex_buffer_upload(size_of(instance_data[0]), u32(instance_data_size), pool = &g_resources_longterm)
-	
-	// third: we copy the data to the buffer (map and unmap)									
-	copy_to_buffer(vb.buffer, slice.to_bytes(instance_data))
-
-	return vb
-}
-
-// unused
-/*
-reroll_teapots :: proc() {
-	instance_data := gen_teapot_instance_data()
-	copy_to_buffer(dx_context.instance_buffer.buffer, slice.to_bytes(instance_data))
-}
-*/
 
 // creates:
 // - constant buffer with some global info
@@ -2202,52 +2110,6 @@ create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.
 			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
 			InputSlotClass = .PER_VERTEX_DATA,
 		},
-		// per-instance data
-		{
-			SemanticName = "WORLDMATRIX",
-			SemanticIndex = 0,
-			Format = .R32G32B32A32_FLOAT,
-			InputSlot = 1,
-			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-			InputSlotClass = .PER_INSTANCE_DATA,
-			InstanceDataStepRate = 1,
-		},
-		{
-			SemanticName = "WORLDMATRIX",
-			SemanticIndex = 1,
-			Format = .R32G32B32A32_FLOAT,
-			InputSlot = 1,
-			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-			InputSlotClass = .PER_INSTANCE_DATA,
-			InstanceDataStepRate = 1,
-		},
-		{
-			SemanticName = "WORLDMATRIX",
-			SemanticIndex = 2,
-			Format = .R32G32B32A32_FLOAT,
-			InputSlot = 1,
-			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-			InputSlotClass = .PER_INSTANCE_DATA,
-			InstanceDataStepRate = 1,
-		},
-		{
-			SemanticName = "WORLDMATRIX",
-			SemanticIndex = 3,
-			Format = .R32G32B32A32_FLOAT,
-			InputSlot = 1,
-			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-			InputSlotClass = .PER_INSTANCE_DATA,
-			InstanceDataStepRate = 1,
-		},
-		{
-			SemanticName = "COLOR",
-			SemanticIndex = 0,
-			Format = .R32G32B32_FLOAT,
-			InputSlot = 1,
-			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-			InputSlotClass = .PER_INSTANCE_DATA,
-			InstanceDataStepRate = 1,
-		},
 	}
 
 	default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
@@ -2408,7 +2270,7 @@ render_gbuffer_pass :: proc() {
 	ct.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
 
 	// binding vertex buffer view and instance buffer view
-	vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW{dx_context.vertex_buffer_view, dx_context.instance_buffer.vbv}
+	vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW{dx_context.vertex_buffer_view}
 
 	ct.cmdlist->IASetVertexBuffers(0, len(vertex_buffers_views), &vertex_buffers_views[0])
 	ct.cmdlist->IASetIndexBuffer(&ct.index_buffer_view)
@@ -2773,3 +2635,91 @@ arena_new :: proc() -> virtual.Arena {
 scene_destroy :: proc(scene: ^Scene) {
 	virtual.arena_destroy(&scene.allocator)
 }
+
+
+// unused (old) (u should delete this probably)
+/*
+
+gen_teapot_instance_data :: proc() -> []InstanceData {
+	teapot_count := 50
+
+	instance_data := make([]InstanceData, teapot_count, context.temp_allocator)
+
+	for &instance in instance_data {
+
+		spread :: 10
+
+		// fill it with random stuff
+		x_pos := rand.float32_range(-spread, spread)
+		y_pos := rand.float32_range(-spread, spread)
+		z_pos := rand.float32_range(-spread, spread)
+
+		scale := rand.float32_range(0.5, 5)
+
+		rot_fac :: 1
+
+		rot_val := rand.float32_range(0, math.TAU)
+		rot_vec := v3 {
+			rand.float32_range(-rot_fac, rot_fac),
+			rand.float32_range(-rot_fac, rot_fac),
+			rand.float32_range(-rot_fac, rot_fac),
+		}
+
+		rot_vec = linalg.vector_normalize(rot_vec)
+
+		col_vec := v4{rand.float32_range(0.5, 1), rand.float32_range(0.5, 1), rand.float32_range(0.5, 1), 1.0}
+
+		// x_pos = 0
+		instance = InstanceData {
+			world_mat = get_world_mat({x_pos, y_pos, z_pos}, {scale, scale, scale}, rot_val, rot_vec),
+			color = col_vec,
+		}
+	}
+
+	return instance_data
+}
+
+// creates instance buffer and fills it with some data
+create_instance_buffer_example :: proc() -> VertexBuffer {
+
+	// first: we create the data
+	instance_data := gen_just_one_instance_data()
+	// instance_data := gen_teapot_instance_data()
+
+	// second: we create the DX buffer, passing the size we want. and stride
+	//   it needs to return the vertex buffer view
+
+	instance_data_size := len(instance_data) * size_of(instance_data[0])
+
+	vb := create_vertex_buffer_upload(size_of(instance_data[0]), u32(instance_data_size), pool = &g_resources_longterm)
+	
+	// third: we copy the data to the buffer (map and unmap)									
+	copy_to_buffer(vb.buffer, slice.to_bytes(instance_data))
+
+	return vb
+}
+
+reroll_teapots :: proc() {
+	instance_data := gen_teapot_instance_data()
+	copy_to_buffer(dx_context.instance_buffer.buffer, slice.to_bytes(instance_data))
+}
+
+gen_just_one_instance_data :: proc() -> []InstanceData {
+	// returning one instance with no transformations
+	// we're rendering sponza now. we only want one.
+
+
+	instance_data := make([]InstanceData, 1, context.temp_allocator)
+
+	world_mat: dxm
+	world_mat = 1
+
+	instance_data[0] = InstanceData {
+		world_mat = world_mat,
+		color = v4{1, 1, 1, 1},
+	}
+
+	return instance_data
+}
+
+*/

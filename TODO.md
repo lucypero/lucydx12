@@ -2,16 +2,18 @@
 
 - get scene related initialization out of init_dx_other
 
-- reload buffers;
+u gotta reload:
+
    - vertex_buffer
    - vertex_buffer_view
    - index_buffer
    - index_buffer_view
-   
-   - TODO. there's more. fill this in.
-
-
-
+   - sb_model_matrices
+   - sb_materials
+   - meshes_to_render
+   - clear SRVs from the uber heap
+	 - descriptor_count
+		
 # other
 
 - is there something for odin vet to ignore a specific proc that is unused? (maybe export it?)
