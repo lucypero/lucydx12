@@ -13,6 +13,19 @@
     "show_command": true
   },
   {
+    "label": "build opt",
+    "command": "odin build . -o:speed -out:lucydx12.exe -linker:radlink -vet-shadowing",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "hide": "on_success",
+    "shell": {
+    	"program": "cmd"
+    },
+    "show_summary": true,
+    "show_command": true
+  },
+  {
     "label": "run debug",
     "command": "odin run . -debug -out:lucydx12.exe -linker:radlink -keep-executable",
     "use_new_terminal": false,

@@ -21,6 +21,7 @@ import "base:runtime"
 import "core:math/rand"
 import dxc "vendor:directx/dxc"
 import "core:prof/spall"
+import dxma "libs/odin-d3d12ma"
 
 // imgui
 import im "../odin-imgui"
@@ -253,6 +254,7 @@ Context :: struct {
 	constant_buffer: ^dx.IResource,
 	vertex_buffer_view: dx.VERTEX_BUFFER_VIEW,
 	index_buffer_view: dx.INDEX_BUFFER_VIEW,
+	dxma_allocator: ^dxma.Allocator,
 	// descriptor heap for the render target view
 	swapchain_rtv_descriptor_heap: ^dx.IDescriptorHeap,
 	frame_index: u32,
@@ -349,6 +351,7 @@ main :: proc() {
 	context.temp_allocator = temp_allocator
 	
 	when ODIN_DEBUG {
+		lprintln("Tracking Allocations...")
 		track: mem.Tracking_Allocator
 		mem.tracking_allocator_init(&track, context.allocator)
 		context.allocator = mem.tracking_allocator(&track)
@@ -553,9 +556,6 @@ init_dx_other :: proc() {
 
 	// constant buffer
 	{
-		heap_properties := dx.HEAP_PROPERTIES {
-			Type = .UPLOAD,
-		}
 		constant_buffer_desc := dx.RESOURCE_DESC {
 			Width = size_of(ConstantBufferData),
 			Dimension = .BUFFER,
@@ -567,19 +567,21 @@ init_dx_other :: proc() {
 			SampleDesc = {Count = 1},
 		}
 
-		hr = ct.device->CreateCommittedResource(
-			&heap_properties,
-			dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
-			&constant_buffer_desc,
-			dx.RESOURCE_STATE_GENERIC_READ,
-			nil,
-			dx.IResource_UUID,
-			(^rawptr)(&ct.constant_buffer),
+		upload_allocation : ^dxma.Allocation
+		hr = dxma.Allocator_CreateResource(
+			pSelf = ct.dxma_allocator,
+			pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .UPLOAD, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
+			pResourceDesc = &constant_buffer_desc,
+			InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
+			pOptimizedClearValue = nil,
+			ppAllocation = &upload_allocation,
+			riidResource = nil,
+			ppvResource = nil
 		)
-
-		check(hr, "failed creating constant buffer")
+		check(hr, "failed creating upload texture")
+		ct.constant_buffer = dxma.Allocation_GetResource(upload_allocation)
+		append(&g_resources_longterm, cast(^dx.IUnknown)upload_allocation)
 		ct.constant_buffer->SetName("lucy's constant buffer")
-		append(&g_resources_longterm, ct.constant_buffer)
 
 		// empty range means the cpu won't read from it
 		ct.constant_buffer->Map(0, &dx.RANGE{}, &ct.constant_buffer_map)
@@ -665,10 +667,6 @@ init_dx_other :: proc() {
 		// If we want to make this fast, the vertex data needs to be in
 		// a DEFAULT heap (vram). you transfer the data from an upload heap
 		// to the default heap. but it's more complicated.
-		heap_props := dx.HEAP_PROPERTIES {
-			Type = .UPLOAD,
-		}
-
 		vertex_buffer_size := len(vertices) * size_of(vertices[0])
 
 		resource_desc := dx.RESOURCE_DESC {
@@ -683,18 +681,22 @@ init_dx_other :: proc() {
 			Layout = .ROW_MAJOR,
 			Flags = {},
 		}
-
-		hr = ct.device->CreateCommittedResource(
-			&heap_props,
-			{},
-			&resource_desc,
-			dx.RESOURCE_STATE_GENERIC_READ,
-			nil,
-			dx.IResource_UUID,
-			(^rawptr)(&vertex_buffer),
+		
+		upload_allocation : ^dxma.Allocation
+		hr = dxma.Allocator_CreateResource(
+			pSelf = ct.dxma_allocator,
+			pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .UPLOAD},
+			pResourceDesc = &resource_desc,
+			InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
+			pOptimizedClearValue = nil,
+			ppAllocation = &upload_allocation,
+			riidResource = nil,
+			ppvResource = nil
 		)
-		check(hr, "Failed creating vertex buffer")
-		append(&g_resources_longterm, vertex_buffer)
+		check(hr, "failed creating upload texture")
+		vertex_buffer = dxma.Allocation_GetResource(upload_allocation)
+		append(&g_resources_longterm, cast(^dx.IUnknown)upload_allocation)
+		vertex_buffer->SetName("vertex buffer")
 
 		gpu_data: rawptr
 		read_range: dx.RANGE
@@ -715,19 +717,24 @@ init_dx_other :: proc() {
 
 		index_buffer_size := len(indices) * size_of(indices[0])
 		resource_desc.Width = u64(index_buffer_size)
-
-		hr = ct.device->CreateCommittedResource(
-			&heap_props,
-			{},
-			&resource_desc,
-			dx.RESOURCE_STATE_GENERIC_READ,
-			nil,
-			dx.IResource_UUID,
-			(^rawptr)(&index_buffer),
+		
+		// upload. no flags
+		
+		upload_allocation_2 : ^dxma.Allocation
+		hr = dxma.Allocator_CreateResource(
+			pSelf = ct.dxma_allocator,
+			pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .UPLOAD},
+			pResourceDesc = &resource_desc,
+			InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
+			pOptimizedClearValue = nil,
+			ppAllocation = &upload_allocation_2,
+			riidResource = nil,
+			ppvResource = nil
 		)
-		check(hr, "failed index buffer")
+		check(hr, "failed creating upload texture")
+		index_buffer = dxma.Allocation_GetResource(upload_allocation_2)
+		append(&g_resources_longterm, cast(^dx.IUnknown)upload_allocation_2)
 		index_buffer->SetName("lucy's index buffer")
-		append(&g_resources_longterm, index_buffer)
 
 		ct.index_buffer_view = dx.INDEX_BUFFER_VIEW {
 			BufferLocation = index_buffer->GetGPUVirtualAddress(),
@@ -924,6 +931,16 @@ init_dx :: proc() {
 		dx.ICommandList_UUID,
 		(^rawptr)(&ct.cmdlist),
 	)
+	
+	allocator_desc := dxma.ALLOCATOR_DESC {
+		pDevice = ct.device,
+		pAdapter = adapter,
+		Flags = .NONE
+	}
+	
+	hr = dxma.CreateAllocator(&allocator_desc, &ct.dxma_allocator)
+	append(&g_resources_longterm, cast(^dxgi.IUnknown)ct.dxma_allocator)
+	check(hr, "could not create dxma allocator")
 }
 
 
@@ -1371,11 +1388,7 @@ model_filepath :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/Sponza/glTF/
 
 create_depth_buffer :: proc() {
 
-	c := &dx_context
-
-	heap_properties := dx.HEAP_PROPERTIES {
-		Type = .DEFAULT,
-	}
+	ct := &dx_context
 
 	depth_stencil_desc := dx.RESOURCE_DESC {
 		Dimension = .TEXTURE2D,
@@ -1395,22 +1408,25 @@ create_depth_buffer :: proc() {
 		DepthStencil = {Depth = 1.0, Stencil = 0},
 	}
 
-	hr := c.device->CreateCommittedResource(
-		&heap_properties,
-		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
-		&depth_stencil_desc,
-		{.DEPTH_WRITE},
-		&opt_clear,
-		dx.IResource_UUID,
-		(^rawptr)(&c.depth_stencil_res),
+	// default heap
+	allocation : ^dxma.Allocation
+	hr := dxma.Allocator_CreateResource(
+		pSelf = ct.dxma_allocator,
+		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
+		pResourceDesc = &depth_stencil_desc,
+		InitialResourceState = {.DEPTH_WRITE},
+		pOptimizedClearValue = &opt_clear,
+		ppAllocation = &allocation,
+		riidResource = nil,
+		ppvResource = nil
 	)
-
 	check(hr, "failed creating depth resource")
-	c.depth_stencil_res->SetName("depth stencil texture")
-	append(&g_resources_longterm, c.depth_stencil_res)
+	ct.depth_stencil_res = dxma.Allocation_GetResource(allocation)
+	append(&g_resources_longterm, cast(^dxgi.IUnknown)allocation)
+	ct.depth_stencil_res->SetName("depth stencil texture")
 
 	// depth stencil view descriptor heap
-
+	
 	// creating descriptor heap
 	heap_desc := dx.DESCRIPTOR_HEAP_DESC {
 		NumDescriptors = 1,
@@ -1418,24 +1434,24 @@ create_depth_buffer :: proc() {
 		Flags = {},
 	}
 
-	hr = c.device->CreateDescriptorHeap(&heap_desc, dx.IDescriptorHeap_UUID, (^rawptr)(&c.descriptor_heap_dsv))
+	hr = ct.device->CreateDescriptorHeap(&heap_desc, dx.IDescriptorHeap_UUID, (^rawptr)(&ct.descriptor_heap_dsv))
 
-	c.descriptor_heap_dsv->SetName("lucy's DSV (depth-stencil-view) descriptor heap")
+	ct.descriptor_heap_dsv->SetName("lucy's DSV (depth-stencil-view) descriptor heap")
 
 	check(hr, "could not create descriptor heap for DSV")
-	append(&g_resources_longterm, c.descriptor_heap_dsv)
+	append(&g_resources_longterm, ct.descriptor_heap_dsv)
 
 	// creating depth stencil view
 
 	descriptor_handle: dx.CPU_DESCRIPTOR_HANDLE
-	c.descriptor_heap_dsv->GetCPUDescriptorHandleForHeapStart(&descriptor_handle)
+	ct.descriptor_heap_dsv->GetCPUDescriptorHandleForHeapStart(&descriptor_handle)
 
 	dsv_desc := dx.DEPTH_STENCIL_VIEW_DESC {
 		ViewDimension = .TEXTURE2D,
 		Format = .D32_FLOAT,
 	}
 
-	c.device->CreateDepthStencilView(c.depth_stencil_res, &dsv_desc, descriptor_handle)
+	ct.device->CreateDepthStencilView(ct.depth_stencil_res, &dsv_desc, descriptor_handle)
 	
 	// Creating SRV for sampling depth in the lighting pass
 	
@@ -1443,28 +1459,14 @@ create_depth_buffer :: proc() {
 		Format = .R32_FLOAT,
 		ViewDimension = .TEXTURE2D,
 		Shader4ComponentMapping = dx.ENCODE_SHADER_4_COMPONENT_MAPPING(0, 1, 2, 3), // this is the default mapping
-		// Buffer = {
-		// 	FirstElement = 0,
-		// 	NumElements = u32(scene.mesh_count),
-		// 	StructureByteStride = size_of(ModelMatrixData),
-		// 	Flags = {},
-		// },
-		
-// 		TEX2D_SRV :: struct {
-// 			MostDetailedMip:     u32,
-// 			MipLevels:           u32,
-// 			PlaneSlice:          u32,
-// 			ResourceMinLODClamp: f32,
-// }
-
 		Texture2D = {
 			MostDetailedMip = 0,
 			MipLevels = 1,
 		}
 	}
 	
-	create_srv_on_uber_heap(c.depth_stencil_res, true, "Depth SRV", srv_desc = &srv_desc)
-	transition_resource(c.depth_stencil_res, c.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
+	create_srv_on_uber_heap(ct.depth_stencil_res, true, "Depth SRV", srv_desc = &srv_desc)
+	transition_resource(ct.depth_stencil_res, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
 }
 
 imgui_init :: proc() {
@@ -2465,7 +2467,7 @@ lprintln :: proc(args: ..any, sep := " ") {
 		os.exit(1)
 	}
 
-	fmt.println(args, sep)
+	fmt.print(final_string_c)
 	windows.OutputDebugStringA(final_string_c)
 }
 

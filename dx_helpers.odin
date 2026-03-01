@@ -15,6 +15,7 @@ import "core:sys/windows"
 import "core:fmt"
 import "base:runtime"
 import "core:math"
+import dxma "libs/odin-d3d12ma"
 
 execute_command_list_and_wait :: proc() {
 	
@@ -90,10 +91,6 @@ create_texture :: proc(width: u64, height: u32, format: dxgi.FORMAT, resource_fl
 
 	opt_clear_value := opt_clear_value
 
-	heap_properties := dx.HEAP_PROPERTIES {
-		Type = .DEFAULT,
-	}
-
 	if set_clear_value_to_zero {
 		opt_clear_value = dx.CLEAR_VALUE {
 			Format = format,
@@ -112,18 +109,22 @@ create_texture :: proc(width: u64, height: u32, format: dxgi.FORMAT, resource_fl
 		SampleDesc = {Count = 1},
 		Flags = resource_flags,
 	}
-
-	ct.device->CreateCommittedResource(
-		&heap_properties,
-		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
+	
+	allocation : ^dxma.Allocation
+	dxma.Allocator_CreateResource(
+		ct.dxma_allocator,
+	 	&dxma.ALLOCATION_DESC{HeapType = .DEFAULT},
 		&texture_desc,
 		initial_state,
-		&opt_clear_value,
-		dx.IResource_UUID,
-		(^rawptr)(&res),
+	 	&opt_clear_value,
+		&allocation,
+		nil,
+		nil
 	)
 	
-	append(pool, res)
+	res = dxma.Allocation_GetResource(allocation)
+	
+	append(pool, cast(^dxgi.IUnknown)allocation)
 
 	return res
 }
@@ -231,10 +232,6 @@ create_structured_buffer_with_data :: proc(
 	
 	ct := &dx_context
 	
-	heap_properties := dx.HEAP_PROPERTIES {
-		Type = .DEFAULT,
-	}
-
 	buffer_desc := dx.RESOURCE_DESC {
 		Width = u64(len(buffer_data)),
 		Height = 1,
@@ -249,55 +246,47 @@ create_structured_buffer_with_data :: proc(
 
 	default_res: ^dx.IResource
 
-	hr := ct.device->CreateCommittedResource(
-		pHeapProperties = &heap_properties,
-		HeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
-		pDesc = &buffer_desc,
-		InitialResourceState = dx.RESOURCE_STATE_COMMON, // it will promote to copy_dest automatically later
+	allocation : ^dxma.Allocation
+	dxma.Allocator_CreateResource(
+		pSelf = ct.dxma_allocator,
+		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
+		pResourceDesc = &buffer_desc,
+		InitialResourceState = dx.RESOURCE_STATE_COMMON,
 		pOptimizedClearValue = nil,
-		riidResource = dx.IResource_UUID,
-		ppvResource = (^rawptr)(&default_res),
+		ppAllocation = &allocation,
+		riidResource = nil,
+		ppvResource = nil
 	)
-
-	check(hr, "failed creating buffer")
+	default_res = dxma.Allocation_GetResource(allocation)
+	append(pool_resource, cast(^dxgi.IUnknown)allocation)
 	
 	buffer_name_cstring := windows.utf8_to_wstring_alloc(buffer_name, allocator = context.temp_allocator)
 	default_res->SetName(buffer_name_cstring)
-	append(pool_resource, default_res)
 
 	// creating UPLOAD resource
-
-	heap_properties.Type = .UPLOAD
-
-	upload_res: ^dx.IResource
-
-	// buffer desc is the same i think.
-	// buffer_desc.
-
-	hr = ct.device->CreateCommittedResource(
-		&heap_properties,
-		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
-		&buffer_desc,
-		dx.RESOURCE_STATE_GENERIC_READ,
-		nil,
-		dx.IResource_UUID,
-		(^rawptr)(&upload_res),
+	upload_allocation : ^dxma.Allocation
+	dxma.Allocator_CreateResource(
+		pSelf = ct.dxma_allocator,
+		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .UPLOAD, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
+		pResourceDesc = &buffer_desc,
+		InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
+		pOptimizedClearValue = nil,
+		ppAllocation = &upload_allocation,
+		riidResource = nil,
+		ppvResource = nil
 	)
-
-	check(hr, "failed creating upload buffer")
-	defer upload_res->Release()
+	upload_res := dxma.Allocation_GetResource(upload_allocation)
+	defer (cast(^dxgi.IUnknown)upload_allocation)->Release()
 
 	// Copying data from cpu to upload resource
 	copy_to_buffer(upload_res, buffer_data)
 
 	// this might be problematic
 	cmdlist->Reset(ct.command_allocator, ct.pipeline_gbuffer)
-	
 	cmdlist->CopyResource(default_res, upload_res)
 
 	// transition resource to shader readable.
 	transition_resource_from_copy_to_read(default_res, cmdlist)
-
 	execute_command_list_and_wait()
 	
 	return default_res
@@ -342,25 +331,28 @@ create_texture_with_data :: proc(
 		MipLevels = mip_levels,
 		SampleDesc = {Count = 1},
 	}
-
-	hr := ct.device->CreateCommittedResource(
-		&heap_properties,
-		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
-		&texture_desc,
-		{.COPY_DEST},
-		nil,
-		dx.IResource_UUID,
-		(^rawptr)(&res),
+	
+	hr : dxgi.HRESULT
+	
+	allocation : ^dxma.Allocation
+	dxma.Allocator_CreateResource(
+		pSelf = ct.dxma_allocator,
+		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
+		pResourceDesc = &texture_desc,
+		InitialResourceState = {.COPY_DEST},
+		pOptimizedClearValue = nil,
+		ppAllocation = &allocation,
+		riidResource = nil,
+		ppvResource = nil
 	)
-
-	check(hr, "failed creating texture")
+	res = dxma.Allocation_GetResource(allocation)
+	append(pool_textures, cast(^dxgi.IUnknown)allocation)
 	
 	if len(texture_name) > 0 {
 		texture_name_cstring := windows.utf8_to_wstring_alloc(texture_name, allocator = context.temp_allocator)
 		res->SetName(texture_name_cstring)
 	}
 	
-	append(pool_textures, res)
 
 	// getting data from texture that we'll use later
 	text_footprint := make([]dx.PLACED_SUBRESOURCE_FOOTPRINT, mip_levels, context.temp_allocator)
@@ -381,7 +373,6 @@ create_texture_with_data :: proc(
 		Type = .UPLOAD,
 	}
 
-	texture_upload: ^dx.IResource
 	upload_desc := dx.RESOURCE_DESC {
 		Dimension = .BUFFER,
 		Alignment = 0,
@@ -393,19 +384,21 @@ create_texture_with_data :: proc(
 		DepthOrArraySize = 1,
 		SampleDesc = {Count = 1},
 	}
-
-	hr = ct.device->CreateCommittedResource(
-		&heap_properties,
-		dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES,
-		&upload_desc,
-		dx.RESOURCE_STATE_GENERIC_READ,
-		nil,
-		dx.IResource_UUID,
-		(^rawptr)(&texture_upload),
+	
+	upload_allocation : ^dxma.Allocation
+	hr = dxma.Allocator_CreateResource(
+		pSelf = ct.dxma_allocator,
+		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .UPLOAD, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
+		pResourceDesc = &upload_desc,
+		InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
+		pOptimizedClearValue = nil,
+		ppAllocation = &upload_allocation,
+		riidResource = nil,
+		ppvResource = nil
 	)
-
 	check(hr, "failed creating upload texture")
-	append(pool_upload_heap, texture_upload)
+	texture_upload := dxma.Allocation_GetResource(upload_allocation)
+	append(pool_upload_heap, cast(^dx.IUnknown)upload_allocation)
 
 	// here you do a Map and you memcpy the data to the upload resource.
 	// you'll have to use an image library here to get the pixel data of an image.
@@ -499,9 +492,6 @@ create_vertex_buffer_upload :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^
 
 	// For now we'll just store stuff in an upload heap.
 	// it's not optimal for most things but it's more practical for me
-	heap_props := dx.HEAP_PROPERTIES {
-		Type = .UPLOAD,
-	}
 
 	resource_desc := dx.RESOURCE_DESC {
 		Dimension = .BUFFER,
@@ -515,18 +505,21 @@ create_vertex_buffer_upload :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^
 		Layout = .ROW_MAJOR,
 		Flags = {},
 	}
-
-	hr := dx_context.device->CreateCommittedResource(
-		&heap_props,
-		{},
-		&resource_desc,
-		dx.RESOURCE_STATE_GENERIC_READ,
-		nil,
-		dx.IResource_UUID,
-		(^rawptr)(&vb),
+	
+	allocation : ^dxma.Allocation
+	hr := dxma.Allocator_CreateResource(
+		pSelf = dx_context.dxma_allocator,
+		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .UPLOAD},
+		pResourceDesc = &resource_desc,
+		InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
+		pOptimizedClearValue = nil,
+		ppAllocation = &allocation,
+		riidResource = nil,
+		ppvResource = nil
 	)
 	check(hr, "Failed creating vertex buffer")
-	append(pool, vb)
+	vb = dxma.Allocation_GetResource(allocation)
+	append(pool, cast(^dxgi.IUnknown)allocation)
 
 	vbv := dx.VERTEX_BUFFER_VIEW {
 		BufferLocation = vb->GetGPUVirtualAddress(),
