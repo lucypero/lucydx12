@@ -10,7 +10,7 @@
     	"program": "cmd"
     },
     "show_summary": true,
-    "show_command": true
+    "show_command": true,
   },
   {
     "label": "build opt",

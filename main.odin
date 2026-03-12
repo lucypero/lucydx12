@@ -243,12 +243,24 @@ Context :: struct {
 	// core stuff
 	device: ^dx.IDevice,
 	factory: ^dxgi.IFactory4,
+	
+	// Graphics core resources
+	
 	queue: ^dx.ICommandQueue,
-	swapchain: ^dxgi.ISwapChain3,
 	command_allocator: ^dx.ICommandAllocator,
+	cmdlist: ^dx.IGraphicsCommandList,
+	
+	// Copy core resources
+	
+	queue_copy: ^dx.ICommandQueue,
+	command_allocator_copy: ^dx.ICommandAllocator,
+	cmdlist_copy: ^dx.ICommandList,
+	
+	// Other
+	
+	swapchain: ^dxgi.ISwapChain3,
 	dxc_compiler: ^dxc.ICompiler3,
 	pipeline_gbuffer: ^dx.IPipelineState,
-	cmdlist: ^dx.IGraphicsCommandList,
 	constant_buffer_map: rawptr, //maps to our test constant buffer
 	gbuffer_pass_root_signature: ^dx.IRootSignature,
 	constant_buffer: ^dx.IResource,
@@ -308,7 +320,7 @@ context_init :: proc(con: ^Context) {
 	con.meshes_to_render = len(g_scene.meshes)
 }
 
-check :: proc(res: dx.HRESULT, message: string) {
+check :: proc(res: dx.HRESULT, message: string = "dx call error") {
 	if (res >= 0) {
 		return
 	}
@@ -602,12 +614,6 @@ init_dx_other :: proc() {
 	create_lighting_pso_initial()
 	ct.rs_gizmos, ct.pso_gizmos = create_gizmos_pso()
 	
-	// cmd list is ready to be used and it's open from now on.
-	
-	// check(hr, "Failed to create command list")
-	// hr = ct.cmdlist->Close()
-	// check(hr, "Failed to close command list")
-	append(&g_resources_longterm, ct.cmdlist)
 	
 	// hr = ct.command_allocator->Reset()
 	// hr = ct.cmdlist->Reset(ct.command_allocator, nil)
@@ -851,6 +857,59 @@ init_dx :: proc() {
 
 	ct.dxc_compiler = dxc_init()
 	
+	// create dxma allocator
+	{
+		allocator_desc := dxma.ALLOCATOR_DESC {
+			pDevice = ct.device,
+			pAdapter = adapter,
+			Flags = .NONE
+		}
+		
+		check(dxma.CreateAllocator(&allocator_desc, &ct.dxma_allocator))
+		append(&g_resources_longterm, cast(^dxgi.IUnknown)ct.dxma_allocator)
+	}
+
+	// Create command queues and allocators
+	{
+		check(ct.device->CreateCommandQueue(&{Type = .DIRECT}, dx.ICommandQueue_UUID, (^rawptr)(&ct.queue)))
+		append(&g_resources_longterm, ct.queue)
+		
+		// The command allocator is used to create the commandlist that is used to tell the GPU what to draw
+		check(ct.device->CreateCommandAllocator(.DIRECT, dx.ICommandAllocator_UUID, (^rawptr)(&ct.command_allocator)))
+		append(&g_resources_longterm, ct.command_allocator)
+		
+		// copy command queue and allocator
+		check(ct.device->CreateCommandQueue(&{Type = .COPY}, dx.ICommandQueue_UUID, (^rawptr)(&ct.queue_copy)))
+		append(&g_resources_longterm, ct.queue_copy)
+		
+		check(ct.device->CreateCommandAllocator(.COPY, dx.ICommandAllocator_UUID, (^rawptr)(&ct.command_allocator_copy)))
+		append(&g_resources_longterm, ct.command_allocator_copy)
+	}
+	
+	
+	// Create command lists
+	{
+		check(ct.device->CreateCommandList(
+			0,
+			.DIRECT,
+			ct.command_allocator,
+			nil,
+			dx.ICommandList_UUID,
+			(^rawptr)(&ct.cmdlist),
+		))
+		append(&g_resources_longterm, ct.cmdlist)
+		
+		check(ct.device->CreateCommandList(
+			0,
+			.COPY,
+			ct.command_allocator_copy,
+			nil,
+			dx.ICommandList_UUID,
+			(^rawptr)(&ct.cmdlist_copy),
+		))
+		append(&g_resources_longterm, ct.cmdlist_copy)
+	}
+	
 	// Creating SRV heap used for all resources
 	{
 		desc := dx.DESCRIPTOR_HEAP_DESC {
@@ -864,26 +923,14 @@ init_dx :: proc() {
 		ct.cbv_srv_uav_heap->SetName("lucy's uber CBV_SRV_UAV descriptor heap")
 		append(&g_resources_longterm, ct.cbv_srv_uav_heap)
 	}
-
-
-
-	{
-		desc := dx.COMMAND_QUEUE_DESC {
-			Type = .DIRECT,
-		}
-
-		hr = ct.device->CreateCommandQueue(&desc, dx.ICommandQueue_UUID, (^rawptr)(&ct.queue))
-		check(hr, "Failed creating command queue")
-		append(&g_resources_longterm, ct.queue)
-	}
-
+		
 	// Create the swapchain, it's the thing that contains render targets that we draw into.
 	//  It has 2 render targets (NUM_RENDERTARGETS), giving us double buffering.
 	ct.swapchain = create_swapchain(ct.factory, ct.queue, ct.window)
 
 	ct.frame_index = ct.swapchain->GetCurrentBackBufferIndex()
 
-	// Descriptors describe the GPU data and are allocated from a Descriptor Heap
+	// Create swapchain rtv heap
 	{
 		desc := dx.DESCRIPTOR_HEAP_DESC {
 			NumDescriptors = NUM_RENDERTARGETS,
@@ -902,7 +949,6 @@ init_dx :: proc() {
 	}
 
 	// Fetch the two render targets from the swapchain
-
 	{
 		rtv_descriptor_size: u32 = ct.device->GetDescriptorHandleIncrementSize(.RTV)
 		rtv_descriptor_handle: dx.CPU_DESCRIPTOR_HANDLE
@@ -916,31 +962,6 @@ init_dx :: proc() {
 			rtv_descriptor_handle.ptr += uint(rtv_descriptor_size)
 		}
 	}
-
-	// The command allocator is used to create the commandlist that is used to tell the GPU what to draw
-	hr = ct.device->CreateCommandAllocator(.DIRECT, dx.ICommandAllocator_UUID, (^rawptr)(&ct.command_allocator))
-	check(hr, "Failed creating command allocator")
-	append(&g_resources_longterm, ct.command_allocator)
-	
-	// Create the commandlist that is reused further down.
-	hr = ct.device->CreateCommandList(
-		0,
-		.DIRECT,
-		ct.command_allocator,
-		nil,
-		dx.ICommandList_UUID,
-		(^rawptr)(&ct.cmdlist),
-	)
-	
-	allocator_desc := dxma.ALLOCATOR_DESC {
-		pDevice = ct.device,
-		pAdapter = adapter,
-		Flags = .NONE
-	}
-	
-	hr = dxma.CreateAllocator(&allocator_desc, &ct.dxma_allocator)
-	append(&g_resources_longterm, cast(^dxgi.IUnknown)ct.dxma_allocator)
-	check(hr, "could not create dxma allocator")
 }
 
 
