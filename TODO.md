@@ -1,3 +1,12 @@
+# copy queue
+
+- create service that uploads data to the gpu using the copy queue. and set up a fence so the graphics queue can know when it's done.
+- the upload call returns a Fence value. store this value so that u can send it to the graphics queue for when u wanna render the resource / resource batch.
+- stop executing command lists and waiting when u are creating resources.  u don't need to stall the cpu for that.
+
+
+
+
 # switching scenes in runtime
 
 - get scene related initialization out of init_dx_other

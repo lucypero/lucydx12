@@ -251,10 +251,7 @@ Context :: struct {
 	cmdlist: ^dx.IGraphicsCommandList,
 	
 	// Copy core resources
-	
-	queue_copy: ^dx.ICommandQueue,
-	command_allocator_copy: ^dx.ICommandAllocator,
-	cmdlist_copy: ^dx.ICommandList,
+	upload_service: DXUploadService,
 	
 	// Other
 	
@@ -877,15 +874,7 @@ init_dx :: proc() {
 		// The command allocator is used to create the commandlist that is used to tell the GPU what to draw
 		check(ct.device->CreateCommandAllocator(.DIRECT, dx.ICommandAllocator_UUID, (^rawptr)(&ct.command_allocator)))
 		append(&g_resources_longterm, ct.command_allocator)
-		
-		// copy command queue and allocator
-		check(ct.device->CreateCommandQueue(&{Type = .COPY}, dx.ICommandQueue_UUID, (^rawptr)(&ct.queue_copy)))
-		append(&g_resources_longterm, ct.queue_copy)
-		
-		check(ct.device->CreateCommandAllocator(.COPY, dx.ICommandAllocator_UUID, (^rawptr)(&ct.command_allocator_copy)))
-		append(&g_resources_longterm, ct.command_allocator_copy)
 	}
-	
 	
 	// Create command lists
 	{
@@ -898,17 +887,9 @@ init_dx :: proc() {
 			(^rawptr)(&ct.cmdlist),
 		))
 		append(&g_resources_longterm, ct.cmdlist)
-		
-		check(ct.device->CreateCommandList(
-			0,
-			.COPY,
-			ct.command_allocator_copy,
-			nil,
-			dx.ICommandList_UUID,
-			(^rawptr)(&ct.cmdlist_copy),
-		))
-		append(&g_resources_longterm, ct.cmdlist_copy)
 	}
+	
+	dx_upload_init()
 	
 	// Creating SRV heap used for all resources
 	{
