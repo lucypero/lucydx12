@@ -5,8 +5,6 @@
 - stop executing command lists and waiting when u are creating resources.  u don't need to stall the cpu for that.
 
 
-
-
 # switching scenes in runtime
 
 - get scene related initialization out of init_dx_other
