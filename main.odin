@@ -604,7 +604,6 @@ init_dx_other :: proc() {
 		// empty range means the cpu won't read from it
 		ct.constant_buffer->Map(0, &dx.RANGE{}, &ct.constant_buffer_map)
 	}
-
 	
 	/* 
 	From https://docs.microsoft.com/en-us/windows/win32/direct3d12/root-signatures-overview:
@@ -694,36 +693,30 @@ init_dx_other :: proc() {
 			Flags = {},
 		}
 		
-		upload_allocation : ^dxma.Allocation
+		vb_allocation : ^dxma.Allocation
 		hr = dxma.Allocator_CreateResource(
 			pSelf = ct.dxma_allocator,
-			pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .UPLOAD},
+			pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT},
 			pResourceDesc = &resource_desc,
 			InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
 			pOptimizedClearValue = nil,
-			ppAllocation = &upload_allocation,
+			ppAllocation = &vb_allocation,
 			riidResource = nil,
 			ppvResource = nil
 		)
+		
 		check(hr, "failed creating upload texture")
-		vertex_buffer = dxma.Allocation_GetResource(upload_allocation)
-		append(&g_resources_longterm, cast(^dx.IUnknown)upload_allocation)
+		vertex_buffer = dxma.Allocation_GetResource(vb_allocation)
+		append(&g_resources_longterm, cast(^dx.IUnknown)vb_allocation)
 		vertex_buffer->SetName("vertex buffer")
-
-		gpu_data: rawptr
-		read_range: dx.RANGE
-
-		hr = vertex_buffer->Map(0, &read_range, &gpu_data)
-		check(hr, "Failed creating vertex buffer resource")
-
-		mem.copy(gpu_data, &vertices[0], vertex_buffer_size)
-		vertex_buffer->Unmap(0, nil)
 
 		ct.vertex_buffer_view = dx.VERTEX_BUFFER_VIEW {
 			BufferLocation = vertex_buffer->GetGPUVirtualAddress(),
 			StrideInBytes = u32(vertex_buffer_size) / vertex_count,
 			SizeInBytes = u32(vertex_buffer_size),
 		}
+		
+		dx_upload_trigger(&ct.upload_service, vertex_buffer, slice.to_bytes(vertices[:]))
 
 		// creating index buffer resource
 
@@ -735,7 +728,7 @@ init_dx_other :: proc() {
 		upload_allocation_2 : ^dxma.Allocation
 		hr = dxma.Allocator_CreateResource(
 			pSelf = ct.dxma_allocator,
-			pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .UPLOAD},
+			pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT},
 			pResourceDesc = &resource_desc,
 			InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
 			pOptimizedClearValue = nil,
@@ -753,12 +746,8 @@ init_dx_other :: proc() {
 			SizeInBytes = u32(index_buffer_size),
 			Format = .R32_UINT,
 		}
-
-		hr = index_buffer->Map(0, &dx.RANGE{}, &gpu_data)
-		check(hr, "failed mapping")
-
-		mem.copy(gpu_data, &indices[0], index_buffer_size)
-		index_buffer->Unmap(0, nil)
+		
+		dx_upload_trigger(&ct.upload_service, index_buffer, slice.to_bytes(indices[:]))
 	}
 
 	create_model_matrix_structured_buffer(&g_resources_longterm)
