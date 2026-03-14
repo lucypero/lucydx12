@@ -138,7 +138,8 @@ Scene :: struct {
 	root_nodes: []int,
 	mesh_count: uint,
 	meshes: []Mesh,
-	allocator: virtual.Arena
+	allocator: virtual.Arena,
+	fence_value: u64 // fence value to wait on for all scene resources to be uploaded to the GPU
 }
 
 Node :: struct {
@@ -431,49 +432,57 @@ main :: proc() {
 	defer sdl.DestroyWindow(ct.window)
 
 	init_dx()
-	
 	init_dx_other()
-
 	context_init(ct)
-
-	// looping
-
-
+	
+	// Wait till all resources are uploaded to the GPU before rendering.
+	lprintfln("waiting for fence value %v", g_scene. fence_value)
+	ct.queue->Wait(ct.upload_service.fence, g_scene.fence_value)
+	
+	// scene ready. do required things before starting to render.
+	{
+		// transitioning all resources from copy to read. ??
+		
+		// transition_resource_from_copy_to_read(default_res, cmdlist)
+		// apparently i don't need to do this.
+		
+	}
+	
 	start_time = time.now()
 	do_main_loop()
-
-	// cleaning up
-
-	imgui_destoy()
-
-	#reverse for &i in g_resources_longterm {
-		i->Release()
-	}
-
-	// this does nothing
-	sdl.DestroyWindow(ct.window)
-
-	when ODIN_DEBUG {
+	
+	// cleanup
+	{
+		imgui_destoy()
 		
-		debug_device: ^dx.IDebugDevice2
-		ct.device->QueryInterface(dx.IDebugDevice2_UUID, (^rawptr)(&debug_device))
-		// Finally, release the device (it is not in any pool)
-		// The device will be freed after we release the debug device
-		ct.device->Release()
-		debug_device->ReportLiveDeviceObjects({.DETAIL, .IGNORE_INTERNAL})
-		debug_device->Release()
+		#reverse for &i in g_resources_longterm {
+			i->Release()
+		}
 
-		// DXGI report
-		dxgi_debug: ^dxgi.IDebug1
-		dxgi.DXGIGetDebugInterface1(0, dxgi.IDebug1_UUID, (^rawptr)(&dxgi_debug))
-		dxgi_debug->ReportLiveObjects(dxgi.DEBUG_ALL, {})
+		// this does nothing
+		sdl.DestroyWindow(ct.window)
+
+		when ODIN_DEBUG {
+			
+			debug_device: ^dx.IDebugDevice2
+			ct.device->QueryInterface(dx.IDebugDevice2_UUID, (^rawptr)(&debug_device))
+			// Finally, release the device (it is not in any pool)
+			// The device will be freed after we release the debug device
+			ct.device->Release()
+			debug_device->ReportLiveDeviceObjects({.DETAIL, .IGNORE_INTERNAL})
+			debug_device->Release()
+
+			// DXGI report
+			dxgi_debug: ^dxgi.IDebug1
+			dxgi.DXGIGetDebugInterface1(0, dxgi.IDebug1_UUID, (^rawptr)(&dxgi_debug))
+			dxgi_debug->ReportLiveObjects(dxgi.DEBUG_ALL, {})
+		}
+		
+		
+		when PROFILE {
+			lprintfln("highest stack count: %v, total instrument hits: %v", highest_stack_count, instrument_hit_count)
+		}
 	}
-	
-	
-	when PROFILE {
-		lprintfln("highest stack count: %v, total instrument hits: %v", highest_stack_count, instrument_hit_count)
-	}
-	
 }
 
 do_main_loop :: proc() {
@@ -866,7 +875,7 @@ init_dx :: proc() {
 		append(&g_resources_longterm, cast(^dxgi.IUnknown)ct.dxma_allocator)
 	}
 
-	// Create command queues and allocators
+	// Create command queue and allocator and list
 	{
 		check(ct.device->CreateCommandQueue(&{Type = .DIRECT}, dx.ICommandQueue_UUID, (^rawptr)(&ct.queue)))
 		append(&g_resources_longterm, ct.queue)
@@ -874,10 +883,7 @@ init_dx :: proc() {
 		// The command allocator is used to create the commandlist that is used to tell the GPU what to draw
 		check(ct.device->CreateCommandAllocator(.DIRECT, dx.ICommandAllocator_UUID, (^rawptr)(&ct.command_allocator)))
 		append(&g_resources_longterm, ct.command_allocator)
-	}
-	
-	// Create command lists
-	{
+		
 		check(ct.device->CreateCommandList(
 			0,
 			.DIRECT,
@@ -1082,6 +1088,7 @@ do_imgui_ui :: proc() {
 	// }
 }
 
+
 render :: proc() {
 
 	ct := &dx_context
@@ -1095,7 +1102,6 @@ render :: proc() {
 	// case .WINDOWEVENT:
 	// This is equivalent to WM_PAINT in win32 API
 	// if e.window.event == .EXPOSED {
-	hr = ct.command_allocator->Reset()
 	check(hr, "Failed resetting command allocator")
 
 	hr = ct.cmdlist->Reset(ct.command_allocator, ct.pipeline_gbuffer)
@@ -1164,6 +1170,7 @@ render :: proc() {
 		}
 
 		ct.frame_index = ct.swapchain->GetCurrentBackBufferIndex()
+		check(ct.command_allocator->Reset())
 
 		// swap PSO here if needed (hot reload of shaders)
 
@@ -2577,7 +2584,7 @@ hotswap_swap :: proc(hs: ^HotSwapState, pso: ^^dx.IPipelineState) {
 }
 
 
-load_white_texture :: proc(upload_resources: ^DXResourcePool) {
+load_white_texture :: proc() {
 	ct := dx_context
 	
 	w, h, channels : c.int
@@ -2590,7 +2597,7 @@ load_white_texture :: proc(upload_resources: ^DXResourcePool) {
 	}
 	
 	texture_res := create_texture_with_data(img_data_mipmaps[:], u64(w), u32(h), .R8G8B8A8_UNORM, 
-		&g_resources_longterm, upload_resources, "white")
+		&g_resources_longterm, "white")
 	
 	// creating srv on uber heap
 	ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, TEXTURE_WHITE_INDEX))

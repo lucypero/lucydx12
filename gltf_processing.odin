@@ -41,7 +41,8 @@ gltf_process_data :: proc(allocator: runtime.Allocator) -> (vertices: [dynamic]V
 	
 	g_scene = gltf_new_scene(data)
 	g_scene.meshes = gltf_load_meshes(data, &vertices_dyn, &indices_dyn, &g_scene.allocator)
-
+	g_scene.fence_value = dx_context.upload_service.fence_value
+	
 	// printing nodes
 	// scene_walk(scene, nil, proc(node: Node, scene: Scene, data: rawptr) {
 	//     lprintfln("node name: %v", node.name)
@@ -209,61 +210,26 @@ gltf_new_scene :: proc(data: ^cgltf.data) -> Scene {
 	return Scene{nodes = nodes, root_nodes = root_nodes, mesh_count = mesh_count, allocator = scene_arena}
 }
 
-load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT,
-					 upload_resources: ^DXResourcePool, textures_srv_index: ^u32) {
+load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, textures_srv_index: ^u32) {
 	
 	ct := &dx_context
 	TEMP_GUARD(&temp_arena)
 	
-	// lprintfln("loading image %v", image.name)
-	// assert(image.mime_type == "image/png")
-	// channel_count :: 4
-	// image_data : [^]byte
 	image_name : string
 	
 	if image.uri != nil {
-		// image data is a file. just pass the file to texconv now
-		
-		// channel_count :: 4
-		//  u gotta concatenate the name
-		
-		// image_dir := filepath.dir(model_filepath, context.temp_allocator)
-		// image_path, alloc_err := filepath.join({image_dir, string(image.uri)}, context.temp_allocator)
-		// if alloc_err != .None {
-		// 	lprintfln("alloc error")
-		// 	os.exit(1)
-		// }
-		// image_path_cstring := strings.clone_to_cstring(image_path, context.temp_allocator)
-		
-		// image_data = img.load(image_path_cstring, &w, &h, &channels, channel_count)
 		image_name = string(image.uri)
-		// assert(image_data != nil)
 	} else {
-		// the image data is inside the gltf file. caching this will be harder.
-		
 		// TODO: you will need to write this to a file first.
-		
-		// png_data := cgltf.buffer_view_data(image.buffer_view)
-		// png_size := image.buffer_view.size
-		// image_data = img.load_from_memory(png_data, i32(png_size), &w, &h, &channels, channel_count)
-		
 		image_name = string(image.name)
-		// assert(image_data != nil)
 	}
 	
 	texture_final_path := texture_cache_query(model_filepath, image_name, format)
-	
-	// TODO: use the DDS file instead of the png file.
-	
-	// defer img.image_free(image_data)
 	dds_file := parse_dds_file(texture_final_path)
 	
 	texture_res := create_texture_with_data(dds_file.mipmap_data, u64(dds_file.width), dds_file.height, dds_file.format, 
-		&g_resources_longterm, upload_resources, string(image.name))
+		&g_resources_longterm, string(image.name))
 	
-	// lprintfln("name: %v, index in the heap: %v", image.name, textures_srv_index)
-	
-	// creating srv on uber heap
 	ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, textures_srv_index^))
 	textures_srv_index^ += 1
 }
@@ -284,12 +250,7 @@ gltf_load_materials :: proc(data: ^cgltf.data) {
 	
 	mats := make([]Material, len(data.materials), temp_allocator)
 	
-	upload_resources := make(DXResourcePool, 0, len(data.images))
-	defer delete(upload_resources)
-	
-	dx_context.cmdlist->Reset(dx_context.command_allocator, ct.pipeline_gbuffer)
-	
-	load_white_texture(&upload_resources)
+	load_white_texture()
 	
 	textures_srv_index : u32 = TEXTURE_INDEX_BASE // starting at 100 to not interfere with other views
 	
@@ -311,7 +272,7 @@ gltf_load_materials :: proc(data: ^cgltf.data) {
 			}
 			
 			load_texture(mat.pbr_metallic_roughness.base_color_texture.texture.image_, 
-				.BC7_UNORM_SRGB, &upload_resources, &textures_srv_index)
+				.BC7_UNORM_SRGB, &textures_srv_index)
 		}
 		
 		// metallic roughness
@@ -325,7 +286,7 @@ gltf_load_materials :: proc(data: ^cgltf.data) {
 			}
 			
 			load_texture(mat.pbr_metallic_roughness.metallic_roughness_texture.texture.image_,
-			 .BC7_UNORM,  &upload_resources, &textures_srv_index)
+			 .BC7_UNORM,  &textures_srv_index)
 		}
 		
 		// normal
@@ -339,16 +300,8 @@ gltf_load_materials :: proc(data: ^cgltf.data) {
 			}
 			
 			load_texture(mat.normal_texture.texture.image_,
-			 .BC5_UNORM,  &upload_resources, &textures_srv_index)
+			 .BC5_UNORM,  &textures_srv_index)
 		}
-	}
-	
-	// execute command list
-	execute_command_list_and_wait()
-	
-	// free upload resources
-	for res in upload_resources {
-		res->Release()
 	}
 	
 	ct.sb_materials = create_structured_buffer_with_data(

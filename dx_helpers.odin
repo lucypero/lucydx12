@@ -17,6 +17,7 @@ import "base:runtime"
 import "core:math"
 import dxma "libs/odin-d3d12ma"
 
+@(deprecated="this blocks the CPU. avoid it.")
 execute_command_list_and_wait :: proc() {
 	
 	ct := &dx_context
@@ -244,8 +245,6 @@ create_structured_buffer_with_data :: proc(
 		Flags = {},
 	}
 
-	default_res: ^dx.IResource
-
 	allocation : ^dxma.Allocation
 	dxma.Allocator_CreateResource(
 		pSelf = ct.dxma_allocator,
@@ -257,37 +256,14 @@ create_structured_buffer_with_data :: proc(
 		riidResource = nil,
 		ppvResource = nil
 	)
-	default_res = dxma.Allocation_GetResource(allocation)
+	
+	default_res := dxma.Allocation_GetResource(allocation)
+	dx_upload_trigger(&ct.upload_service, default_res, buffer_data)
+	
 	append(pool_resource, cast(^dxgi.IUnknown)allocation)
 	
-	buffer_name_cstring := windows.utf8_to_wstring_alloc(buffer_name, allocator = context.temp_allocator)
+	buffer_name_cstring := windows.utf8_to_wstring_alloc(buffer_name, temp_allocator)
 	default_res->SetName(buffer_name_cstring)
-
-	// creating UPLOAD resource
-	upload_allocation : ^dxma.Allocation
-	dxma.Allocator_CreateResource(
-		pSelf = ct.dxma_allocator,
-		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .UPLOAD, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
-		pResourceDesc = &buffer_desc,
-		InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
-		pOptimizedClearValue = nil,
-		ppAllocation = &upload_allocation,
-		riidResource = nil,
-		ppvResource = nil
-	)
-	upload_res := dxma.Allocation_GetResource(upload_allocation)
-	defer (cast(^dxgi.IUnknown)upload_allocation)->Release()
-
-	// Copying data from cpu to upload resource
-	copy_to_buffer(upload_res, buffer_data)
-
-	// this might be problematic
-	cmdlist->Reset(ct.command_allocator, ct.pipeline_gbuffer)
-	cmdlist->CopyResource(default_res, upload_res)
-
-	// transition resource to shader readable.
-	transition_resource_from_copy_to_read(default_res, cmdlist)
-	execute_command_list_and_wait()
 	
 	return default_res
 }
@@ -308,7 +284,6 @@ create_texture_with_data :: proc(
 	height: u32,
 	format: dxgi.FORMAT,
 	pool_textures : ^DXResourcePool,
-	pool_upload_heap : ^DXResourcePool,
 	texture_name := ""
 ) -> (res: ^dx.IResource) {
 	
@@ -316,11 +291,6 @@ create_texture_with_data :: proc(
 	
 	mip_levels := cast(u16)len(image_data)
 
-	// default heap (this is where the final texture will reside)
-	heap_properties := dx.HEAP_PROPERTIES {
-		Type = .DEFAULT,
-	}
-	
 	texture_desc := dx.RESOURCE_DESC {
 		Width = (u64)(width),
 		Height = (u32)(height),
@@ -332,14 +302,12 @@ create_texture_with_data :: proc(
 		SampleDesc = {Count = 1},
 	}
 	
-	hr : dxgi.HRESULT
-	
 	allocation : ^dxma.Allocation
 	dxma.Allocator_CreateResource(
 		pSelf = ct.dxma_allocator,
 		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
 		pResourceDesc = &texture_desc,
-		InitialResourceState = {.COPY_DEST},
+		InitialResourceState = dx.RESOURCE_STATE_COMMON, // upload queue promotes the resource implicitly, so we set it here as common
 		pOptimizedClearValue = nil,
 		ppAllocation = &allocation,
 		riidResource = nil,
@@ -353,95 +321,8 @@ create_texture_with_data :: proc(
 		res->SetName(texture_name_cstring)
 	}
 	
-
-	// getting data from texture that we'll use later
-	text_footprint := make([]dx.PLACED_SUBRESOURCE_FOOTPRINT, mip_levels, context.temp_allocator)
-	num_rows:= make([]u32, mip_levels, context.temp_allocator)
-	row_size:= make([]u64, mip_levels, context.temp_allocator)
-	text_bytes: u64
-
-	// GetCopyableFootprints:            proc "system" (this: ^IDevice, pResourceDesc: ^RESOURCE_DESC, 
-	// FirstSubresource: u32, NumSubresources: u32, BaseOffset: u64, pLayouts: [^]PLACED_SUBRESOURCE_FOOTPRINT,
-	// pNumRows: [^]u32, pRowSizeInBytes: [^]u64, pTotalBytes: ^u64),
+	dx_upload_texture_trigger(&ct.upload_service, res, image_data, &texture_desc)
 	
-	ct.device->GetCopyableFootprints(&texture_desc, 0, cast(u32)mip_levels, 0, &text_footprint[0], &num_rows[0], 
-		&row_size[0], &text_bytes)
-
-	// creating upload heap and resource (needed to upload texture data from cpu to the default heap)
-
-	heap_properties = dx.HEAP_PROPERTIES {
-		Type = .UPLOAD,
-	}
-
-	upload_desc := dx.RESOURCE_DESC {
-		Dimension = .BUFFER,
-		Alignment = 0,
-		Width = text_bytes, // size of the texture in bytes
-		Height = 1,
-		MipLevels = 1,
-		Format = .UNKNOWN,
-		Layout = .ROW_MAJOR,
-		DepthOrArraySize = 1,
-		SampleDesc = {Count = 1},
-	}
-	
-	upload_allocation : ^dxma.Allocation
-	hr = dxma.Allocator_CreateResource(
-		pSelf = ct.dxma_allocator,
-		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .UPLOAD, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
-		pResourceDesc = &upload_desc,
-		InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
-		pOptimizedClearValue = nil,
-		ppAllocation = &upload_allocation,
-		riidResource = nil,
-		ppvResource = nil
-	)
-	check(hr, "failed creating upload texture")
-	texture_upload := dxma.Allocation_GetResource(upload_allocation)
-	append(pool_upload_heap, cast(^dx.IUnknown)upload_allocation)
-
-	// here you do a Map and you memcpy the data to the upload resource.
-	// you'll have to use an image library here to get the pixel data of an image.
-
-	texture_map_start: rawptr
-	texture_upload->Map(0, &dx.RANGE{}, &texture_map_start)
-	texture_map_start_mp: [^]u8 = auto_cast texture_map_start
-	
-	
-	for mip in 0 ..< mip_levels {
-		fp := text_footprint[mip].Footprint
-		source_data : [^]byte = slice.as_ptr(image_data[mip])
-		mip_row_size := row_size[mip]
-		for row in 0 ..< num_rows[mip] {
-			mem.copy(
-				texture_map_start_mp[u64(fp.RowPitch) * u64(row) + text_footprint[mip].Offset:],
-				source_data[mip_row_size * u64(row):],
-				int(mip_row_size)
-			)
-		}
-	}
-	
-	// here you send the gpu command to copy the data to the texture resource.
-	
-	copy_location_src := dx.TEXTURE_COPY_LOCATION {
-		pResource = texture_upload,
-		Type = .PLACED_FOOTPRINT,
-		PlacedFootprint = text_footprint[0],
-	}
-
-	copy_location_dst := dx.TEXTURE_COPY_LOCATION {
-		pResource = res,
-		Type = .SUBRESOURCE_INDEX,
-		SubresourceIndex = 0,
-	}
-	
-	for i in 0..<mip_levels {
-		copy_location_src.PlacedFootprint = text_footprint[i]
-		copy_location_dst.SubresourceIndex = auto_cast i
-		ct.cmdlist->CopyTextureRegion(&copy_location_dst, 0, 0, 0, &copy_location_src, nil)
-	}
-	
-	transition_resource_from_copy_to_read(res, ct.cmdlist)
 	return res
 }
 
