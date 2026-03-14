@@ -364,7 +364,6 @@ close_and_execute_cmdlist :: proc() {
 	dx_context.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
 }
 
-
 // it's a vertex buffer in the upload heap.
 // meant for buffers that are modified often.
 create_vertex_buffer_upload :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^DXResourcePool) -> VertexBuffer {
