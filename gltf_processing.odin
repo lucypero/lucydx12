@@ -13,9 +13,6 @@ import "base:runtime"
 import "core:mem/virtual"
 import dxma "libs/odin-d3d12ma"
 
-ENC_TABLE := [64]byte { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '_', }
-
-// refactor this monstrosity
 scene_from_gltf :: proc(model_filepath: string) -> Scene {
 	
 	// loading gltf files
@@ -107,6 +104,7 @@ scene_from_gltf :: proc(model_filepath: string) -> Scene {
 	return scene
 }
 
+@(private="file")
 gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	
 	TEMP_GUARD(&temp_arena)
@@ -324,6 +322,7 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	dx_upload_trigger(&ct.upload_service, scene.index_buffer, slice.to_bytes(indices[:]))
 }
 
+@(private="file")
 gltf_load_nodes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	
 	scene_allocator := virtual.arena_allocator(&scene.allocator)
@@ -380,6 +379,7 @@ gltf_load_nodes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	scene.mesh_count = mesh_count
 }
 
+@(private="file")
 load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: string, res_pool : ^DXResourcePool, textures_srv_index: ^u32) {
 	
 	ct := &dx_context
@@ -406,6 +406,7 @@ load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: s
 	textures_srv_index^ += 1
 }
 
+@(private="file")
 get_texture_uv :: proc(data: ^cgltf.data, tex_view: cgltf.texture_view) -> u32 {
 	
 	if tex_view.texture != nil {
@@ -416,6 +417,7 @@ get_texture_uv :: proc(data: ^cgltf.data, tex_view: cgltf.texture_view) -> u32 {
 	return 0
 }
 
+@(private="file")
 gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string, scene: ^Scene) {
 	
 	ct := &dx_context
@@ -498,11 +500,4 @@ gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string
 	}
 	
 	create_srv_on_uber_heap(scene.sb_materials, true, "materials srv", &srv_desc)
-}
-
-hash_thing :: proc(thing:string) -> string {
-	thing_hash_temp := hash.hash_string(.SHA256, thing, temp_allocator)
-	thing_hash, ok := base64.encode(thing_hash_temp, ENC_TABLE, temp_allocator)
-	assert(ok == .None)
-	return thing_hash
 }
