@@ -1,5 +1,6 @@
 package main
 
+import "core:os"
 import "core:crypto/hash"
 import base64 "core:encoding/base64"
 import "core:fmt"
@@ -10,62 +11,118 @@ import "core:slice"
 import dxgi "vendor:directx/dxgi"
 import "base:runtime"
 import "core:mem/virtual"
+import dxma "libs/odin-d3d12ma"
 
 ENC_TABLE := [64]byte { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '_', }
 
-gltf_process_data :: proc(allocator: runtime.Allocator) -> (vertices: [dynamic]VertexData, indices: [dynamic]u32) {
-	model_filepath_c := strings.clone_to_cstring(model_filepath, context.temp_allocator)
-
+// refactor this monstrosity
+scene_from_gltf :: proc() -> Scene {
+	
+	// loading gltf files
+	
+	model_filepath_c := strings.clone_to_cstring(model_filepath, temp_allocator)
 	cgltf_options: cgltf.options
-
+	
 	data, ok := cgltf.parse_file(cgltf_options, model_filepath_c)
 	defer cgltf.free(data)
 
 	if ok != .success {
 		fmt.eprintln("could not read glb")
+		os.exit(1)
 	}
 
 	load_buffers_result := cgltf.load_buffers(cgltf_options, data, model_filepath_c)
 	if load_buffers_result != .success {
 		fmt.eprintln("Error loading buffers from gltf: {} - {}", model_filepath, load_buffers_result)
+		os.exit(1)
 	}
-
-	// new stuff start
+	
+	// loading up the Scene
+	scene : Scene
+	scene_arena := arena_new()
+	scene.allocator = scene_arena
 
 	assert(len(data.scenes) == 1)
-
-	vertices_dyn := make([dynamic]VertexData, allocator)
-	indices_dyn := make([dynamic]u32, allocator)
-
-	gltf_load_materials(data)
 	
-	g_scene = gltf_new_scene(data)
-	g_scene.meshes = gltf_load_meshes(data, &vertices_dyn, &indices_dyn, &g_scene.allocator)
-	g_scene.fence_value = dx_context.upload_service.fence_value
+	gltf_load_materials_into_scene(data, &scene)
 	
-	// printing nodes
-	// scene_walk(scene, nil, proc(node: Node, scene: Scene, data: rawptr) {
-	//     lprintfln("node name: %v", node.name)
-	// })
+	gltf_load_nodes_into_scene(data, &scene)
+	gltf_load_meshes_into_scene(data, &scene)
+	
+	// doing the structured buffer with the model matrices
+	{
+		// Copying data from cpu to upload resource
+		CallbackData :: struct {
+			sample_matrix_data: []ModelMatrixData,
+			mesh_i: uint,
+		}
 
-	// for root_node in gltf_scene.nodes {
-	//     gltf_load_nodes(data, root_node, &vertices_dyn, &indices_dyn)
-	// }
+		data := CallbackData {
+			sample_matrix_data = make([]ModelMatrixData, scene.mesh_count, temp_allocator),
+			mesh_i = 0,
+		}
 
-	return vertices_dyn, indices_dyn
+		scene_walk(scene, &data, proc(node: Node, scene: Scene, data: rawptr) {
+			if node.mesh == -1 do return
+			data := cast(^CallbackData)data
+			data.sample_matrix_data[data.mesh_i].model_matrix = get_node_world_matrix(node, scene)
+			data.mesh_i += 1
+		})
+		
+		scene.sb_model_matrices = create_structured_buffer_with_data(dx_context.cmdlist, "model matrix data",
+		 	&g_resources_longterm,
+			slice.to_bytes(data.sample_matrix_data))
+		
+		// creating SRV (structured buffer) (index 2)
+		srv_desc := dx.SHADER_RESOURCE_VIEW_DESC {
+			Format = .UNKNOWN,
+			ViewDimension = .BUFFER,
+			Shader4ComponentMapping = dx.ENCODE_SHADER_4_COMPONENT_MAPPING(0, 1, 2, 3), // this is the default mapping
+			Buffer = {
+				FirstElement = 0,
+				NumElements = u32(scene.mesh_count),
+				StructureByteStride = size_of(ModelMatrixData),
+				Flags = {},
+			},
+		}
+		
+		create_srv_on_uber_heap(scene.sb_model_matrices, true, "model matrices structured buffer", &srv_desc)
+	}
+	
+	scene.fence_value = dx_context.upload_service.fence_value
+	
+	// gizmos stuff
+	
+	// TODO: separate gizmos from scene
+	
+	// instance data for gizmos
+	{
+		instance_data := make([]InstanceData, MAX_GIZMOS, temp_allocator)
+		scene.vb_gizmos_instance_data = create_vertex_buffer_upload(size_of(instance_data[0]), u32(slice.size(instance_data)), pool = &g_resources_longterm)
+	}
+	
+	
+	return scene
 }
 
-gltf_load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indices: ^[dynamic]u32, arena: ^virtual.Arena) -> []Mesh {
+gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	
-	allocator := virtual.arena_allocator(arena)
+	TEMP_GUARD(&temp_arena)
 	
-	the_meshes := make_slice([]Mesh, len(data.meshes), allocator)
+	ct := &dx_context
+	
+	vertices := make([dynamic]VertexData, temp_allocator)
+	indices := make([dynamic]u32, temp_allocator)
+	
+	scene_allocator := virtual.arena_allocator(&scene.allocator)
+	
+	the_meshes := make_slice([]Mesh, len(data.meshes), scene_allocator)
 	index_count: u32
 	index_count_total: u32 = 0
 
 	for mesh, i in data.meshes {
 		
-		the_meshes[i].primitives = make_slice([]Primitive, len(mesh.primitives), allocator)
+		the_meshes[i].primitives = make_slice([]Primitive, len(mesh.primitives), scene_allocator)
 		
 		for prim, prim_i in mesh.primitives {
 			
@@ -130,12 +187,12 @@ gltf_load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indi
 				vertex.normal.x *= -1
 				vertex.tangent.x *= -1
 				
-				append(vertices, vertex)
+				append(&vertices, vertex)
 				// vertices[i] = vertex
 			}
 
 			for i in 0 ..< prim.indices.count {
-				append(indices, u32(cgltf.accessor_read_index(prim.indices, i)) + u32(index_count))
+				append(&indices, u32(cgltf.accessor_read_index(prim.indices, i)) + u32(index_count))
 			}
 
 			index_count += u32(attr_position.data.count)
@@ -150,16 +207,126 @@ gltf_load_meshes :: proc(data: ^cgltf.data, vertices: ^[dynamic]VertexData, indi
 			
 		}
 	}
+	
+	scene.meshes = the_meshes
+	
+	// creating and filling vertex and index buffers
+	
+	uv_sphere_index_offset := u32(len(indices))
+	uv_sphere_vertex_offset := u32(len(vertices)) 
+	
+	// add uv sphere (for gizmos)
+	
+	// TODO: separate gizmos from scene
+	sphere_verts_base, sphere_indices := generate_uv_sphere(32, 32, temp_allocator)
+	
+	for v in sphere_verts_base {
+		append(&vertices, VertexData {
+			pos = v
+		})
+	}
+	
+	for mesh_index in sphere_indices {
+		append(&indices, mesh_index + uv_sphere_vertex_offset)
+	}
+	
+	sphere_primitive := make([]Primitive, 1, scene_allocator)
+	sphere_primitive[0] = Primitive {
+		index_offset = uv_sphere_index_offset,
+		index_count = u32(len(sphere_indices))
+	}
+	
+	g_uv_sphere_mesh = Mesh {
+		primitives = sphere_primitive
+	}
+	
+	vertex_count := u32(len(vertices))
 
-	return the_meshes
+	// VERTEXDATA
+	// vertex data and index data is in an upload heap.
+	// This isn't optimal for geometry that doesn't change much.
+	// If we want to make this fast, the vertex data needs to be in
+	// a DEFAULT heap (vram). you transfer the data from an upload heap
+	// to the default heap. but it's more complicated.
+	vertex_buffer_size := len(vertices) * size_of(vertices[0])
+
+	resource_desc := dx.RESOURCE_DESC {
+		Dimension = .BUFFER,
+		Alignment = 0,
+		Width = u64(vertex_buffer_size),
+		Height = 1,
+		DepthOrArraySize = 1,
+		MipLevels = 1,
+		Format = .UNKNOWN,
+		SampleDesc = {Count = 1, Quality = 0},
+		Layout = .ROW_MAJOR,
+		Flags = {},
+	}
+	
+	vb_allocation : ^dxma.Allocation
+	hr := dxma.Allocator_CreateResource(
+		pSelf = ct.dxma_allocator,
+		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT},
+		pResourceDesc = &resource_desc,
+		InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
+		pOptimizedClearValue = nil,
+		ppAllocation = &vb_allocation,
+		riidResource = nil,
+		ppvResource = nil
+	)
+	
+	check(hr, "failed creating upload texture")
+	scene.vertex_buffer = dxma.Allocation_GetResource(vb_allocation)
+	// todo this is wrong
+	append(&g_resources_longterm, cast(^dx.IUnknown)vb_allocation)
+	
+	scene.vertex_buffer->SetName("vertex buffer")
+
+	scene.vertex_buffer_view = dx.VERTEX_BUFFER_VIEW {
+		BufferLocation = scene.vertex_buffer->GetGPUVirtualAddress(),
+		StrideInBytes = u32(vertex_buffer_size) / vertex_count,
+		SizeInBytes = u32(vertex_buffer_size),
+	}
+	
+	dx_upload_trigger(&ct.upload_service, scene.vertex_buffer, slice.to_bytes(vertices[:]))
+
+	// creating index buffer resource
+
+	index_buffer_size := len(indices) * size_of(indices[0])
+	resource_desc.Width = u64(index_buffer_size)
+	
+	// upload. no flags
+	
+	upload_allocation_2 : ^dxma.Allocation
+	hr = dxma.Allocator_CreateResource(
+		pSelf = ct.dxma_allocator,
+		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT},
+		pResourceDesc = &resource_desc,
+		InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
+		pOptimizedClearValue = nil,
+		ppAllocation = &upload_allocation_2,
+		riidResource = nil,
+		ppvResource = nil
+	)
+	check(hr, "failed creating upload texture")
+	scene.index_buffer = dxma.Allocation_GetResource(upload_allocation_2)
+	append(&g_resources_longterm, cast(^dx.IUnknown)upload_allocation_2)
+	scene.index_buffer->SetName("lucy's index buffer")
+
+	scene.index_buffer_view = dx.INDEX_BUFFER_VIEW {
+		BufferLocation = scene.index_buffer->GetGPUVirtualAddress(),
+		SizeInBytes = u32(index_buffer_size),
+		Format = .R32_UINT,
+	}
+	
+	dx_upload_trigger(&ct.upload_service, scene.index_buffer, slice.to_bytes(indices[:]))
 }
 
-
-gltf_new_scene :: proc(data: ^cgltf.data) -> Scene {
-	scene_arena := arena_new()
-	scene_arena_alloc := virtual.arena_allocator(&scene_arena)
+gltf_load_nodes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	
-	nodes := make([]Node, len(data.nodes), scene_arena_alloc)
+	scene_allocator := virtual.arena_allocator(&scene.allocator)
+	
+	nodes := make([]Node, len(data.nodes), scene_allocator)
 	root_node_count: int = 0
 
 	for node in data.nodes {
@@ -168,13 +335,13 @@ gltf_new_scene :: proc(data: ^cgltf.data) -> Scene {
 		}
 	}
 
-	root_nodes := make([]int, root_node_count, scene_arena_alloc)
+	root_nodes := make([]int, root_node_count, scene_allocator)
 	root_node_i := 0
 	mesh_count: uint
 
 	for node, i in data.nodes {
 		// TODO: don't leak this
-		node_children := make([]int, len(node.children), scene_arena_alloc)
+		node_children := make([]int, len(node.children), scene_allocator)
 
 		for n_child, child_i in node.children {
 			node_children[child_i] = int(cgltf.node_index(data, n_child))
@@ -206,8 +373,10 @@ gltf_new_scene :: proc(data: ^cgltf.data) -> Scene {
 			root_node_i += 1
 		}
 	}
-
-	return Scene{nodes = nodes, root_nodes = root_nodes, mesh_count = mesh_count, allocator = scene_arena}
+	
+	scene.nodes = nodes
+	scene.root_nodes = root_nodes
+	scene.mesh_count = mesh_count
 }
 
 load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, textures_srv_index: ^u32) {
@@ -244,11 +413,13 @@ get_texture_uv :: proc(data: ^cgltf.data, tex_view: cgltf.texture_view) -> u32 {
 	return 0
 }
 
-gltf_load_materials :: proc(data: ^cgltf.data) {
+gltf_load_materials_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	
 	ct := &dx_context
 	
-	mats := make([]Material, len(data.materials), temp_allocator)
+	scene_allocator := virtual.arena_allocator(&scene.allocator)
+	
+	mats := make([]Material, len(data.materials), scene_allocator)
 	
 	load_white_texture()
 	
@@ -304,7 +475,7 @@ gltf_load_materials :: proc(data: ^cgltf.data) {
 		}
 	}
 	
-	ct.sb_materials = create_structured_buffer_with_data(
+	scene.sb_materials = create_structured_buffer_with_data(
 		ct.cmdlist,
 		"material buffer",
 		&g_resources_longterm,
@@ -323,7 +494,7 @@ gltf_load_materials :: proc(data: ^cgltf.data) {
 		},
 	}
 	
-	create_srv_on_uber_heap(ct.sb_materials, true, "materials srv", &srv_desc)
+	create_srv_on_uber_heap(scene.sb_materials, true, "materials srv", &srv_desc)
 }
 
 hash_thing :: proc(thing:string) -> string {

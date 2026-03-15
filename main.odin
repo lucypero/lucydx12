@@ -139,7 +139,20 @@ Scene :: struct {
 	mesh_count: uint,
 	meshes: []Mesh,
 	allocator: virtual.Arena,
-	fence_value: u64 // fence value to wait on for all scene resources to be uploaded to the GPU
+	fence_value: u64, // fence value to wait on for all scene resources to be uploaded to the GPU
+	
+	// dx resources
+	sb_model_matrices: ^dx.IResource,
+	sb_materials: ^dx.IResource,
+	
+	vertex_buffer: ^dx.IResource,
+	index_buffer: ^dx.IResource,
+	vertex_buffer_view: dx.VERTEX_BUFFER_VIEW,
+	index_buffer_view: dx.INDEX_BUFFER_VIEW,
+	
+	// gizmos (put this somewhere else later)
+	// TODO
+	vb_gizmos_instance_data: VertexBuffer
 }
 
 Node :: struct {
@@ -262,8 +275,6 @@ Context :: struct {
 	constant_buffer_map: rawptr, //maps to our test constant buffer
 	gbuffer_pass_root_signature: ^dx.IRootSignature,
 	constant_buffer: ^dx.IResource,
-	vertex_buffer_view: dx.VERTEX_BUFFER_VIEW,
-	index_buffer_view: dx.INDEX_BUFFER_VIEW,
 	dxma_allocator: ^dxma.Allocator,
 	// descriptor heap for the render target view
 	swapchain_rtv_descriptor_heap: ^dx.IDescriptorHeap,
@@ -280,10 +291,6 @@ Context :: struct {
 	fence_value: u64,
 	fence_event: windows.HANDLE,
 
-	// resources
-	sb_model_matrices: ^dx.IResource,
-	sb_materials: ^dx.IResource,
-
 	// descriptor heap for ALL our resources
 	cbv_srv_uav_heap: ^dx.IDescriptorHeap,
 	descriptor_count : u32, // count for how many descriptors are in the srv heap
@@ -291,8 +298,6 @@ Context :: struct {
 	// depth buffer
 	depth_stencil_res: ^dx.IResource,
 	descriptor_heap_dsv: ^dx.IDescriptorHeap,
-
-	meshes_to_render: int,
 
 	// hot swap shader state
 	lighting_hotswap: HotSwapState,
@@ -303,9 +308,6 @@ Context :: struct {
 	pso_gizmos : ^dx.IPipelineState,
 	rs_gizmos : ^dx.IRootSignature,
 	
-	// - instance data buffer
-	vb_gizmos_instance_data : VertexBuffer,
-	
 	// --- gizmos drawing end ----
 }
 
@@ -315,7 +317,6 @@ context_init :: proc(con: ^Context) {
 	light_pos = v3{0,2,0}
 	light_draw_gizmos = true
 	light_int = 1
-	con.meshes_to_render = len(g_scene.meshes)
 }
 
 check :: proc(res: dx.HRESULT, message: string = "dx call error") {
@@ -387,7 +388,8 @@ main :: proc() {
 	scene_destroy(&g_scene)
 	
 	// destroy stray meshes (gizmo sphere)
-	defer delete(g_uv_sphere_mesh.primitives)
+	// (it's now in g_scene)
+	// defer delete(g_uv_sphere_mesh.primitives)
 	
 	trace.init(&global_trace_ctx)
 	defer trace.destroy(&global_trace_ctx)
@@ -436,17 +438,7 @@ main :: proc() {
 	context_init(ct)
 	
 	// Wait till all resources are uploaded to the GPU before rendering.
-	lprintfln("waiting for fence value %v", g_scene. fence_value)
-	ct.queue->Wait(ct.upload_service.fence, g_scene.fence_value)
-	
-	// scene ready. do required things before starting to render.
-	{
-		// transitioning all resources from copy to read. ??
-		
-		// transition_resource_from_copy_to_read(default_res, cmdlist)
-		// apparently i don't need to do this.
-		
-	}
+	ct.queue->Wait(ct.upload_service.fence, ct.upload_service.fence_value)
 	
 	start_time = time.now()
 	do_main_loop()
@@ -623,135 +615,19 @@ init_dx_other :: proc() {
 	// hr = ct.command_allocator->Reset()
 	// hr = ct.cmdlist->Reset(ct.command_allocator, nil)
 	create_depth_buffer()
+	
+	// TODO: delete this?
 	close_and_execute_cmdlist()
 
-
-	vertex_buffer: ^dx.IResource
-	index_buffer: ^dx.IResource
-
 	imgui_init()
-
-	// creating and filling vertex and index buffers
-	{
-		// get vertex data from gltf file
-		vertices, indices := gltf_process_data(context.allocator)
-		defer {
-			delete(vertices)
-			delete(indices)
-		}
 	
-		uv_sphere_index_offset := u32(len(indices))
-		uv_sphere_vertex_offset := u32(len(vertices)) 
-		
-		// add uv sphere
-		sphere_verts_base, sphere_indices := generate_uv_sphere(32, 32, context.allocator)
-		defer {
-			delete(sphere_verts_base)
-			delete(sphere_indices)
-		}
-		
-		for v in sphere_verts_base {
-			append(&vertices, VertexData {
-				pos = v
-			})
-		}
-		
-		for mesh_index in sphere_indices {
-			append(&indices, mesh_index + uv_sphere_vertex_offset)
-		}
-		
-		sphere_primitive := make([]Primitive, 1, context.allocator)
-		sphere_primitive[0] = Primitive {
-			index_offset = uv_sphere_index_offset,
-			index_count = u32(len(sphere_indices))
-		}
-		
-		g_uv_sphere_mesh = Mesh {
-			primitives = sphere_primitive
-		}
-		
-		vertex_count := u32(len(vertices))
-
-		// VERTEXDATA
-		// vertex data and index data is in an upload heap.
-		// This isn't optimal for geometry that doesn't change much.
-		// If we want to make this fast, the vertex data needs to be in
-		// a DEFAULT heap (vram). you transfer the data from an upload heap
-		// to the default heap. but it's more complicated.
-		vertex_buffer_size := len(vertices) * size_of(vertices[0])
-
-		resource_desc := dx.RESOURCE_DESC {
-			Dimension = .BUFFER,
-			Alignment = 0,
-			Width = u64(vertex_buffer_size),
-			Height = 1,
-			DepthOrArraySize = 1,
-			MipLevels = 1,
-			Format = .UNKNOWN,
-			SampleDesc = {Count = 1, Quality = 0},
-			Layout = .ROW_MAJOR,
-			Flags = {},
-		}
-		
-		vb_allocation : ^dxma.Allocation
-		hr = dxma.Allocator_CreateResource(
-			pSelf = ct.dxma_allocator,
-			pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT},
-			pResourceDesc = &resource_desc,
-			InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
-			pOptimizedClearValue = nil,
-			ppAllocation = &vb_allocation,
-			riidResource = nil,
-			ppvResource = nil
-		)
-		
-		check(hr, "failed creating upload texture")
-		vertex_buffer = dxma.Allocation_GetResource(vb_allocation)
-		append(&g_resources_longterm, cast(^dx.IUnknown)vb_allocation)
-		vertex_buffer->SetName("vertex buffer")
-
-		ct.vertex_buffer_view = dx.VERTEX_BUFFER_VIEW {
-			BufferLocation = vertex_buffer->GetGPUVirtualAddress(),
-			StrideInBytes = u32(vertex_buffer_size) / vertex_count,
-			SizeInBytes = u32(vertex_buffer_size),
-		}
-		
-		dx_upload_trigger(&ct.upload_service, vertex_buffer, slice.to_bytes(vertices[:]))
-
-		// creating index buffer resource
-
-		index_buffer_size := len(indices) * size_of(indices[0])
-		resource_desc.Width = u64(index_buffer_size)
-		
-		// upload. no flags
-		
-		upload_allocation_2 : ^dxma.Allocation
-		hr = dxma.Allocator_CreateResource(
-			pSelf = ct.dxma_allocator,
-			pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT},
-			pResourceDesc = &resource_desc,
-			InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
-			pOptimizedClearValue = nil,
-			ppAllocation = &upload_allocation_2,
-			riidResource = nil,
-			ppvResource = nil
-		)
-		check(hr, "failed creating upload texture")
-		index_buffer = dxma.Allocation_GetResource(upload_allocation_2)
-		append(&g_resources_longterm, cast(^dx.IUnknown)upload_allocation_2)
-		index_buffer->SetName("lucy's index buffer")
-
-		ct.index_buffer_view = dx.INDEX_BUFFER_VIEW {
-			BufferLocation = index_buffer->GetGPUVirtualAddress(),
-			SizeInBytes = u32(index_buffer_size),
-			Format = .R32_UINT,
-		}
-		
-		dx_upload_trigger(&ct.upload_service, index_buffer, slice.to_bytes(indices[:]))
-	}
-
-	create_model_matrix_structured_buffer(&g_resources_longterm)
-	create_cbv_and_structured_buffer_srv()
+	// creating our constant buffer
+	create_cbv_on_uber_heap(&dx.CONSTANT_BUFFER_VIEW_DESC{
+		BufferLocation = dx_context.constant_buffer->GetGPUVirtualAddress(),
+		SizeInBytes = size_of(ConstantBufferData),
+	}, true, "General Constants Buffer")
+	
+	g_scene = scene_from_gltf()
 
 	// This fence is used to wait for frames to finish
 	{
@@ -768,11 +644,6 @@ init_dx_other :: proc() {
 		}
 	}
 	
-	// instance data for gizmos
-	{
-		instance_data := make([]InstanceData, MAX_GIZMOS, temp_allocator)
-		ct.vb_gizmos_instance_data = create_vertex_buffer_upload(size_of(instance_data[0]), u32(slice.size(instance_data)), pool = &g_resources_longterm)
-	}
 }
 
 // inits all basic dx resources.
@@ -1027,7 +898,6 @@ update :: proc() {
 
 do_imgui_ui :: proc() {
 	
-	ct := &dx_context
 	im.Begin("lucydx12")
 
 	im.DragFloat3("light pos", &light_pos, 0.1, -5000, 5000)
@@ -1035,8 +905,6 @@ do_imgui_ui :: proc() {
 	im.Checkbox("draw light gizmos", &light_draw_gizmos)
 	im.DragFloat("cam speed", &cur_cam.speed, 0.0001, 0, 20)
 
-	im.InputInt("mesh count to draw", (^i32)(&ct.meshes_to_render))
-	
 	// Drawing delta time
 	{
 		sb := strings.builder_make_len_cap(0, 30, temp_allocator)
@@ -1169,41 +1037,6 @@ render :: proc() {
 	}
 }
 
-
-
-
-// creates:
-// - constant buffer with some global info
-// - structured buffer SRV containing all model matrices.
-// they are placed in the uber srv heap.
-create_cbv_and_structured_buffer_srv :: proc() {
-
-	c := &dx_context
-
-	// creating CBV for my test constant buffer (AT INDEX 0)
-	cbv_desc := dx.CONSTANT_BUFFER_VIEW_DESC {
-		BufferLocation = dx_context.constant_buffer->GetGPUVirtualAddress(),
-		SizeInBytes = size_of(ConstantBufferData),
-	}
-	
-	create_cbv_on_uber_heap(&cbv_desc, true, "General Constants Buffer")
-
-	// creating SRV (structured buffer) (index 2)
-	srv_desc := dx.SHADER_RESOURCE_VIEW_DESC {
-		Format = .UNKNOWN,
-		ViewDimension = .BUFFER,
-		Shader4ComponentMapping = dx.ENCODE_SHADER_4_COMPONENT_MAPPING(0, 1, 2, 3), // this is the default mapping
-		Buffer = {
-			FirstElement = 0,
-			NumElements = u32(g_scene.mesh_count),
-			StructureByteStride = size_of(ModelMatrixData),
-			Flags = {},
-		},
-	}
-	
-	create_srv_on_uber_heap(c.sb_model_matrices, true, "model matrices structured buffer", &srv_desc)
-}
-
 create_gbuffer_pass_root_signature :: proc() {
 
 	root_parameters_len :: 1
@@ -1302,7 +1135,7 @@ get_node_world_matrix :: proc(node: Node, scene: Scene) -> dxm {
 	return res
 }
 
-proc_walk :: proc(node: Node, g_scene: Scene, data: rawptr)
+proc_walk :: proc(node: Node, scene: Scene, data: rawptr)
 
 // Walks through the scene tree and runs a proc per node
 scene_walk :: proc(scene: Scene, data: rawptr, thing_to_do: proc_walk) {
@@ -1719,37 +1552,6 @@ create_gbuffer :: proc() -> GBuffer {
 		gb_ao_rough_metal = create_gbuffer_unit(.R8G8B8A8_UNORM, "gbuffer - AO ROUGH METAL", rtv_descriptor_handle_heap_start, rtv_descriptor_size, 2),
 		rtv_heap = gb_rtv_dh
 	}
-}
-
-// this is the same as create_sample_texture
-// it creates an upload heap, copies data to it, then transfers it to the default heap.
-// make it specific for what u want now.
-// then we can turn it into a helper function. later.
-create_model_matrix_structured_buffer :: proc(pool: ^DXResourcePool) {
-
-	ct := &dx_context
-	
-	// Copying data from cpu to upload resource
-	CallbackData :: struct {
-		sample_matrix_data: []ModelMatrixData,
-		mesh_i: uint,
-	}
-
-	data := CallbackData {
-		sample_matrix_data = make([]ModelMatrixData, g_scene.mesh_count, allocator = context.temp_allocator),
-		mesh_i = 0,
-	}
-
-	scene_walk(g_scene, &data, proc(node: Node, scene: Scene, data: rawptr) {
-		if node.mesh == -1 do return
-		data := cast(^CallbackData)data
-		data.sample_matrix_data[data.mesh_i].model_matrix = get_node_world_matrix(node, scene)
-		data.mesh_i += 1
-	})
-	
-	ct.sb_model_matrices = create_structured_buffer_with_data(ct.cmdlist, "model matrix data",
-	 	&g_resources_longterm,
-		slice.to_bytes(data.sample_matrix_data))
 }
 
 create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState {
@@ -2270,10 +2072,10 @@ render_gbuffer_pass :: proc() {
 	ct.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
 
 	// binding vertex buffer view and instance buffer view
-	vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW{dx_context.vertex_buffer_view}
+	vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW{g_scene.vertex_buffer_view}
 
 	ct.cmdlist->IASetVertexBuffers(0, len(vertex_buffers_views), &vertex_buffers_views[0])
-	ct.cmdlist->IASetIndexBuffer(&ct.index_buffer_view)
+	ct.cmdlist->IASetIndexBuffer(&g_scene.index_buffer_view)
 
 	// rendering each mesh individually
 	// going through scene tree
@@ -2294,16 +2096,13 @@ render_gbuffer_pass :: proc() {
 
 		mesh_to_render := scene.meshes[node.mesh]
 
-		if g_mesh_drawn_count < ct.meshes_to_render {
-			for prim in mesh_to_render.primitives {
-				dc := DrawConstants {
-					mesh_index = u32(g_mesh_drawn_count),
-					material_index = u32(prim.material_index),
-				}
-				ct.cmdlist->SetGraphicsRoot32BitConstants(0, 2, &dc, 0)
-				ct.cmdlist->DrawIndexedInstanced(prim.index_count, 1, prim.index_offset, 0, 0)
+		for prim in mesh_to_render.primitives {
+			dc := DrawConstants {
+				mesh_index = u32(g_mesh_drawn_count),
+				material_index = u32(prim.material_index),
 			}
-			g_mesh_drawn_count += 1
+			ct.cmdlist->SetGraphicsRoot32BitConstants(0, 2, &dc, 0)
+			ct.cmdlist->DrawIndexedInstanced(prim.index_count, 1, prim.index_offset, 0, 0)
 		}
 	})
 }
@@ -2403,7 +2202,7 @@ render_gizmos :: proc () {
 			color = v4{1,0,0, 0.5}
 		}
 		
-		copy_to_buffer(ct.vb_gizmos_instance_data.buffer, slice.to_bytes(gizmos_instances))
+		copy_to_buffer(g_scene.vb_gizmos_instance_data.buffer, slice.to_bytes(gizmos_instances))
 	}
 	
 	ct.cmdlist->SetPipelineState(ct.pso_gizmos)
@@ -2434,10 +2233,10 @@ render_gizmos :: proc () {
 	ct.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
 	
 	// binding vertex buffer view and instance buffer view
-	vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW{ct.vertex_buffer_view, ct.vb_gizmos_instance_data.vbv}
+	vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW{g_scene.vertex_buffer_view, g_scene.vb_gizmos_instance_data.vbv}
 	
 	ct.cmdlist->IASetVertexBuffers(0, len(vertex_buffers_views), &vertex_buffers_views[0])
-	ct.cmdlist->IASetIndexBuffer(&ct.index_buffer_view)
+	ct.cmdlist->IASetIndexBuffer(&g_scene.index_buffer_view)
 	
 	// TEST: use first mesh primitive from main vertex buffer
 	uv_sphere_primitive := g_uv_sphere_mesh.primitives[0]
