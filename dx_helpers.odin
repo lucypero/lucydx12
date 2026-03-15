@@ -1,7 +1,8 @@
 package main
 
 import "core:reflect"
-
+import base64 "core:encoding/base64"
+import "core:crypto/hash"
 import "core:path/filepath"
 import "core:encoding/endian"
 import "core:slice"
@@ -617,4 +618,12 @@ texture_cache_query :: proc(model_filepath, image_name: string, format: dxgi.FOR
 	lprintfln("texture %v converted correctly", image_name)
 	
 	return texture_out_path
+}
+
+hash_thing :: proc(thing: string) -> string {
+	ENC_TABLE := [64]byte { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '_', }
+	thing_hash_temp := hash.hash_string(.SHA256, thing, temp_allocator)
+	thing_hash, ok := base64.encode(thing_hash_temp, ENC_TABLE, temp_allocator)
+	assert(ok == .None)
+	return thing_hash
 }
