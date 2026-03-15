@@ -1,19 +1,11 @@
+# TODO
+
+- find a way to reset the pointer on the SRV heap when u swap scenes
+
 # scene resources
 
-
-- vb_allocation
-- index buffer
-- structured buffer (sb_model_matrices)
--
-
-what about SRVs?? they're not tracked.. think about that later.
-
-# copy queue
-
-- create service that uploads data to the gpu using the copy queue. and set up a fence so the graphics queue can know when it's done.
-- the upload call returns a Fence value. store this value so that u can send it to the graphics queue for when u wanna render the resource / resource batch.
-- stop executing command lists and waiting when u are creating resources.  u don't need to stall the cpu for that.
-
+- keep a pool of IResource on the scene. add the resources on that pool instead of the global pool.
+- when u switch scene, you just Release() all the resources in the scene resource pool.
 
 # switching scenes in runtime
 
