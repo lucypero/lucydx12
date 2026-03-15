@@ -27,7 +27,7 @@ DXUploadService :: struct {
 	next_allocation_pt: u64,
 	resource: ^dx.IResource,
 	fence: ^dx.IFence,
-	fence_value: u64,
+	fence_value: u64, // fence value that was set last on the fence.
 	queue_copy: ^dx.ICommandQueue,
 	command_allocator_copy: ^dx.ICommandAllocator,
 	cmdlist_copy: ^dx.IGraphicsCommandList,
@@ -102,14 +102,15 @@ dx_upload_trigger :: proc(up_service: ^DXUploadService, resource_dest : ^dx.IRes
 	copy(up_service.allocation_dest[up_service.next_allocation_pt:], data)
 	up_service.cmdlist_copy->Reset(up_service.command_allocator_copy, nil)
 	up_service.cmdlist_copy->CopyBufferRegion(resource_dest, 0, up_service.resource,
-		cast(u64)up_service.next_allocation_pt, cast(u64)len(data))
+		up_service.next_allocation_pt, cast(u64)len(data))
 	up_service.next_allocation_pt += cast(u64)len(data)
 	up_service.cmdlist_copy->Close()
 	cmdlists := [?]^dx.IGraphicsCommandList{up_service.cmdlist_copy}
 	up_service.queue_copy->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
-	up_service.queue_copy->Signal(up_service.fence, up_service.fence_value)
+	
 	up_service.fence_value += 1
-	return up_service.fence_value - 1
+	up_service.queue_copy->Signal(up_service.fence, up_service.fence_value)
+	return up_service.fence_value
 }
 
 // Order a texture upload to the gpu. populate resource given
@@ -177,7 +178,8 @@ dx_upload_texture_trigger :: proc(up_service: ^DXUploadService, resource_dest : 
 	up_service.cmdlist_copy->Close()
 	cmdlists := [?]^dx.IGraphicsCommandList{up_service.cmdlist_copy}
 	up_service.queue_copy->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
-	up_service.queue_copy->Signal(up_service.fence, up_service.fence_value)
+	
 	up_service.fence_value += 1
-	return up_service.fence_value - 1
+	up_service.queue_copy->Signal(up_service.fence, up_service.fence_value)
+	return up_service.fence_value
 }

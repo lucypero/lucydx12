@@ -17,49 +17,11 @@ import "base:runtime"
 import "core:math"
 import dxma "libs/odin-d3d12ma"
 
-@(deprecated="this blocks the CPU. avoid it.")
-execute_command_list_and_wait :: proc() {
-	
-	ct := &dx_context
-	
-	
-	fence_value: u64
-	fence: ^dx.IFence
-	hr := ct.device->CreateFence(fence_value, {}, dx.IFence_UUID, (^rawptr)(&fence))
-	defer fence->Release()
-	fence_value += 1
-	
-	// close command list and execute
-	ct.cmdlist->Close()
-	cmdlists := [?]^dx.IGraphicsCommandList{ct.cmdlist}
-	ct.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
-	
-	// we signal only after executing the command list.
-	// otherwise we are not sure that the gpu is done with the upload resource.
-	hr = ct.queue->Signal(fence, fence_value)
-	
-	// 4. Wait for the GPU to reach the signal point.
-	// First, create an event handle.
-	fence_event := windows.CreateEventW(nil, false, false, nil)
-	
-	if fence_event == nil {
-		fmt.eprintln("Failed to create fence event")
-		os.exit(1)
-	}
-	
-	completed := fence->GetCompletedValue()
-	
-	if completed < fence_value {
-		// the gpu is not finished yet , so we wait
-		fence->SetEventOnCompletion(fence_value, fence_event)
-		windows.WaitForSingleObject(fence_event, windows.INFINITE)
-	}
-	
-}
-
+/*
 transition_resource_from_copy_to_read :: proc(res: ^dx.IResource, cmd_list: ^dx.IGraphicsCommandList) {
 	transition_resource(res, cmd_list, {.COPY_DEST}, dx.RESOURCE_STATE_GENERIC_READ)
 }
+*/
 
 transition_resource :: proc(res: ^dx.IResource, cmd_list: ^dx.IGraphicsCommandList, state_before, state_after: dx.RESOURCE_STATES) {
 	barrier : dx.RESOURCE_BARRIER = {

@@ -1,3 +1,13 @@
+# scene resources
+
+
+- vb_allocation
+- index buffer
+- structured buffer (sb_model_matrices)
+-
+
+what about SRVs?? they're not tracked.. think about that later.
+
 # copy queue
 
 - create service that uploads data to the gpu using the copy queue. and set up a fence so the graphics queue can know when it's done.
