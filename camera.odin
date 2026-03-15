@@ -149,7 +149,7 @@ get_view_projection :: proc(cam: Camera) -> (dxm, dxm) {
 	view := linalg.matrix4_look_at_f32(cam.pos, look_at, {0, 1, 0}, true)
 
 	fov := linalg.to_radians(f32(fov_deg))
-	aspect := f32(wx) / f32(wy)
+	aspect := f32(WINDOW_WIDTH) / f32(WINDOW_HEIGHT)
 	// proj := linalg.matrix4_perspective_f32(fov, aspect, 0.1, 100, true)
 
 	// this function is supposedly more correct

@@ -1,5 +1,9 @@
 package main
 
+import "core:c"
+import img "vendor:stb/image"
+import "core:math/linalg"
+import "core:mem/virtual"
 import "core:reflect"
 import base64 "core:encoding/base64"
 import "core:crypto/hash"
@@ -51,7 +55,7 @@ create_texture :: proc(width: u64, height: u32, format: dxgi.FORMAT, resource_fl
 ) ->
 (res: ^dx.IResource){
 
-	ct := &dx_context
+	ct := &g_dx_context
 
 	opt_clear_value := opt_clear_value
 
@@ -194,7 +198,7 @@ create_structured_buffer_with_data :: proc(
 	buffer_data : []byte
 	) -> ^dx.IResource {
 	
-	ct := &dx_context
+	ct := &g_dx_context
 	
 	buffer_desc := dx.RESOURCE_DESC {
 		Width = u64(len(buffer_data)),
@@ -225,7 +229,7 @@ create_structured_buffer_with_data :: proc(
 	
 	append(pool_resource, cast(^dxgi.IUnknown)allocation)
 	
-	buffer_name_cstring := windows.utf8_to_wstring_alloc(buffer_name, temp_allocator)
+	buffer_name_cstring := windows.utf8_to_wstring_alloc(buffer_name, g_temp_allocator)
 	default_res->SetName(buffer_name_cstring)
 	
 	return default_res
@@ -250,7 +254,7 @@ create_texture_with_data :: proc(
 	texture_name := ""
 ) -> (res: ^dx.IResource) {
 	
-	ct := &dx_context
+	ct := &g_dx_context
 	
 	mip_levels := cast(u16)len(image_data)
 
@@ -302,29 +306,29 @@ copy_to_buffer :: proc(buffer: ^dx.IResource, data: []byte) {
 create_srv_on_uber_heap :: proc(res : ^dx.IResource, debug_index: bool = false, debug_name: string = "",
 		srv_desc : ^dx.SHADER_RESOURCE_VIEW_DESC = nil
 	) {
-	ct := &dx_context
+	ct := &g_dx_context
 	ct.device->CreateShaderResourceView(res, srv_desc, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, ct.descriptor_count))
 	uber_heap_count(debug_index, debug_name)
 }
 
 create_cbv_on_uber_heap :: proc(
 		cbv_desc : ^dx.CONSTANT_BUFFER_VIEW_DESC, debug_index: bool = false, debug_name: string = "") {
-	ct := &dx_context
+	ct := &g_dx_context
 	ct.device->CreateConstantBufferView(cbv_desc, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, ct.descriptor_count))
 	uber_heap_count(debug_index, debug_name)
 }
 
 uber_heap_count :: proc(debug_index: bool, debug_name: string) {
-	ct := &dx_context
+	ct := &g_dx_context
 	if debug_index do lprintfln("creating view on uber heap: name: %v, index: %v", debug_name, ct.descriptor_count)
 	ct.descriptor_count += 1
 }
 
 close_and_execute_cmdlist :: proc() {
-	ct := &dx_context
+	ct := &g_dx_context
 	ct.cmdlist->Close()
 	cmdlists := [?]^dx.IGraphicsCommandList{ct.cmdlist}
-	dx_context.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
+	g_dx_context.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
 }
 
 // it's a vertex buffer in the upload heap.
@@ -351,7 +355,7 @@ create_vertex_buffer_upload :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^
 	
 	allocation : ^dxma.Allocation
 	hr := dxma.Allocator_CreateResource(
-		pSelf = dx_context.dxma_allocator,
+		pSelf = g_dx_context.dxma_allocator,
 		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .UPLOAD},
 		pResourceDesc = &resource_desc,
 		InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
@@ -531,7 +535,7 @@ parse_dds_file :: proc(dds_filepath: string) -> DDSFile {
 		width = header.Width,
 		height = header.Height,
 		format = text_format,
-		mipmap_data = make([][]byte, header.MipMapCount, temp_allocator)
+		mipmap_data = make([][]byte, header.MipMapCount, g_temp_allocator)
 	}
 	
 	for i in 0..<header.MipMapCount {
@@ -622,8 +626,201 @@ texture_cache_query :: proc(model_filepath, image_name: string, format: dxgi.FOR
 
 hash_thing :: proc(thing: string) -> string {
 	ENC_TABLE := [64]byte { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '_', }
-	thing_hash_temp := hash.hash_string(.SHA256, thing, temp_allocator)
-	thing_hash, ok := base64.encode(thing_hash_temp, ENC_TABLE, temp_allocator)
+	thing_hash_temp := hash.hash_string(.SHA256, thing, g_temp_allocator)
+	thing_hash, ok := base64.encode(thing_hash_temp, ENC_TABLE, g_temp_allocator)
 	assert(ok == .None)
 	return thing_hash
+}
+
+check :: proc(res: dx.HRESULT, message: string = "dx call error") {
+	if (res >= 0) {
+		return
+	}
+
+	lprintfln("%v. Error code: %0x", message, u32(res))
+	os.exit(-1)
+}
+
+
+// Convenience function for clearing used memory in scope
+@(deferred_out=virtual.arena_temp_end)
+TEMP_GUARD :: #force_inline proc(arena: ^virtual.Arena, loc := #caller_location) -> (virtual.Arena_Temp, runtime.Source_Code_Location) {
+	return virtual.arena_temp_begin(arena, loc), loc
+}
+
+// Prints to windows debug, with a lprintln() interface
+lprintln :: proc(args: ..any, sep := " ") {
+	str: strings.Builder
+	strings.builder_init(&str, context.temp_allocator)
+	fmt.sbprintln(&str, ..args, sep = sep)
+	final_string_c, err := strings.to_cstring(&str)
+
+	if err != .None {
+		os.exit(1)
+	}
+
+	fmt.print(final_string_c)
+	windows.OutputDebugStringA(final_string_c)
+}
+
+lprintfln :: proc(fmt_s: string, args: ..any) {
+	str: strings.Builder
+	strings.builder_init(&str, context.temp_allocator)
+	final_string := fmt.sbprintf(&str, fmt_s, ..args, newline = true)
+
+	final_string_c, err := strings.to_cstring(&str)
+
+	if err != .None {
+		os.exit(1)
+	}
+
+	fmt.print(final_string)
+	windows.OutputDebugStringA(final_string_c)
+}
+
+get_descriptor_heap_cpu_address :: proc(
+	heap: ^dx.IDescriptorHeap,
+	offset: u32 = 0,
+) -> (
+	cpu_descriptor_handle: dx.CPU_DESCRIPTOR_HANDLE,
+) {
+	heap->GetCPUDescriptorHandleForHeapStart(&cpu_descriptor_handle)
+	desc: dx.DESCRIPTOR_HEAP_DESC
+	heap->GetDesc(&desc)
+	increment := g_dx_context.device->GetDescriptorHandleIncrementSize(desc.Type)
+	cpu_descriptor_handle.ptr += uint(offset * increment)
+	return
+}
+
+proc_walk :: proc(node: Node, scene: Scene, data: rawptr)
+
+// Walks through the scene tree and runs a proc per node
+scene_walk :: proc(scene: Scene, data: rawptr, thing_to_do: proc_walk) {
+	nodes := scene.nodes
+
+	for root_node in scene.root_nodes {
+		node_i := scene.nodes[root_node]
+
+		// algorithm state
+		cur_child_i: uint = 0
+		depth := 0
+		child_i_levels: [10]uint
+		children_are_explored: bool
+
+		for {
+
+			if !children_are_explored {
+
+				// do the stuff here
+				thing_to_do(node_i, scene, data)
+			}
+
+			if node_i.children == nil || children_are_explored {
+				children_are_explored = false
+
+				// go to next sibling
+				cur_child_i += 1
+
+				if node_i.parent == -1 {
+					break
+				}
+
+				// if there is no next sibling, go up
+
+				node_parent := nodes[node_i.parent]
+
+				if cur_child_i >= len(node_parent.children) {
+
+					depth -= 1
+
+					// if the current's node's parent doesn't have a parent, we're done!
+					if node_parent.parent == -1 {
+						break
+					}
+
+					// check if this one has a sibling
+
+					node_grandparent := nodes[node_parent.parent]
+
+					node_i = nodes[node_grandparent.children[child_i_levels[depth]]]
+					cur_child_i = child_i_levels[depth]
+					children_are_explored = true
+					continue
+				}
+
+				node_i = nodes[node_parent.children[cur_child_i]]
+			} else {
+				// go to first child
+				child_i_levels[depth] = cur_child_i
+				cur_child_i = 0
+				node_i = nodes[node_i.children[cur_child_i]]
+				depth += 1
+			}
+		}
+	}
+}
+
+load_white_texture :: proc() {
+	ct := g_dx_context
+	
+	w, h, channels : c.int
+	image_data := img.load("white.png", &w, &h, &channels, 4)
+	assert(image_data != nil)
+	defer img.image_free(image_data)
+	
+	img_data_mipmaps := [?][]byte{
+		slice.from_ptr(image_data, cast(int)(w * h * channels))
+	}
+	
+	texture_res := create_texture_with_data(img_data_mipmaps[:], u64(w), u32(h), .R8G8B8A8_UNORM, 
+		&g_resources_longterm, "white")
+	
+	// creating srv on uber heap
+	ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, TEXTURE_WHITE_INDEX))
+}
+
+// TODO: implement global tracking here
+arena_new :: proc() -> virtual.Arena {
+	arena : virtual.Arena
+	alloc_err := virtual.arena_init_growing(&arena, mem.Megabyte)
+	assert(alloc_err == .None)
+	return arena
+}
+
+get_node_world_matrix :: proc(node: Node, scene: Scene) -> dxm {
+
+	res: dxm = 1
+
+	node_i := node
+
+	for {
+
+		boosted_t := node_i.transform_t * 1
+		translation_mat := linalg.matrix4_translate_f32(boosted_t)
+
+		boosted_s := node_i.transform_s * 1
+		scale_mat := linalg.matrix4_scale_f32(boosted_s)
+		
+		rot_quat: quaternion128 = quaternion(
+			w = node_i.transform_r[3],
+			x = node_i.transform_r[0],
+			y = node_i.transform_r[1],
+			z = node_i.transform_r[2],
+		)
+		rot_mat: dxm = linalg.matrix4_from_quaternion_f32(rot_quat)
+
+		// mesh_world : dxm = translation_mat * rot_mat * scale_mat
+		// no rot
+		mesh_world: dxm = translation_mat * rot_mat * scale_mat
+		// mesh_world : dxm = scale_mat * rot_mat * translation_mat
+
+		res = res * mesh_world
+		// res = mesh_world * res
+		// break
+
+		if node_i.parent == -1 do break
+		node_i = scene.nodes[node_i.parent]
+	}
+
+	return res
 }
