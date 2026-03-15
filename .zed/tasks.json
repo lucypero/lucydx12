@@ -13,6 +13,19 @@
     "show_command": true,
   },
   {
+    "label": "build profile - debug",
+    "command": "odin build . -debug -out:lucydx12.exe -linker:radlink -vet-shadowing -define:PROFILE=true",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "reveal": "always",
+    "hide": "never",
+    "shell": {
+    	"program": "cmd"
+    },
+    "show_summary": true,
+    "show_command": true,
+  },
+  {
     "label": "build opt",
     "command": "odin build . -o:speed -out:lucydx12.exe -linker:radlink -vet-shadowing",
     "use_new_terminal": false,
@@ -51,5 +64,4 @@
     "show_summary": true,
     "show_command": true
   }
-  
 ]

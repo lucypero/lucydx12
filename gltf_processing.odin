@@ -1,5 +1,10 @@
+#+private file 
 package main
 
+import "core:math/linalg"
+import "core:mem"
+import "core:c"
+import img "vendor:stb/image"
 import "core:os"
 import "core:crypto/hash"
 import base64 "core:encoding/base64"
@@ -13,11 +18,12 @@ import "base:runtime"
 import "core:mem/virtual"
 import dxma "libs/odin-d3d12ma"
 
+@(private="package")
 scene_from_gltf :: proc(model_filepath: string) -> Scene {
 	
 	// loading gltf files
 	
-	model_filepath_c := strings.clone_to_cstring(model_filepath, temp_allocator)
+	model_filepath_c := strings.clone_to_cstring(model_filepath, g_temp_allocator)
 	cgltf_options: cgltf.options
 	
 	data, ok := cgltf.parse_file(cgltf_options, model_filepath_c)
@@ -57,7 +63,7 @@ scene_from_gltf :: proc(model_filepath: string) -> Scene {
 		}
 
 		data := CallbackData {
-			sample_matrix_data = make([]ModelMatrixData, scene.mesh_count, temp_allocator),
+			sample_matrix_data = make([]ModelMatrixData, scene.mesh_count, g_temp_allocator),
 			mesh_i = 0,
 		}
 
@@ -68,7 +74,7 @@ scene_from_gltf :: proc(model_filepath: string) -> Scene {
 			data.mesh_i += 1
 		})
 		
-		scene.sb_model_matrices = create_structured_buffer_with_data(dx_context.cmdlist, "model matrix data",
+		scene.sb_model_matrices = create_structured_buffer_with_data(g_dx_context.cmdlist, "model matrix data",
 		 	&scene.resource_pool,
 			slice.to_bytes(data.sample_matrix_data))
 		
@@ -88,7 +94,7 @@ scene_from_gltf :: proc(model_filepath: string) -> Scene {
 		create_srv_on_uber_heap(scene.sb_model_matrices, true, "model matrices structured buffer", &srv_desc)
 	}
 	
-	scene.fence_value = dx_context.upload_service.fence_value
+	scene.fence_value = g_dx_context.upload_service.fence_value
 	
 	// gizmos stuff
 	
@@ -96,7 +102,7 @@ scene_from_gltf :: proc(model_filepath: string) -> Scene {
 	
 	// instance data for gizmos
 	{
-		instance_data := make([]InstanceData, MAX_GIZMOS, temp_allocator)
+		instance_data := make([]InstanceData, MAX_GIZMOS, g_temp_allocator)
 		scene.vb_gizmos_instance_data = create_vertex_buffer_upload(size_of(instance_data[0]), u32(slice.size(instance_data)), pool = &scene.resource_pool)
 	}
 	
@@ -104,15 +110,14 @@ scene_from_gltf :: proc(model_filepath: string) -> Scene {
 	return scene
 }
 
-@(private="file")
 gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	
-	TEMP_GUARD(&temp_arena)
+	TEMP_GUARD(&g_temp_arena)
 	
-	ct := &dx_context
+	ct := &g_dx_context
 	
-	vertices := make([dynamic]VertexData, temp_allocator)
-	indices := make([dynamic]u32, temp_allocator)
+	vertices := make([dynamic]VertexData, g_temp_allocator)
+	indices := make([dynamic]u32, g_temp_allocator)
 	
 	scene_allocator := virtual.arena_allocator(&scene.allocator)
 	
@@ -218,7 +223,7 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	// add uv sphere (for gizmos)
 	
 	// TODO: separate gizmos from scene
-	sphere_verts_base, sphere_indices := generate_uv_sphere(32, 32, temp_allocator)
+	sphere_verts_base, sphere_indices := generate_uv_sphere(32, 32, g_temp_allocator)
 	
 	for v in sphere_verts_base {
 		append(&vertices, VertexData {
@@ -322,7 +327,6 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	dx_upload_trigger(&ct.upload_service, scene.index_buffer, slice.to_bytes(indices[:]))
 }
 
-@(private="file")
 gltf_load_nodes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	
 	scene_allocator := virtual.arena_allocator(&scene.allocator)
@@ -379,11 +383,10 @@ gltf_load_nodes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	scene.mesh_count = mesh_count
 }
 
-@(private="file")
 load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: string, res_pool : ^DXResourcePool, textures_srv_index: ^u32) {
 	
-	ct := &dx_context
-	TEMP_GUARD(&temp_arena)
+	ct := &g_dx_context
+	TEMP_GUARD(&g_temp_arena)
 	
 	image_name : string
 	
@@ -406,7 +409,6 @@ load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: s
 	textures_srv_index^ += 1
 }
 
-@(private="file")
 get_texture_uv :: proc(data: ^cgltf.data, tex_view: cgltf.texture_view) -> u32 {
 	
 	if tex_view.texture != nil {
@@ -417,10 +419,9 @@ get_texture_uv :: proc(data: ^cgltf.data, tex_view: cgltf.texture_view) -> u32 {
 	return 0
 }
 
-@(private="file")
 gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string, scene: ^Scene) {
 	
-	ct := &dx_context
+	ct := &g_dx_context
 	
 	scene_allocator := virtual.arena_allocator(&scene.allocator)
 	

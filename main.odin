@@ -1,3 +1,4 @@
+#+private file
 package main
 
 import "core:mem/virtual"
@@ -19,6 +20,7 @@ import "core:math"
 import "core:math/linalg"
 import "base:runtime"
 import "core:math/rand"
+import "core:sync"
 import dxc "vendor:directx/dxc"
 import "core:prof/spall"
 import dxma "libs/odin-d3d12ma"
@@ -30,155 +32,40 @@ import "../odin-imgui/imgui_impl_sdl2"
 // imgui dx12 implementation
 import "../odin-imgui/imgui_impl_dx12"
 
-// Global allocators
-
-temp_arena : virtual.Arena
-temp_allocator : mem.Allocator
-
-// --- const definitions / aliases ---
-
-PROFILE :: #config(PROFILE, false)
-
-NUM_RENDERTARGETS :: 2
-
-TURNS_TO_RAD :: math.PI * 2
-
-v2 :: linalg.Vector2f32
-v3 :: linalg.Vector3f32
-v4 :: linalg.Vector4f32
-
-dxm :: matrix[4, 4]f32
-
-DXResourcePool :: [dynamic]^dx.IUnknown
-
-gbuffer_shader_filename :: "shader.hlsl"
-lighting_shader_filename :: "lighting.hlsl"
-ui_shader_filename :: "ui.hlsl"
-
-gbuffer_count :: 3
-
 // ---- GLOBAL STATE ----
 
-// profiling stuff
+@(private="package") g_temp_arena : virtual.Arena
+@(private="package") g_temp_allocator : mem.Allocator
+@(private="package") g_dx_context: Context
+@(private="package") g_resources_longterm: DXResourcePool
+@(private="package") g_uv_sphere_mesh: Mesh
 
-when PROFILE {
-	spall_ctx: spall.Context
-	@(thread_local)
-	spall_buffer: spall.Buffer
-}
-
-
-// window dimensions
-wx := i32(2000)
-wy := i32(1000)
-
-global_trace_ctx: trace.Context
+g_global_trace_ctx: trace.Context
 g_frame_dt : f64 = 0.2 // in ms
 g_mesh_drawn_count: int = 0
-dx_context: Context
-start_time: time.Time
-light_pos: v3
-light_draw_gizmos: bool
-light_int: f32
-the_time_sec: f32
-exit_app: bool
-
-// last_write time for shaders
-
-// dx resources to be freed at the end of the app
+g_start_time: time.Time
+g_light_pos: v3
+g_light_draw_gizmos: bool
+g_light_int: f32
+g_the_time_sec: f32
+g_exit_app: bool
 g_scene: Scene
-g_resources_longterm: DXResourcePool
-g_uv_sphere_mesh: Mesh
+
+// Profiling stuff
+
+when PROFILE {
+g_spall_ctx: spall.Context
+@(thread_local)
+g_spall_buffer: spall.Buffer
+}
 
 // ----- //// GLOBAL STATE ------
-
-ModelMatrixData :: struct {
-	model_matrix: dxm,
-}
-
-// all meshes use the same index/vertex buffer.
-// so we just have to store the offset and index count to render a specific mesh
-Mesh :: struct {
-	primitives: []Primitive,
-}
-
-Primitive :: struct {
-	index_offset: u32,
-	index_count: u32,
-	material_index: u32
-}
-
-// texture id into the srv heap. and the uv id used to sample the texture
-TextureUV :: struct {
-	texture_id: u32,
-	uv_id: u32, // what uv to use to sample the texture
-}
-
-Material :: struct {
-	base_color: TextureUV,
-	metallic_roughness: TextureUV,
-	normal: TextureUV,
-}
-
-// constant buffer data
-ConstantBufferData :: struct #align (256) {
-	view: dxm,
-	projection: dxm,
-	inverse_view_proj: dxm,
-	light_pos: v3,
-	light_int: f32,
-	view_pos: v3,
-	time: f32,
-}
-
-// testing
-
-Scene :: struct {
-	nodes: []Node,
-	root_nodes: []int,
-	mesh_count: uint,
-	meshes: []Mesh,
-	allocator: virtual.Arena,
-	fence_value: u64, // fence value to wait on for all scene resources to be uploaded to the GPU
-	
-	// dx resources
-	sb_model_matrices: ^dx.IResource,
-	sb_materials: ^dx.IResource,
-	
-	vertex_buffer: ^dx.IResource,
-	index_buffer: ^dx.IResource,
-	vertex_buffer_view: dx.VERTEX_BUFFER_VIEW,
-	index_buffer_view: dx.INDEX_BUFFER_VIEW,
-	
-	// gizmos (put this somewhere else later)
-	// TODO
-	vb_gizmos_instance_data: VertexBuffer,
-	
-	resource_pool: DXResourcePool
-}
-
-Node :: struct {
-	name: string,
-	transform_t: v3,
-	transform_r: v4,
-	transform_s: v3,
-	children: []int,
-	parent: int, // -1 for no parent (root node)
-	mesh: int, // mesh index to render. -1 for no mesh
-}
-
-
-// struct that holds instance data, for an instance rendering example
-InstanceData :: struct #align (256) {
-	world_mat: dxm,
-	color: v4,
-}
 
 get_cbv :: proc() -> ConstantBufferData {
 
 	// ticking cbv time value
-	thetime := time.diff(start_time, time.now())
-	the_time_sec = f32(thetime) / f32(time.Second)
+	thetime := time.diff(g_start_time, time.now())
+	g_the_time_sec = f32(thetime) / f32(time.Second)
 	// if the_time_sec > 1 {
 	// 	start_time = time.now()
 	// }
@@ -190,10 +77,10 @@ get_cbv :: proc() -> ConstantBufferData {
 		view = view,
 		projection = projection,
 		inverse_view_proj = linalg.inverse(projection * view),
-		light_pos = light_pos,
-		light_int = light_int,
+		light_pos = g_light_pos,
+		light_int = g_light_int,
 		view_pos = cur_cam.pos,
-		time = the_time_sec,
+		time = g_the_time_sec,
 	}
 }
 
@@ -202,132 +89,15 @@ cb_update :: proc() {
 	cbv_data := get_cbv()
 
 	// sending data to the cpu mapped memory that the gpu can read
-	mem.copy(dx_context.constant_buffer_map, (rawptr)(&cbv_data), size_of(cbv_data))
-}
-
-VertexData :: struct {
-	pos: v3,
-	normal: v3,
-	tangent: v4,
-	uv: v2,
-	uv_2: v2,
-}
-
-// Data associated with a vertex buffer
-// this could be an instance buffer too. it's the same to dx12.
-VertexBuffer :: struct {
-	buffer: ^dx.IResource,
-	vbv: dx.VERTEX_BUFFER_VIEW,
-	vertex_count: u32, // vertex count or instance count
-	buffer_size: u32,
-	buffer_stride: u32,
-}
-
-GBufferUnit :: struct {
-	res: ^dx.IResource,
-	rtv: dx.CPU_DESCRIPTOR_HANDLE,
-	format: dxgi.FORMAT,
-}
-
-GBuffer :: struct {
-	gb_albedo: GBufferUnit,
-	gb_normal: GBufferUnit,
-	gb_ao_rough_metal: GBufferUnit,
-	rtv_heap: ^dx.IDescriptorHeap,
-}
-
-HotSwapState :: struct {
-	// TODO: store more data here so u don't have to pass the data around in the hotswap methods
-	last_write_time: time.Time,
-	pso_swap: ^dx.IPipelineState,
-
-	// index in the queue array to free the resource
-	// i use this to swap the pointer when the pso gets hot swapped
-	pso_index: int,
-}
-
-MAX_GIZMOS :: 20
-
-Context :: struct {
-	// sdl stuff
-	window: ^sdl.Window,
-
-	// imgui stuff
-	imgui_descriptor_heap: ^dx.IDescriptorHeap,
-	imgui_allocator: DescriptorHeapAllocator,
-
-	// core stuff
-	device: ^dx.IDevice,
-	factory: ^dxgi.IFactory4,
-	
-	// Graphics core resources
-	
-	queue: ^dx.ICommandQueue,
-	command_allocator: ^dx.ICommandAllocator,
-	cmdlist: ^dx.IGraphicsCommandList,
-	
-	// Copy core resources
-	upload_service: DXUploadService,
-	
-	// Other
-	
-	swapchain: ^dxgi.ISwapChain3,
-	dxc_compiler: ^dxc.ICompiler3,
-	pipeline_gbuffer: ^dx.IPipelineState,
-	constant_buffer_map: rawptr, //maps to our test constant buffer
-	gbuffer_pass_root_signature: ^dx.IRootSignature,
-	constant_buffer: ^dx.IResource,
-	dxma_allocator: ^dxma.Allocator,
-	// descriptor heap for the render target view
-	swapchain_rtv_descriptor_heap: ^dx.IDescriptorHeap,
-	frame_index: u32,
-	targets: [NUM_RENDERTARGETS]^dx.IResource, // render targets
-	gbuffer: GBuffer,
-
-	// lighting pass resources
-	pipeline_lighting: ^dx.IPipelineState,
-	lighting_pass_root_signature: ^dx.IRootSignature,
-
-	// fence stuff (for waiting to render frame)
-	fence: ^dx.IFence,
-	fence_value: u64,
-	fence_event: windows.HANDLE,
-
-	// descriptor heap for ALL our resources
-	cbv_srv_uav_heap: ^dx.IDescriptorHeap,
-	descriptor_count : u32, // count for how many descriptors are in the srv heap
-
-	// depth buffer
-	depth_stencil_res: ^dx.IResource,
-	descriptor_heap_dsv: ^dx.IDescriptorHeap,
-
-	// hot swap shader state
-	lighting_hotswap: HotSwapState,
-	gbuffer_hotswap: HotSwapState, // todo this one (make helper functions for setting initial state and swapping code)
-	
-	// --- gizmos drawing ------
-	
-	pso_gizmos : ^dx.IPipelineState,
-	rs_gizmos : ^dx.IRootSignature,
-	
-	// --- gizmos drawing end ----
+	mem.copy(g_dx_context.constant_buffer_map, (rawptr)(&cbv_data), size_of(cbv_data))
 }
 
 // initializes app data in Context struct
 context_init :: proc(con: ^Context) {
 	cur_cam = camera_init()
-	light_pos = v3{0,2,0}
-	light_draw_gizmos = true
-	light_int = 1
-}
-
-check :: proc(res: dx.HRESULT, message: string = "dx call error") {
-	if (res >= 0) {
-		return
-	}
-
-	lprintfln("%v. Error code: %0x", message, u32(res))
-	os.exit(-1)
+	g_light_pos = v3{0,2,0}
+	g_light_draw_gizmos = true
+	g_light_int = 1
 }
 
 tracking_allocator_report :: proc(allocator_name: string, track: mem.Tracking_Allocator, report_leaks_and_double_frees: bool) {
@@ -355,13 +125,14 @@ tracking_allocator_report :: proc(allocator_name: string, track: mem.Tracking_Al
 	}
 }
 
+@(private="package")
 main :: proc() {
 	
 	// set up memory
-	alloc_err := virtual.arena_init_growing(&temp_arena, mem.Megabyte)
+	alloc_err := virtual.arena_init_growing(&g_temp_arena, mem.Megabyte)
 	assert(alloc_err == .None)
-	temp_allocator = virtual.arena_allocator(&temp_arena)
-	context.temp_allocator = temp_allocator
+	g_temp_allocator = virtual.arena_allocator(&g_temp_arena)
+	context.temp_allocator = g_temp_allocator
 	
 	when ODIN_DEBUG {
 		lprintln("Tracking Allocations...")
@@ -376,7 +147,7 @@ main :: proc() {
 		defer {
 			tracking_allocator_report("context.allocator", track, true)
 			// tracking_allocator_report("context.temp_allocator", temp_track, false)
-			arena_report("temp arena", temp_arena)
+			arena_report("temp arena", g_temp_arena)
 			mem.tracking_allocator_destroy(&track)
 		}
 	}
@@ -391,23 +162,23 @@ main :: proc() {
 	// (it's now in g_scene)
 	// defer delete(g_uv_sphere_mesh.primitives)
 	
-	trace.init(&global_trace_ctx)
-	defer trace.destroy(&global_trace_ctx)
+	trace.init(&g_global_trace_ctx)
+	defer trace.destroy(&g_global_trace_ctx)
 
-	ct := &dx_context
+	ct := &g_dx_context
 
 	// setting up profiling
 	when PROFILE {
-		spall_ctx = spall.context_create("trace_test.spall")
-		defer spall.context_destroy(&spall_ctx)
+		g_spall_ctx = spall.context_create("trace_test.spall")
+		defer spall.context_destroy(&g_spall_ctx)
 
 		buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
 		defer delete(buffer_backing)
 
-		spall_buffer = spall.buffer_create(buffer_backing, u32(sync.current_thread_id()))
-		defer spall.buffer_destroy(&spall_ctx, &spall_buffer)
+		g_spall_buffer = spall.buffer_create(buffer_backing, u32(sync.current_thread_id()))
+		defer spall.buffer_destroy(&g_spall_ctx, &g_spall_buffer)
 
-		spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, #procedure)
+		spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, #procedure)
 	}
 
 	// Init SDL and create window
@@ -421,8 +192,8 @@ main :: proc() {
 		"lucydx12",
 		sdl.WINDOWPOS_UNDEFINED,
 		sdl.WINDOWPOS_UNDEFINED,
-		wx,
-		wy,
+		WINDOW_WIDTH,
+		WINDOW_HEIGHT,
 		{.ALLOW_HIGHDPI, .SHOWN, .RESIZABLE},
 	)
 
@@ -440,7 +211,7 @@ main :: proc() {
 	// Wait till all resources are uploaded to the GPU before rendering.
 	ct.queue->Wait(ct.upload_service.fence, ct.upload_service.fence_value)
 	
-	start_time = time.now()
+	g_start_time = time.now()
 	do_main_loop()
 	
 	// cleanup
@@ -484,7 +255,7 @@ do_main_loop :: proc() {
 	last_time := time.now()
 	
 	main_loop: for {
-		when PROFILE do spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, name = "main loop")
+		when PROFILE do spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, name = "main loop")
 		for e: sdl.Event; sdl.PollEvent(&e); {
 
 			imgui_impl_sdl2.ProcessEvent(&e)
@@ -513,7 +284,7 @@ do_main_loop :: proc() {
 		g_frame_dt = time.duration_milliseconds(dur)
 		last_time = new_time
 
-		if exit_app {
+		if g_exit_app {
 			break main_loop
 		}
 	}
@@ -534,8 +305,8 @@ create_swapchain :: proc(
 
 
 	desc := dxgi.SWAP_CHAIN_DESC1 {
-		Width = u32(wx),
-		Height = u32(wy),
+		Width = u32(WINDOW_WIDTH),
+		Height = u32(WINDOW_HEIGHT),
 		Format = .R8G8B8A8_UNORM,
 		SampleDesc = {Count = 1, Quality = 0},
 		BufferUsage = {.RENDER_TARGET_OUTPUT},
@@ -560,7 +331,7 @@ create_swapchain :: proc(
 }
 
 init_dx_other :: proc() {
-	ct := &dx_context
+	ct := &g_dx_context
 	hr : dx.HRESULT
 	
 	// Creating G-Buffer textures and RTV's
@@ -625,7 +396,7 @@ init_dx_other :: proc() {
 	
 	// creating our constant buffer
 	create_cbv_on_uber_heap(&dx.CONSTANT_BUFFER_VIEW_DESC{
-		BufferLocation = dx_context.constant_buffer->GetGPUVirtualAddress(),
+		BufferLocation = g_dx_context.constant_buffer->GetGPUVirtualAddress(),
 		SizeInBytes = size_of(ConstantBufferData),
 	}, true, "General Constants Buffer")
 	
@@ -652,7 +423,7 @@ init_dx_other :: proc() {
 // inits all basic dx resources.
 init_dx :: proc() {
 	hr: dx.HRESULT
-	ct := &dx_context
+	ct := &g_dx_context
 
 	// Init DXGI factory. DXGI is the link between the window and DirectX
 	factory: ^dxgi.IFactory4
@@ -843,16 +614,16 @@ dx_log_callback :: proc "c" (
 	lprintfln("%v: (%v) %v", severity_string, cat, msg)
 	
 	// printing stack trace
-	if !trace.in_resolve(&global_trace_ctx) {
+	if !trace.in_resolve(&g_global_trace_ctx) {
 		buf: [64]trace.Frame
 		max_frames_display :: 3
-		frames := trace.frames(&global_trace_ctx, 1, buf[:])
+		frames := trace.frames(&g_global_trace_ctx, 1, buf[:])
 		
 		// filtering by frames where we actually have info
 		real_counter := 0
 		
 		for f in frames {
-			fl := trace.resolve(&global_trace_ctx, f, context.temp_allocator)
+			fl := trace.resolve(&g_global_trace_ctx, f, context.temp_allocator)
 			if fl.loc.file_path == "" && fl.loc.line == 0 do continue
 			if real_counter == 0 do lprintfln("At:")
 			real_counter += 1
@@ -863,13 +634,13 @@ dx_log_callback :: proc "c" (
 
 update :: proc() {
 
-	c := &dx_context
+	c := &g_dx_context
 
 	sdl.PumpEvents()
 	keyboard := sdl.GetKeyboardStateAsSlice()
 
 	if keyboard[sdl.Scancode.ESCAPE] == 1 {
-		exit_app = true
+		g_exit_app = true
 	}
 
 	hotswap_watch(
@@ -903,14 +674,14 @@ do_imgui_ui :: proc() {
 	
 	im.Begin("lucydx12")
 
-	im.DragFloat3("light pos", &light_pos, 0.1, -5000, 5000)
-	im.DragFloat("light intensity", &light_int, 0.1, 0, 20)
-	im.Checkbox("draw light gizmos", &light_draw_gizmos)
+	im.DragFloat3("light pos", &g_light_pos, 0.1, -5000, 5000)
+	im.DragFloat("light intensity", &g_light_int, 0.1, 0, 20)
+	im.Checkbox("draw light gizmos", &g_light_draw_gizmos)
 	im.DragFloat("cam speed", &cur_cam.speed, 0.0001, 0, 20)
 
 	// Drawing delta time
 	{
-		sb := strings.builder_make_len_cap(0, 30, temp_allocator)
+		sb := strings.builder_make_len_cap(0, 30, g_temp_allocator)
 		fmt.sbprintfln(&sb, "DT: %.2f", g_frame_dt)
 		dt_cstring := strings.to_cstring(&sb)
 		im.Text(dt_cstring)
@@ -918,7 +689,7 @@ do_imgui_ui :: proc() {
 	
 	// Drawing cam position
 	{
-		sb := strings.builder_make_len_cap(0, 30, temp_allocator)
+		sb := strings.builder_make_len_cap(0, 30, g_temp_allocator)
 		fmt.sbprintfln(&sb, "cam position: %.2v", cur_cam.pos)
 		dt_cstring := strings.to_cstring(&sb)
 		im.Text(dt_cstring)
@@ -956,7 +727,7 @@ do_imgui_ui :: proc() {
 
 render :: proc() {
 
-	ct := &dx_context
+	ct := &g_dx_context
 
 	hr: dx.HRESULT
 
@@ -976,7 +747,7 @@ render :: proc() {
 
 	render_lighting_pass()
 	
-	if light_draw_gizmos do  render_gizmos()
+	if g_light_draw_gizmos do  render_gizmos()
 	
 	render_imgui()
 
@@ -990,7 +761,7 @@ render :: proc() {
 			Type = .TRANSITION,
 			Flags = {},
 			Transition = {
-				pResource = dx_context.targets[dx_context.frame_index],
+				pResource = g_dx_context.targets[g_dx_context.frame_index],
 				StateBefore = {.RENDER_TARGET},
 				StateAfter = dx.RESOURCE_STATE_PRESENT,
 				Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
@@ -1005,33 +776,33 @@ render :: proc() {
 
 	// execute
 	cmdlists := [?]^dx.IGraphicsCommandList{ct.cmdlist}
-	dx_context.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
+	g_dx_context.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
 
 	// present
 	{
-		when PROFILE do spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, name = "Present")
+		when PROFILE do spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, name = "Present")
 		flags: dxgi.PRESENT
 		params: dxgi.PRESENT_PARAMETERS
-		hr = dx_context.swapchain->Present1(1, flags, &params)
+		hr = g_dx_context.swapchain->Present1(1, flags, &params)
 		check(hr, "Present failed")
 	}
 
 	// wait for frame to finish
 	{
-		when PROFILE do spall.SCOPED_EVENT(&spall_ctx, &spall_buffer, name = "v-sync wait")
+		when PROFILE do spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, name = "v-sync wait")
 
-		current_fence_value := dx_context.fence_value
+		current_fence_value := g_dx_context.fence_value
 
-		hr = dx_context.queue->Signal(dx_context.fence, current_fence_value)
+		hr = g_dx_context.queue->Signal(g_dx_context.fence, current_fence_value)
 		check(hr, "Failed to signal fence")
 
-		dx_context.fence_value += 1
-		completed := dx_context.fence->GetCompletedValue()
+		g_dx_context.fence_value += 1
+		completed := g_dx_context.fence->GetCompletedValue()
 
 		if completed < current_fence_value {
-			hr = dx_context.fence->SetEventOnCompletion(current_fence_value, dx_context.fence_event)
+			hr = g_dx_context.fence->SetEventOnCompletion(current_fence_value, g_dx_context.fence_event)
 			check(hr, "Failed to set event on completion flag")
-			windows.WaitForSingleObject(dx_context.fence_event, windows.INFINITE)
+			windows.WaitForSingleObject(g_dx_context.fence_event, windows.INFINITE)
 		}
 
 		ct.frame_index = ct.swapchain->GetCurrentBackBufferIndex()
@@ -1093,149 +864,27 @@ create_gbuffer_pass_root_signature :: proc() {
 	serialized_desc: ^dx.IBlob
 	hr := dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
 	check(hr, "Failed to serialize root signature")
-	hr = dx_context.device->CreateRootSignature(
+	hr = g_dx_context.device->CreateRootSignature(
 		0,
 		serialized_desc->GetBufferPointer(),
 		serialized_desc->GetBufferSize(),
 		dx.IRootSignature_UUID,
-		(^rawptr)(&dx_context.gbuffer_pass_root_signature),
+		(^rawptr)(&g_dx_context.gbuffer_pass_root_signature),
 	)
 	check(hr, "Failed creating root signature")
-	append(&g_resources_longterm, dx_context.gbuffer_pass_root_signature)
+	append(&g_resources_longterm, g_dx_context.gbuffer_pass_root_signature)
 	serialized_desc->Release()
 }
-
-get_node_world_matrix :: proc(node: Node, scene: Scene) -> dxm {
-
-	res: dxm = 1
-
-	node_i := node
-
-	for {
-
-		boosted_t := node_i.transform_t * 1
-		translation_mat := linalg.matrix4_translate_f32(boosted_t)
-
-		boosted_s := node_i.transform_s * 1
-		scale_mat := linalg.matrix4_scale_f32(boosted_s)
-		
-		rot_quat: quaternion128 = quaternion(
-			w = node_i.transform_r[3],
-			x = node_i.transform_r[0],
-			y = node_i.transform_r[1],
-			z = node_i.transform_r[2],
-		)
-		rot_mat: dxm = linalg.matrix4_from_quaternion_f32(rot_quat)
-
-		// mesh_world : dxm = translation_mat * rot_mat * scale_mat
-		// no rot
-		mesh_world: dxm = translation_mat * rot_mat * scale_mat
-		// mesh_world : dxm = scale_mat * rot_mat * translation_mat
-
-		res = res * mesh_world
-		// res = mesh_world * res
-		// break
-
-		if node_i.parent == -1 do break
-		node_i = scene.nodes[node_i.parent]
-	}
-
-	return res
-}
-
-proc_walk :: proc(node: Node, scene: Scene, data: rawptr)
-
-// Walks through the scene tree and runs a proc per node
-scene_walk :: proc(scene: Scene, data: rawptr, thing_to_do: proc_walk) {
-	nodes := scene.nodes
-
-	for root_node in scene.root_nodes {
-		node_i := scene.nodes[root_node]
-
-		// algorithm state
-		cur_child_i: uint = 0
-		depth := 0
-		child_i_levels: [10]uint
-		children_are_explored: bool
-
-		for {
-
-			if !children_are_explored {
-
-				// do the stuff here
-				thing_to_do(node_i, scene, data)
-			}
-
-			if node_i.children == nil || children_are_explored {
-				children_are_explored = false
-
-				// go to next sibling
-				cur_child_i += 1
-
-				if node_i.parent == -1 {
-					break
-				}
-
-				// if there is no next sibling, go up
-
-				node_parent := nodes[node_i.parent]
-
-				if cur_child_i >= len(node_parent.children) {
-
-					depth -= 1
-
-					// if the current's node's parent doesn't have a parent, we're done!
-					if node_parent.parent == -1 {
-						break
-					}
-
-					// check if this one has a sibling
-
-					node_grandparent := nodes[node_parent.parent]
-
-					node_i = nodes[node_grandparent.children[child_i_levels[depth]]]
-					cur_child_i = child_i_levels[depth]
-					children_are_explored = true
-					continue
-				}
-
-				node_i = nodes[node_parent.children[cur_child_i]]
-			} else {
-				// go to first child
-				child_i_levels[depth] = cur_child_i
-				cur_child_i = 0
-				node_i = nodes[node_i.children[cur_child_i]]
-				depth += 1
-			}
-		}
-	}
-}
-
-TEXTURE_WHITE_INDEX :: TEXTURE_INDEX_BASE - 1
-TEXTURE_INDEX_BASE :: 400
-
-MODEL_FILEPATH_TEAPOT :: "models/teapot.glb"
-// model_filepath :: "models/main_sponza/NewSponza_Main_glTF_003.gltf"
-MODEL_FILEPATH_TEST_SCENE :: "models/test_scene.glb"
-// model_filepath :: "models/main_sponza/sponza_blender.glb"
-
-// no decals (ruins solid rendering)
-MODEL_FILEPATH_BIG_SPOZA_NO_DECALS :: "models/main_sponza/sponza_blender_no_decals.glb"
-MODEL_FILEPATH_SPONZA :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf"
-MODEL_FILEPATH_TOYCAR :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/ToyCar/glTF/ToyCar.gltf"
-MODEL_FILEPATH_NORMAL_MAP_TEST :: "models/normal_map_test.glb"
-MODEL_FILEPATH_SUZANNE :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/Suzanne/glTF/Suzanne.gltf"
-MODEL_FILEPATH_FLIGHTHELMET :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/FlightHelmet/glTF/FlightHelmet.gltf"
 
 
 create_depth_buffer :: proc() {
 
-	ct := &dx_context
+	ct := &g_dx_context
 
 	depth_stencil_desc := dx.RESOURCE_DESC {
 		Dimension = .TEXTURE2D,
-		Width = u64(wx),
-		Height = u32(wy),
+		Width = u64(WINDOW_WIDTH),
+		Height = u32(WINDOW_HEIGHT),
 		DepthOrArraySize = 1,
 		MipLevels = 1,
 		Format = .D32_FLOAT,
@@ -1332,7 +981,7 @@ imgui_init :: proc() {
 
 	im.StyleColorsDark()
 
-	imgui_impl_sdl2.InitForD3D(dx_context.window)
+	imgui_impl_sdl2.InitForD3D(g_dx_context.window)
 
 
 	// // Initialization data, for ImGui_ImplDX12_Init()
@@ -1353,7 +1002,7 @@ imgui_init :: proc() {
 
 	// create a shader resource view  heap (srv)
 
-	c := &dx_context
+	c := &g_dx_context
 
 
 	// creating descriptor heap
@@ -1368,13 +1017,13 @@ imgui_init :: proc() {
 	hr := c.device->CreateDescriptorHeap(
 		&srv_descriptor_heap_desc,
 		dx.IDescriptorHeap_UUID,
-		(^rawptr)(&dx_context.imgui_descriptor_heap),
+		(^rawptr)(&g_dx_context.imgui_descriptor_heap),
 	)
 	check(hr, "could ont create imgui descriptor heap")
-	dx_context.imgui_descriptor_heap->SetName("imgui's cbv srv uav descriptor heap")
-	append(&g_resources_longterm, dx_context.imgui_descriptor_heap)
+	g_dx_context.imgui_descriptor_heap->SetName("imgui's cbv srv uav descriptor heap")
+	append(&g_resources_longterm, g_dx_context.imgui_descriptor_heap)
 
-	dx_context.imgui_allocator = descriptor_heap_allocator_create(dx_context.imgui_descriptor_heap, .CBV_SRV_UAV)
+	g_dx_context.imgui_allocator = descriptor_heap_allocator_create(g_dx_context.imgui_descriptor_heap, .CBV_SRV_UAV)
 
 	allocfn := proc "c" (
 		info: ^imgui_impl_dx12.InitInfo,
@@ -1382,7 +1031,7 @@ imgui_init :: proc() {
 		out_gpu_desc_handle: ^dx.GPU_DESCRIPTOR_HANDLE,
 	) {
 		context = runtime.default_context()
-		cpu, gpu := descriptor_heap_allocator_alloc(&dx_context.imgui_allocator)
+		cpu, gpu := descriptor_heap_allocator_alloc(&g_dx_context.imgui_allocator)
 		out_cpu_desc_handle.ptr = cpu.ptr
 		out_gpu_desc_handle.ptr = gpu.ptr
 	}
@@ -1393,18 +1042,18 @@ imgui_init :: proc() {
 		gpu_desc_handle: dx.GPU_DESCRIPTOR_HANDLE,
 	) {
 		context = runtime.default_context()
-		descriptor_heap_allocator_free(&dx_context.imgui_allocator, cpu_desc_handle, gpu_desc_handle)
+		descriptor_heap_allocator_free(&g_dx_context.imgui_allocator, cpu_desc_handle, gpu_desc_handle)
 	}
 
 
 	dx12_init := imgui_impl_dx12.InitInfo {
-		Device = dx_context.device,
-		CommandQueue = dx_context.queue,
+		Device = g_dx_context.device,
+		CommandQueue = g_dx_context.queue,
 		// not sure what this is
 		NumFramesInFlight = 2,
 		RTVFormat = .R8G8B8A8_UNORM,
 		DSVFormat = .D32_FLOAT,
-		SrvDescriptorHeap = dx_context.imgui_descriptor_heap,
+		SrvDescriptorHeap = g_dx_context.imgui_descriptor_heap,
 		SrvDescriptorAllocFn = allocfn,
 		SrvDescriptorFreeFn = freefn,
 	}
@@ -1424,10 +1073,10 @@ render_imgui :: proc() {
 	// setting imgui's descriptor heap
 	// if i don't do this, it errors out. seems like RenderDrawData doesn't set it
 	//  by itself
-	dx_context.cmdlist->SetDescriptorHeaps(1, &dx_context.imgui_descriptor_heap)
+	g_dx_context.cmdlist->SetDescriptorHeaps(1, &g_dx_context.imgui_descriptor_heap)
 
 	// need graphics command list
-	imgui_impl_dx12.RenderDrawData(im.GetDrawData(), dx_context.cmdlist)
+	imgui_impl_dx12.RenderDrawData(im.GetDrawData(), g_dx_context.cmdlist)
 
 	io := im.GetIO()
 
@@ -1457,21 +1106,6 @@ get_descriptor_heap_gpu_address :: proc(
 	return
 }
 */
-
-get_descriptor_heap_cpu_address :: proc(
-	heap: ^dx.IDescriptorHeap,
-	offset: u32 = 0,
-) -> (
-	cpu_descriptor_handle: dx.CPU_DESCRIPTOR_HANDLE,
-) {
-	heap->GetCPUDescriptorHandleForHeapStart(&cpu_descriptor_handle)
-	desc: dx.DESCRIPTOR_HEAP_DESC
-	heap->GetDesc(&desc)
-	increment := dx_context.device->GetDescriptorHandleIncrementSize(desc.Type)
-	cpu_descriptor_handle.ptr += uint(offset * increment)
-	return
-}
-
 
 // gives you a transformation matrix given a position and scale and rot
 get_world_mat :: proc(pos, scale: v3, rot_rads: f32 = 0, rot_vec: v3 = {1, 0, 0}) -> dxm {
@@ -1503,12 +1137,12 @@ create_gbuffer_unit :: proc(format: dxgi.FORMAT,
 		 	rtv_descriptor_heap_heap_start: dx.CPU_DESCRIPTOR_HANDLE,
 			rtv_descriptor_size: u32,
 		 	gbuffer_index: uint) -> GBufferUnit {
-	ct := &dx_context
+	ct := &g_dx_context
 	
 	// albedo color 
 	gb_res := create_texture(
-		u64(wx),
-		u32(wy),
+		u64(WINDOW_WIDTH),
+		u32(WINDOW_HEIGHT),
 		format,
 		{.ALLOW_RENDER_TARGET},
 		initial_state = {.PIXEL_SHADER_RESOURCE},
@@ -1531,13 +1165,13 @@ create_gbuffer_unit :: proc(format: dxgi.FORMAT,
 }
 
 create_gbuffer :: proc() -> GBuffer {
-	ct := &dx_context
+	ct := &g_dx_context
 
 	// creating rtv heap and srv heaps
 	gb_rtv_dh: ^dx.IDescriptorHeap
 
 	desc := dx.DESCRIPTOR_HEAP_DESC {
-		NumDescriptors = gbuffer_count,
+		NumDescriptors = GBUFFER_COUNT,
 		Type = .RTV,
 		Flags = {},
 	}
@@ -1567,7 +1201,7 @@ create_gbuffer :: proc() -> GBuffer {
 
 create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState {
 
-	c := &dx_context
+	c := &g_dx_context
 
 	default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
 		BlendEnable = false,
@@ -1627,7 +1261,7 @@ create_new_lighting_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc
 
 create_gizmos_pso :: proc() -> (^dx.IRootSignature, ^dx.IPipelineState) {
 	
-	ct := &dx_context
+	ct := &g_dx_context
 	
 	// compiling shader here
 	
@@ -1801,7 +1435,7 @@ create_gizmos_pso :: proc() -> (^dx.IRootSignature, ^dx.IPipelineState) {
 
 create_lighting_pso_initial :: proc() {
 
-	c := &dx_context
+	c := &g_dx_context
 
 	vs, ps, ok := compile_shader(c.dxc_compiler, lighting_shader_filename)
 	
@@ -1828,7 +1462,7 @@ create_lighting_pso_initial :: proc() {
 
 create_lighting_root_signature :: proc() {
 
-	c := &dx_context
+	c := &g_dx_context
 
 	root_parameters_len :: 1
 
@@ -1889,7 +1523,7 @@ create_lighting_root_signature :: proc() {
 
 create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState {
 
-	c := &dx_context
+	c := &g_dx_context
 
 	vertex_format := [?]dx.INPUT_ELEMENT_DESC {
 		{
@@ -1939,9 +1573,9 @@ create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.
 	}
 
 	rtv_formats := [8]dxgi.FORMAT {
-		0 = dx_context.gbuffer.gb_albedo.format,
-		1 = dx_context.gbuffer.gb_normal.format,
-		2 = dx_context.gbuffer.gb_ao_rough_metal.format,
+		0 = g_dx_context.gbuffer.gb_albedo.format,
+		1 = g_dx_context.gbuffer.gb_normal.format,
+		2 = g_dx_context.gbuffer.gb_ao_rough_metal.format,
 		3 ..< 7 = .UNKNOWN,
 	}
 
@@ -1953,7 +1587,7 @@ create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.
 		BlendState = {
 			AlphaToCoverageEnable = false,
 			IndependentBlendEnable = false,
-			RenderTarget = {0 ..< gbuffer_count = default_blend_state},
+			RenderTarget = {0 ..< GBUFFER_COUNT = default_blend_state},
 		},
 		SampleMask = 0xFFFFFFFF,
 		RasterizerState = {
@@ -1974,7 +1608,7 @@ create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.
 		DepthStencilState = {DepthEnable = true, StencilEnable = false, DepthWriteMask = .ALL, DepthFunc = .LESS},
 		InputLayout = {pInputElementDescs = &vertex_format[0], NumElements = u32(len(vertex_format))},
 		PrimitiveTopologyType = .TRIANGLE,
-		NumRenderTargets = gbuffer_count,
+		NumRenderTargets = GBUFFER_COUNT,
 		RTVFormats = rtv_formats,
 		DSVFormat = .D32_FLOAT,
 		SampleDesc = {Count = 1, Quality = 0},
@@ -1992,7 +1626,7 @@ create_new_gbuffer_pso :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.
 // creates PSO for the first drawing pass that populates the gbuffer
 create_gbuffer_pso_initial :: proc() {
 
-	c := &dx_context
+	c := &g_dx_context
 
 	vs, ps, ok := compile_shader(c.dxc_compiler, gbuffer_shader_filename)
 	if !ok {
@@ -2013,7 +1647,7 @@ create_gbuffer_pso_initial :: proc() {
 
 render_gbuffer_pass :: proc() {
 
-	ct := &dx_context
+	ct := &g_dx_context
 
 	// setting descriptor heap for our cbv srv uav's
 	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap)
@@ -2027,7 +1661,7 @@ render_gbuffer_pass :: proc() {
 
 	// Transitioning gbuffers from SRVs to render target
 	{
-		res_barriers: [gbuffer_count]dx.RESOURCE_BARRIER
+		res_barriers: [GBUFFER_COUNT]dx.RESOURCE_BARRIER
 
 		// res barrier template
 
@@ -2052,20 +1686,20 @@ render_gbuffer_pass :: proc() {
 		res_barriers[2] = res_barriers[0]
 		res_barriers[2].Transition.pResource = ct.gbuffer.gb_ao_rough_metal.res
 
-		ct.cmdlist->ResourceBarrier(gbuffer_count, &res_barriers[0])
+		ct.cmdlist->ResourceBarrier(GBUFFER_COUNT, &res_barriers[0])
 	}
 
 	// Setting render targets. Clearing DSV and RTV.
 	{
-		rtv_handles := [gbuffer_count]dx.CPU_DESCRIPTOR_HANDLE {
-			dx_context.gbuffer.gb_albedo.rtv,
-			dx_context.gbuffer.gb_normal.rtv,
-			dx_context.gbuffer.gb_ao_rough_metal.rtv,
+		rtv_handles := [GBUFFER_COUNT]dx.CPU_DESCRIPTOR_HANDLE {
+			g_dx_context.gbuffer.gb_albedo.rtv,
+			g_dx_context.gbuffer.gb_normal.rtv,
+			g_dx_context.gbuffer.gb_ao_rough_metal.rtv,
 		}
-		dsv_handle := get_descriptor_heap_cpu_address(dx_context.descriptor_heap_dsv, 0)
+		dsv_handle := get_descriptor_heap_cpu_address(g_dx_context.descriptor_heap_dsv, 0)
 
 		// setting depth buffer
-		ct.cmdlist->OMSetRenderTargets(gbuffer_count, &rtv_handles[0], false, &dsv_handle)
+		ct.cmdlist->OMSetRenderTargets(GBUFFER_COUNT, &rtv_handles[0], false, &dsv_handle)
 
 		// clear backbuffer
 		clearcolor := [?]f32{0, 0, 0, 1.0}
@@ -2099,7 +1733,7 @@ render_gbuffer_pass :: proc() {
 	}
 
 	scene_walk(g_scene, nil, proc(node: Node, scene: Scene, data: rawptr) {
-		ct := &dx_context
+		ct := &g_dx_context
 
 		if node.mesh == -1 {
 			return
@@ -2120,13 +1754,13 @@ render_gbuffer_pass :: proc() {
 
 render_lighting_pass :: proc() {
 
-	ct := &dx_context
+	ct := &g_dx_context
 
 	ct.cmdlist->SetPipelineState(ct.pipeline_lighting)
 
 	// Transitioning gbuffers from render target to SRVs
 	{
-		res_barriers: [gbuffer_count]dx.RESOURCE_BARRIER
+		res_barriers: [GBUFFER_COUNT]dx.RESOURCE_BARRIER
 
 		// res barrier template
 
@@ -2151,7 +1785,7 @@ render_lighting_pass :: proc() {
 		res_barriers[2] = res_barriers[0]
 		res_barriers[2].Transition.pResource = ct.gbuffer.gb_ao_rough_metal.res
 
-		ct.cmdlist->ResourceBarrier(gbuffer_count, &res_barriers[0])
+		ct.cmdlist->ResourceBarrier(GBUFFER_COUNT, &res_barriers[0])
 	}
 
 	// here u have to transition the swapchain buffer so it is a RT
@@ -2160,7 +1794,7 @@ render_lighting_pass :: proc() {
 			Type = .TRANSITION,
 			Flags = {},
 			Transition = {
-				pResource = dx_context.targets[dx_context.frame_index],
+				pResource = g_dx_context.targets[g_dx_context.frame_index],
 				StateBefore = dx.RESOURCE_STATE_PRESENT,
 				StateAfter = {.RENDER_TARGET},
 				Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
@@ -2201,15 +1835,15 @@ render_lighting_pass :: proc() {
 
 render_gizmos :: proc () {
 	
-	ct := &dx_context
+	ct := &g_dx_context
 	
 	// updating gizmo data (looking at lights)
 	gizmos_count : u32 = 1
 	{
-		gizmos_instances := make([]InstanceData, gizmos_count, temp_allocator)
+		gizmos_instances := make([]InstanceData, gizmos_count, g_temp_allocator)
 		
 		gizmos_instances[0] = InstanceData {
-			world_mat = get_world_mat(light_pos, 0.1),
+			world_mat = get_world_mat(g_light_pos, 0.1),
 			color = v4{1,0,0, 0.5}
 		}
 		
@@ -2235,7 +1869,7 @@ render_gizmos :: proc () {
 		get_descriptor_heap_cpu_address(ct.swapchain_rtv_descriptor_heap, ct.frame_index),
 	}
 	
-	dsv_handle := get_descriptor_heap_cpu_address(dx_context.descriptor_heap_dsv, 0)
+	dsv_handle := get_descriptor_heap_cpu_address(g_dx_context.descriptor_heap_dsv, 0)
 
 	ct.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, &dsv_handle)
 	
@@ -2264,36 +1898,6 @@ print_ref_count :: proc(obj: ^dx.IUnknown) {
 }
 */
 
-// Prints to windows debug, with a lprintln() interface
-lprintln :: proc(args: ..any, sep := " ") {
-	str: strings.Builder
-	strings.builder_init(&str, context.temp_allocator)
-	fmt.sbprintln(&str, ..args, sep = sep)
-	final_string_c, err := strings.to_cstring(&str)
-
-	if err != .None {
-		os.exit(1)
-	}
-
-	fmt.print(final_string_c)
-	windows.OutputDebugStringA(final_string_c)
-}
-
-lprintfln :: proc(fmt_s: string, args: ..any) {
-	str: strings.Builder
-	strings.builder_init(&str, context.temp_allocator)
-	final_string := fmt.sbprintf(&str, fmt_s, ..args, newline = true)
-
-	final_string_c, err := strings.to_cstring(&str)
-
-	if err != .None {
-		os.exit(1)
-	}
-
-	fmt.print(final_string)
-	windows.OutputDebugStringA(final_string_c)
-}
-
 // Automatic profiling of every procedure:
 
 when PROFILE {
@@ -2307,7 +1911,7 @@ when PROFILE {
 		proc_address, call_site_return_address: rawptr,
 		loc: runtime.Source_Code_Location,
 	) {
-		spall._buffer_begin(&spall_ctx, &spall_buffer, "", "", loc)
+		spall._buffer_begin(&g_spall_ctx, &g_spall_buffer, "", "", loc)
 		cur_stack_count += 1
 		instrument_hit_count += 1
 		
@@ -2321,7 +1925,7 @@ when PROFILE {
 		proc_address, call_site_return_address: rawptr,
 		loc: runtime.Source_Code_Location,
 	) {
-		spall._buffer_end(&spall_ctx, &spall_buffer)
+		spall._buffer_end(&g_spall_ctx, &g_spall_buffer)
 		cur_stack_count -= 1
 	}
 
@@ -2351,7 +1955,7 @@ hotswap_watch :: proc(
 	if reload {
 		lprintln("Recompiling shader...")
 		// handle releasing resources
-		vs, ps, ok := compile_shader(dx_context.dxc_compiler, shader_name)
+		vs, ps, ok := compile_shader(g_dx_context.dxc_compiler, shader_name)
 		if !ok {
 			lprintln("Could not compile new shader!! check logs")
 		} else {
@@ -2382,70 +1986,38 @@ hotswap_swap :: proc(hs: ^HotSwapState, pso: ^^dx.IPipelineState) {
 	}
 }
 
-
-load_white_texture :: proc() {
-	ct := dx_context
-	
-	w, h, channels : c.int
-	image_data := img.load("white.png", &w, &h, &channels, 4)
-	assert(image_data != nil)
-	defer img.image_free(image_data)
-	
-	img_data_mipmaps := [?][]byte{
-		slice.from_ptr(image_data, cast(int)(w * h * channels))
-	}
-	
-	texture_res := create_texture_with_data(img_data_mipmaps[:], u64(w), u32(h), .R8G8B8A8_UNORM, 
-		&g_resources_longterm, "white")
-	
-	// creating srv on uber heap
-	ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, TEXTURE_WHITE_INDEX))
-}
-
 set_viewport_stuff :: proc() {
-	ct := &dx_context
+	ct := &g_dx_context
 	
 	viewport := dx.VIEWPORT {
-		Width = f32(wx),
-		Height = f32(wy),
+		Width = f32(WINDOW_WIDTH),
+		Height = f32(WINDOW_HEIGHT),
 		MinDepth = 0,
 		MaxDepth = 1,
 	}
 
 	scissor_rect := dx.RECT {
 		left = 0,
-		right = wx,
+		right = WINDOW_WIDTH,
 		top = 0,
-		bottom = wy,
+		bottom = WINDOW_HEIGHT,
 	}
 
 	ct.cmdlist->RSSetViewports(1, &viewport)
 	ct.cmdlist->RSSetScissorRects(1, &scissor_rect)
 }
 
-// Convenience function for clearing used memory in scope
-@(deferred_out=virtual.arena_temp_end)
-TEMP_GUARD :: #force_inline proc(arena: ^virtual.Arena, loc := #caller_location) -> (virtual.Arena_Temp, runtime.Source_Code_Location) {
-	return virtual.arena_temp_begin(arena, loc), loc
-}
 
 arena_report :: proc(arena_name: string, arena: virtual.Arena) {
 	lprintfln("===== Arena Report: name: \"%v\": total used: %vMB, total reserved: %vMB", arena_name, cast(f32)arena.total_used / cast(f32)mem.Megabyte,
 	 		cast(f32)arena.total_reserved / cast(f32)mem.Megabyte)
 }
 
-// TODO: implement global tracking here
-arena_new :: proc() -> virtual.Arena {
-	arena : virtual.Arena
-	alloc_err := virtual.arena_init_growing(&arena, mem.Megabyte)
-	assert(alloc_err == .None)
-	return arena
-}
 
 scene_swap :: proc(new_scene: string) {
 	scene_destroy(&g_scene)
 	g_scene = scene_from_gltf(new_scene)
-	dx_context.queue->Wait(dx_context.upload_service.fence, dx_context.upload_service.fence_value)
+	g_dx_context.queue->Wait(g_dx_context.upload_service.fence, g_dx_context.upload_service.fence_value)
 }
 
 scene_destroy :: proc(scene: ^Scene) {
@@ -2455,91 +2027,3 @@ scene_destroy :: proc(scene: ^Scene) {
 	
 	virtual.arena_destroy(&scene.allocator)
 }
-
-
-// unused (old) (u should delete this probably)
-/*
-
-gen_teapot_instance_data :: proc() -> []InstanceData {
-	teapot_count := 50
-
-	instance_data := make([]InstanceData, teapot_count, context.temp_allocator)
-
-	for &instance in instance_data {
-
-		spread :: 10
-
-		// fill it with random stuff
-		x_pos := rand.float32_range(-spread, spread)
-		y_pos := rand.float32_range(-spread, spread)
-		z_pos := rand.float32_range(-spread, spread)
-
-		scale := rand.float32_range(0.5, 5)
-
-		rot_fac :: 1
-
-		rot_val := rand.float32_range(0, math.TAU)
-		rot_vec := v3 {
-			rand.float32_range(-rot_fac, rot_fac),
-			rand.float32_range(-rot_fac, rot_fac),
-			rand.float32_range(-rot_fac, rot_fac),
-		}
-
-		rot_vec = linalg.vector_normalize(rot_vec)
-
-		col_vec := v4{rand.float32_range(0.5, 1), rand.float32_range(0.5, 1), rand.float32_range(0.5, 1), 1.0}
-
-		// x_pos = 0
-		instance = InstanceData {
-			world_mat = get_world_mat({x_pos, y_pos, z_pos}, {scale, scale, scale}, rot_val, rot_vec),
-			color = col_vec,
-		}
-	}
-
-	return instance_data
-}
-
-// creates instance buffer and fills it with some data
-create_instance_buffer_example :: proc() -> VertexBuffer {
-
-	// first: we create the data
-	instance_data := gen_just_one_instance_data()
-	// instance_data := gen_teapot_instance_data()
-
-	// second: we create the DX buffer, passing the size we want. and stride
-	//   it needs to return the vertex buffer view
-
-	instance_data_size := len(instance_data) * size_of(instance_data[0])
-
-	vb := create_vertex_buffer_upload(size_of(instance_data[0]), u32(instance_data_size), pool = &g_resources_longterm)
-	
-	// third: we copy the data to the buffer (map and unmap)									
-	copy_to_buffer(vb.buffer, slice.to_bytes(instance_data))
-
-	return vb
-}
-
-reroll_teapots :: proc() {
-	instance_data := gen_teapot_instance_data()
-	copy_to_buffer(dx_context.instance_buffer.buffer, slice.to_bytes(instance_data))
-}
-
-gen_just_one_instance_data :: proc() -> []InstanceData {
-	// returning one instance with no transformations
-	// we're rendering sponza now. we only want one.
-
-
-	instance_data := make([]InstanceData, 1, context.temp_allocator)
-
-	world_mat: dxm
-	world_mat = 1
-
-	instance_data[0] = InstanceData {
-		world_mat = world_mat,
-		color = v4{1, 1, 1, 1},
-	}
-
-	return instance_data
-}
-
-*/

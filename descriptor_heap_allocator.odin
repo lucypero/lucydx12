@@ -23,7 +23,7 @@ descriptor_heap_allocator_create :: proc(heap: ^dx.IDescriptorHeap,
 	ha.heap->GetCPUDescriptorHandleForHeapStart(&ha.heap_start_cpu)
 	ha.heap->GetGPUDescriptorHandleForHeapStart(&ha.heap_start_gpu)
 
-	ha.heap_handle_increment = dx_context.device->GetDescriptorHandleIncrementSize(ha.heap_type)
+	ha.heap_handle_increment = g_dx_context.device->GetDescriptorHandleIncrementSize(ha.heap_type)
 
 	desc : dx.DESCRIPTOR_HEAP_DESC
 	

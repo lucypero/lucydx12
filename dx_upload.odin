@@ -18,7 +18,6 @@ import "core:math"
 import "core:slice"
 import dxma "libs/odin-d3d12ma"
 
-
 UPLOAD_BUFFER_SIZE :: mem.Gigabyte * 1
 
 DXUploadService :: struct {
@@ -35,7 +34,7 @@ DXUploadService :: struct {
 
 dx_upload_init :: proc() {
 
-	ct := &dx_context
+	ct := &g_dx_context
 	up_service := &ct.upload_service
 
 	ct.device->CreateFence(0, {}, dx.IFence_UUID, (^rawptr)(&up_service.fence))
@@ -123,12 +122,12 @@ dx_upload_texture_trigger :: proc(up_service: ^DXUploadService, resource_dest : 
 	mip_levels := cast(u16)len(image_data)
 	
 	// getting data from texture that we'll use later
-	text_footprint := make([]dx.PLACED_SUBRESOURCE_FOOTPRINT, mip_levels, temp_allocator)
-	num_rows:= make([]u32, mip_levels, temp_allocator)
-	row_size:= make([]u64, mip_levels, temp_allocator)
+	text_footprint := make([]dx.PLACED_SUBRESOURCE_FOOTPRINT, mip_levels, g_temp_allocator)
+	num_rows:= make([]u32, mip_levels, g_temp_allocator)
+	row_size:= make([]u64, mip_levels, g_temp_allocator)
 	text_bytes: u64
 
-	dx_context.device->GetCopyableFootprints(texture_desc, 0, cast(u32)mip_levels, 0, &text_footprint[0], &num_rows[0], 
+	g_dx_context.device->GetCopyableFootprints(texture_desc, 0, cast(u32)mip_levels, 0, &text_footprint[0], &num_rows[0], 
 		&row_size[0], &text_bytes)
 
 	if up_service.next_allocation_pt + text_bytes > cast(u64)len(up_service.allocation_dest) {
