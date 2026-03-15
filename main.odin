@@ -152,7 +152,9 @@ Scene :: struct {
 	
 	// gizmos (put this somewhere else later)
 	// TODO
-	vb_gizmos_instance_data: VertexBuffer
+	vb_gizmos_instance_data: VertexBuffer,
+	
+	resource_pool: DXResourcePool
 }
 
 Node :: struct {
@@ -384,8 +386,6 @@ main :: proc() {
 	
 	// /set up memory
 	
-	// destroy test scene
-	scene_destroy(&g_scene)
 	
 	// destroy stray meshes (gizmo sphere)
 	// (it's now in g_scene)
@@ -446,6 +446,8 @@ main :: proc() {
 	// cleanup
 	{
 		imgui_destoy()
+		
+		scene_destroy(&g_scene)
 		
 		#reverse for &i in g_resources_longterm {
 			i->Release()
@@ -627,7 +629,8 @@ init_dx_other :: proc() {
 		SizeInBytes = size_of(ConstantBufferData),
 	}, true, "General Constants Buffer")
 	
-	g_scene = scene_from_gltf()
+	g_scene = scene_from_gltf(MODEL_FILEPATH_SPONZA)
+	// g_scene = scene_from_gltf(MODEL_FILEPATH_SUZANNE)
 
 	// This fence is used to wait for frames to finish
 	{
@@ -927,15 +930,20 @@ do_imgui_ui :: proc() {
  
 	@static current_selected : c.int = 0
 	items := [?]cstring{"sponza", "something else"}
-	new_selected: c.int
+	new_selected: c.int = current_selected
 	im.ComboChar("scene", &new_selected, raw_data(&items), len(items))
 	
 	if current_selected != new_selected {
 		current_selected = new_selected
 		
-		// load the new scene
-		// it's gonna be hard.. from the cpu side it's easy but from the gpu..
-		// u'll have to unload all the buffers related to the scene and load them with the new scene.
+		switch current_selected {
+		case 0:
+			lprintln("swap with  scene 0 (sponza)")
+			scene_swap(MODEL_FILEPATH_SPONZA)
+		case 1:
+			lprintln("swap with  scene 1 (something else)")
+			scene_swap(MODEL_FILEPATH_FLIGHTHELMET)
+		}
 	}
 	
 	// im.ShowDemoWindow()
@@ -1206,15 +1214,18 @@ scene_walk :: proc(scene: Scene, data: rawptr, thing_to_do: proc_walk) {
 TEXTURE_WHITE_INDEX :: TEXTURE_INDEX_BASE - 1
 TEXTURE_INDEX_BASE :: 400
 
-// model_filepath :: "models/teapot.glb"
+MODEL_FILEPATH_TEAPOT :: "models/teapot.glb"
 // model_filepath :: "models/main_sponza/NewSponza_Main_glTF_003.gltf"
-// model_filepath :: "models/test_scene.glb"
+MODEL_FILEPATH_TEST_SCENE :: "models/test_scene.glb"
 // model_filepath :: "models/main_sponza/sponza_blender.glb"
 
 // no decals (ruins solid rendering)
-// model_filepath :: "models/main_sponza/sponza_blender_no_decals.glb"
-model_filepath :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf"
-// model_filepath :: "models/normal_map_test.glb"
+MODEL_FILEPATH_BIG_SPOZA_NO_DECALS :: "models/main_sponza/sponza_blender_no_decals.glb"
+MODEL_FILEPATH_SPONZA :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf"
+MODEL_FILEPATH_TOYCAR :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/ToyCar/glTF/ToyCar.gltf"
+MODEL_FILEPATH_NORMAL_MAP_TEST :: "models/normal_map_test.glb"
+MODEL_FILEPATH_SUZANNE :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/Suzanne/glTF/Suzanne.gltf"
+MODEL_FILEPATH_FLIGHTHELMET :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/FlightHelmet/glTF/FlightHelmet.gltf"
 
 
 create_depth_buffer :: proc() {
@@ -2431,7 +2442,17 @@ arena_new :: proc() -> virtual.Arena {
 	return arena
 }
 
+scene_swap :: proc(new_scene: string) {
+	scene_destroy(&g_scene)
+	g_scene = scene_from_gltf(new_scene)
+	dx_context.queue->Wait(dx_context.upload_service.fence, dx_context.upload_service.fence_value)
+}
+
 scene_destroy :: proc(scene: ^Scene) {
+	for r in scene.resource_pool {
+		r->Release()
+	}
+	
 	virtual.arena_destroy(&scene.allocator)
 }
 

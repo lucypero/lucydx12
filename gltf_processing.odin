@@ -16,7 +16,7 @@ import dxma "libs/odin-d3d12ma"
 ENC_TABLE := [64]byte { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '_', }
 
 // refactor this monstrosity
-scene_from_gltf :: proc() -> Scene {
+scene_from_gltf :: proc(model_filepath: string) -> Scene {
 	
 	// loading gltf files
 	
@@ -41,10 +41,12 @@ scene_from_gltf :: proc() -> Scene {
 	scene : Scene
 	scene_arena := arena_new()
 	scene.allocator = scene_arena
+	scene_allocator := virtual.arena_allocator(&scene.allocator)
+	scene.resource_pool = make(DXResourcePool, scene_allocator)
 
 	assert(len(data.scenes) == 1)
 	
-	gltf_load_materials_into_scene(data, &scene)
+	gltf_load_materials_into_scene(data, model_filepath, &scene)
 	
 	gltf_load_nodes_into_scene(data, &scene)
 	gltf_load_meshes_into_scene(data, &scene)
@@ -70,7 +72,7 @@ scene_from_gltf :: proc() -> Scene {
 		})
 		
 		scene.sb_model_matrices = create_structured_buffer_with_data(dx_context.cmdlist, "model matrix data",
-		 	&g_resources_longterm,
+		 	&scene.resource_pool,
 			slice.to_bytes(data.sample_matrix_data))
 		
 		// creating SRV (structured buffer) (index 2)
@@ -98,7 +100,7 @@ scene_from_gltf :: proc() -> Scene {
 	// instance data for gizmos
 	{
 		instance_data := make([]InstanceData, MAX_GIZMOS, temp_allocator)
-		scene.vb_gizmos_instance_data = create_vertex_buffer_upload(size_of(instance_data[0]), u32(slice.size(instance_data)), pool = &g_resources_longterm)
+		scene.vb_gizmos_instance_data = create_vertex_buffer_upload(size_of(instance_data[0]), u32(slice.size(instance_data)), pool = &scene.resource_pool)
 	}
 	
 	
@@ -278,7 +280,7 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	check(hr, "failed creating upload texture")
 	scene.vertex_buffer = dxma.Allocation_GetResource(vb_allocation)
 	// todo this is wrong
-	append(&g_resources_longterm, cast(^dx.IUnknown)vb_allocation)
+	append(&scene.resource_pool, cast(^dx.IUnknown)vb_allocation)
 	
 	scene.vertex_buffer->SetName("vertex buffer")
 
@@ -310,7 +312,7 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	)
 	check(hr, "failed creating upload texture")
 	scene.index_buffer = dxma.Allocation_GetResource(upload_allocation_2)
-	append(&g_resources_longterm, cast(^dx.IUnknown)upload_allocation_2)
+	append(&scene.resource_pool, cast(^dx.IUnknown)upload_allocation_2)
 	scene.index_buffer->SetName("lucy's index buffer")
 
 	scene.index_buffer_view = dx.INDEX_BUFFER_VIEW {
@@ -357,9 +359,8 @@ gltf_load_nodes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 		flipped_rotation.y *= -1
 		flipped_rotation.z *= -1
 		
-
 		nodes[i] = Node {
-			name = strings.clone_from_cstring(node.name),
+			name = strings.clone_from_cstring(node.name, scene_allocator),
 			transform_t = node.translation,
 			transform_r = node.rotation,
 			transform_s = node.scale,
@@ -379,7 +380,7 @@ gltf_load_nodes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	scene.mesh_count = mesh_count
 }
 
-load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, textures_srv_index: ^u32) {
+load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: string, res_pool : ^DXResourcePool, textures_srv_index: ^u32) {
 	
 	ct := &dx_context
 	TEMP_GUARD(&temp_arena)
@@ -389,15 +390,17 @@ load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, textures_srv_inde
 	if image.uri != nil {
 		image_name = string(image.uri)
 	} else {
-		// TODO: you will need to write this to a file first.
 		image_name = string(image.name)
+		// TODO: you will need to write this to a file first.
+		lprintfln("TEXTURE TYPE NOT IMPLEMENTED. EXITING.")
+		os.exit(1)
 	}
 	
 	texture_final_path := texture_cache_query(model_filepath, image_name, format)
 	dds_file := parse_dds_file(texture_final_path)
 	
 	texture_res := create_texture_with_data(dds_file.mipmap_data, u64(dds_file.width), dds_file.height, dds_file.format, 
-		&g_resources_longterm, string(image.name))
+		res_pool, string(image.name))
 	
 	ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, textures_srv_index^))
 	textures_srv_index^ += 1
@@ -413,7 +416,7 @@ get_texture_uv :: proc(data: ^cgltf.data, tex_view: cgltf.texture_view) -> u32 {
 	return 0
 }
 
-gltf_load_materials_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
+gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string, scene: ^Scene) {
 	
 	ct := &dx_context
 	
@@ -443,7 +446,7 @@ gltf_load_materials_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 			}
 			
 			load_texture(mat.pbr_metallic_roughness.base_color_texture.texture.image_, 
-				.BC7_UNORM_SRGB, &textures_srv_index)
+				.BC7_UNORM_SRGB, model_filepath, &scene.resource_pool, &textures_srv_index)
 		}
 		
 		// metallic roughness
@@ -457,7 +460,7 @@ gltf_load_materials_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 			}
 			
 			load_texture(mat.pbr_metallic_roughness.metallic_roughness_texture.texture.image_,
-			 .BC7_UNORM,  &textures_srv_index)
+			 .BC7_UNORM, model_filepath, &scene.resource_pool, &textures_srv_index)
 		}
 		
 		// normal
@@ -471,14 +474,14 @@ gltf_load_materials_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 			}
 			
 			load_texture(mat.normal_texture.texture.image_,
-			 .BC5_UNORM,  &textures_srv_index)
+			 .BC5_UNORM, model_filepath, &scene.resource_pool, &textures_srv_index)
 		}
 	}
 	
 	scene.sb_materials = create_structured_buffer_with_data(
 		ct.cmdlist,
 		"material buffer",
-		&g_resources_longterm,
+		&scene.resource_pool,
 		slice.to_bytes(mats)
 	)
 	
