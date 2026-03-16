@@ -192,7 +192,6 @@ compile_individual_shader :: proc(source_buffer: ^dxc.Buffer, compiler: ^dxc.ICo
 }
 
 create_structured_buffer_with_data :: proc(
-	cmdlist : ^dx.IGraphicsCommandList,
 	buffer_name: string,
 	pool_resource : ^DXResourcePool,
 	buffer_data : []byte

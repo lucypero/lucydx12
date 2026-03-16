@@ -74,7 +74,7 @@ scene_from_gltf :: proc(model_filepath: string) -> Scene {
 			data.mesh_i += 1
 		})
 		
-		scene.sb_model_matrices = create_structured_buffer_with_data(g_dx_context.cmdlist, "model matrix data",
+		scene.sb_model_matrices = create_structured_buffer_with_data("model matrix data",
 		 	&scene.resource_pool,
 			slice.to_bytes(data.sample_matrix_data))
 		
@@ -482,7 +482,6 @@ gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string
 	}
 	
 	scene.sb_materials = create_structured_buffer_with_data(
-		ct.cmdlist,
 		"material buffer",
 		&scene.resource_pool,
 		slice.to_bytes(mats)

@@ -1,6 +1,8 @@
 #+private file
 package main
 
+import "core:thread"
+import "core:sync/chan"
 import "core:mem/virtual"
 import "core:debug/trace"
 import "core:reflect"
@@ -39,6 +41,12 @@ import "../odin-imgui/imgui_impl_dx12"
 @(private="package") g_dx_context: Context
 @(private="package") g_resources_longterm: DXResourcePool
 @(private="package") g_uv_sphere_mesh: Mesh
+
+// Channel to send things to load to upload thread
+g_channel_upload_send: chan.Chan(string)
+
+// Channel for main thread to get resources that are loaded
+g_channel_upload_recv: chan.Chan(Scene)
 
 g_global_trace_ctx: trace.Context
 g_frame_dt : f64 = 0.2 // in ms
@@ -152,11 +160,34 @@ main :: proc() {
 		}
 	}
 	
-	g_resources_longterm = make([dynamic]^dx.IUnknown)
-	defer delete(g_resources_longterm)
-	
 	// /set up memory
 	
+	// Setting up channels
+	err :runtime.Allocator_Error
+	g_channel_upload_send, err = chan.create_buffered(chan.Chan(string), 5, context.allocator)
+	assert(err == .None)
+	
+	g_channel_upload_recv, err = chan.create_buffered(chan.Chan(Scene), 5, context.allocator)
+	assert(err == .None)
+	
+	// setting up upload thread
+	upload_thread := thread.create_and_start_with_poly_data2(chan.as_recv(g_channel_upload_send),
+		chan.as_send(g_channel_upload_recv),
+		upload_thread_start
+	)
+	
+	defer {
+		chan.close(g_channel_upload_send)
+		chan.close(g_channel_upload_send)
+		chan.destroy(g_channel_upload_send)
+		chan.destroy(g_channel_upload_recv)
+		thread.destroy(upload_thread)
+	}
+	
+	// setting up long term resource pool
+	
+	g_resources_longterm = make([dynamic]^dx.IUnknown)
+	defer delete(g_resources_longterm)
 	
 	// destroy stray meshes (gizmo sphere)
 	// (it's now in g_scene)
