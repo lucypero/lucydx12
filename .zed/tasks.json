@@ -52,8 +52,8 @@
     "show_command": true
   },
   {
-    "label": "build debug - all warnings on",
-    "command": "odin build . -debug -out:lucydx12.exe -linker:radlink -vet-packages:main -vet-unused-variables -vet-shadowing -vet-using-stmt -vet-cast -vet-unused-procedures",
+    "label": "build debug - all warnings and vets on",
+    "command": "odin build . -debug -out:lucydx12.exe -linker:radlink -define:PROFILE=true -vet-packages:main -vet-unused-variables -vet-shadowing -vet-using-stmt -vet-cast -vet-unused-procedures",
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
     "reveal": "always",

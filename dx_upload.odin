@@ -2,6 +2,8 @@ package main
 
 import "vendor:portmidi"
 import "core:reflect"
+import "core:thread"
+import "core:sync/chan"
 
 import "core:path/filepath"
 import "core:encoding/endian"
@@ -17,6 +19,7 @@ import "base:runtime"
 import "core:math"
 import "core:slice"
 import dxma "libs/odin-d3d12ma"
+import "core:sync"
 
 UPLOAD_BUFFER_SIZE :: mem.Gigabyte * 1
 
@@ -181,4 +184,29 @@ dx_upload_texture_trigger :: proc(up_service: ^DXUploadService, resource_dest : 
 	up_service.fence_value += 1
 	up_service.queue_copy->Signal(up_service.fence, up_service.fence_value)
 	return up_service.fence_value
+}
+
+upload_thread_start :: proc(recv_chan: chan.Chan(string, .Recv), send_chan: chan.Chan(Scene, .Send) ) {
+	
+	for {
+		gltf_filename, ok := chan.recv(recv_chan)
+		if !ok {
+			break
+		}
+		
+		// load gltf scene
+		lprintfln("loading scene in upload thread!")
+		
+	
+		// when finished, u send the Scene
+		
+		if false {
+			chan.send(send_chan, Scene{})
+		}
+	}
+}
+
+// schedule upload
+dx_upload_order :: proc(){
+	
 }

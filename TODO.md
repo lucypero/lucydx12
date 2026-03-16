@@ -1,3 +1,17 @@
+
+# multi threading plan:
+
+- how to sync it:
+	- channel send : send the data u wanna copy, and to which resource
+	- channel recv: recv the fence value
+	
+## notes after trying to multi thread this:
+
+- multi threading scene setup might be too much, as it touches many things the main thread is touching.
+- let's compromise for the upload thread to only do the copy resource bit.
+- now how do i know when a scene is ready, without blocking stuff? think about it.
+
+
 # TODO
 
 - find a way to reset the pointer on the SRV heap when u swap scenes
