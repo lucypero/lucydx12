@@ -1,16 +1,10 @@
+# multi-threading todo
 
-# multi threading plan:
-
-- how to sync it:
-	- channel send : send the data u wanna copy, and to which resource
-	- channel recv: recv the fence value
-	
-## notes after trying to multi thread this:
-
-- multi threading scene setup might be too much, as it touches many things the main thread is touching.
-- let's compromise for the upload thread to only do the copy resource bit.
-- now how do i know when a scene is ready, without blocking stuff? think about it.
-
+- (done, badly) HUGE THING: the data u send has to be owned by the upload thread, so it can free it appropriately. NOT ON THE TEMP ALLOCATOR!!
+	- this is a big problem. esp in parse_dds_file()
+	- for now i just allocate all the data on context.allocator and free each thing individually on the upload thread. this isn't good!! i don't like it. refactor ASAP!
+- refactor a lot of stuff. get rid of g_scene. make a list of scenes.
+- only destroy scenes when they are ready. at the end of a loop, check for scenes that were queued for destruction. only destroy them there.
 
 # TODO
 

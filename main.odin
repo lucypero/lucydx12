@@ -43,10 +43,15 @@ import "../odin-imgui/imgui_impl_dx12"
 @(private="package") g_uv_sphere_mesh: Mesh
 
 // Channel to send things to load to upload thread
-g_channel_upload_send: chan.Chan(string)
+@(private="package")
+g_channel_upload_send: chan.Chan(DXUploadInput)
+
+@(private="package")
+g_upload_thread_inbox : [dynamic]DXUploadOutput
 
 // Channel for main thread to get resources that are loaded
-g_channel_upload_recv: chan.Chan(Scene)
+@(private="package")
+g_channel_upload_recv: chan.Chan(DXUploadOutput)
 
 g_global_trace_ctx: trace.Context
 g_frame_dt : f64 = 0.2 // in ms
@@ -134,6 +139,9 @@ tracking_allocator_report :: proc(allocator_name: string, track: mem.Tracking_Al
 }
 
 @(private="package")
+g_track : mem.Tracking_Allocator
+
+@(private="package")
 main :: proc() {
 	
 	// set up memory
@@ -144,30 +152,34 @@ main :: proc() {
 	
 	when ODIN_DEBUG {
 		lprintln("Tracking Allocations...")
-		track: mem.Tracking_Allocator
-		mem.tracking_allocator_init(&track, context.allocator)
-		context.allocator = mem.tracking_allocator(&track)
+		mem.tracking_allocator_init(&g_track, context.allocator)
+		context.allocator = mem.tracking_allocator(&g_track)
 		
 		temp_track: mem.Tracking_Allocator
 		mem.tracking_allocator_init(&temp_track, context.temp_allocator)
 		context.temp_allocator = mem.tracking_allocator(&temp_track)
 		
 		defer {
-			tracking_allocator_report("context.allocator", track, true)
+			tracking_allocator_report("context.allocator", g_track, true)
 			// tracking_allocator_report("context.temp_allocator", temp_track, false)
 			arena_report("temp arena", g_temp_arena)
-			mem.tracking_allocator_destroy(&track)
+			mem.tracking_allocator_destroy(&g_track)
 		}
 	}
 	
 	// /set up memory
 	
+	g_upload_thread_inbox = make([dynamic]DXUploadOutput, context.allocator)
+	defer delete(g_upload_thread_inbox)
+	
+	UPLOAD_CHANNEL_BUFFER_SIZE :: 100
+	
 	// Setting up channels
 	err :runtime.Allocator_Error
-	g_channel_upload_send, err = chan.create_buffered(chan.Chan(string), 5, context.allocator)
+	g_channel_upload_send, err = chan.create_buffered(chan.Chan(DXUploadInput), UPLOAD_CHANNEL_BUFFER_SIZE, context.allocator)
 	assert(err == .None)
 	
-	g_channel_upload_recv, err = chan.create_buffered(chan.Chan(Scene), 5, context.allocator)
+	g_channel_upload_recv, err = chan.create_buffered(chan.Chan(DXUploadOutput), UPLOAD_CHANNEL_BUFFER_SIZE, context.allocator)
 	assert(err == .None)
 	
 	// setting up upload thread
@@ -239,9 +251,6 @@ main :: proc() {
 	init_dx_other()
 	context_init(ct)
 	
-	// Wait till all resources are uploaded to the GPU before rendering.
-	ct.queue->Wait(ct.upload_service.fence, ct.upload_service.fence_value)
-	
 	g_start_time = time.now()
 	do_main_loop()
 	
@@ -300,6 +309,30 @@ do_main_loop :: proc() {
 				}
 			}
 		}
+		
+		// check if scenes are ready
+		// TODO: instead of g_scene, turn it into a list of scenes.
+		// flush data that is already in the channel
+		
+		flush_receive_channel()
+		
+		// loop over scene list (for now it's just g_scene)
+		// TODO: turn into scene list
+		
+		if !g_scene.is_ready {
+			for out_thing in g_upload_thread_inbox {
+				if out_thing.resource_id == g_scene.ready_value {
+					g_scene.is_ready = true
+					g_scene.fence_value = out_thing.fence_value
+					lprintfln("scene ready!")
+				}
+			}
+			
+			clear(&g_upload_thread_inbox)
+		}
+		
+		
+		// TODO: do a render_scene method that just takes care of rendering one scene.
 
 		imgui_impl_dx12.NewFrame()
 		imgui_impl_sdl2.NewFrame()
@@ -308,7 +341,7 @@ do_main_loop :: proc() {
 		im.End()
 		im.Render()
 		render()
-		free_all(context.temp_allocator)
+		free_all(g_temp_allocator)
 		
 		new_time := time.now()
 		dur := time.diff(last_time, new_time)
@@ -430,6 +463,8 @@ init_dx_other :: proc() {
 		BufferLocation = g_dx_context.constant_buffer->GetGPUVirtualAddress(),
 		SizeInBytes = size_of(ConstantBufferData),
 	}, true, "General Constants Buffer")
+	
+	load_white_texture()
 	
 	g_scene = scene_from_gltf(MODEL_FILEPATH_SPONZA)
 	// g_scene = scene_from_gltf(MODEL_FILEPATH_SUZANNE)
@@ -757,9 +792,7 @@ do_imgui_ui :: proc() {
 
 
 render :: proc() {
-
 	ct := &g_dx_context
-
 	hr: dx.HRESULT
 
 	cb_update()
@@ -775,9 +808,7 @@ render :: proc() {
 	check(hr, "Failed to reset command list")
 
 	render_gbuffer_pass()
-
 	render_lighting_pass()
-	
 	if g_light_draw_gizmos do  render_gizmos()
 	
 	render_imgui()
@@ -1746,41 +1777,47 @@ render_gbuffer_pass :: proc() {
 
 	// draw call
 	ct.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
-
-	// binding vertex buffer view and instance buffer view
-	vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW{g_scene.vertex_buffer_view}
-
-	ct.cmdlist->IASetVertexBuffers(0, len(vertex_buffers_views), &vertex_buffers_views[0])
-	ct.cmdlist->IASetIndexBuffer(&g_scene.index_buffer_view)
-
-	// rendering each mesh individually
-	// going through scene tree
-
-	// drawing scene
 	
-	DrawConstants :: struct {
-	    mesh_index: u32,
-	    material_index: u32,
-	}
-
-	scene_walk(g_scene, nil, proc(node: Node, scene: Scene, data: rawptr) {
-		ct := &g_dx_context
-
-		if node.mesh == -1 {
-			return
+	if g_scene.is_ready {
+		
+		queue_wait_on_upload_fence(ct.queue, g_scene.fence_value)
+		
+		// binding vertex buffer view and instance buffer view
+		vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW{g_scene.vertex_buffer_view}
+	
+		ct.cmdlist->IASetVertexBuffers(0, len(vertex_buffers_views), &vertex_buffers_views[0])
+		ct.cmdlist->IASetIndexBuffer(&g_scene.index_buffer_view)
+	
+		// rendering each mesh individually
+		// going through scene tree
+	
+		// drawing scene
+		
+		DrawConstants :: struct {
+		    mesh_index: u32,
+		    material_index: u32,
 		}
-
-		mesh_to_render := scene.meshes[node.mesh]
-
-		for prim in mesh_to_render.primitives {
-			dc := DrawConstants {
-				mesh_index = u32(g_mesh_drawn_count),
-				material_index = u32(prim.material_index),
+	
+		scene_walk(g_scene, nil, proc(node: Node, scene: Scene, data: rawptr) {
+			ct := &g_dx_context
+	
+			if node.mesh == -1 {
+				return
 			}
-			ct.cmdlist->SetGraphicsRoot32BitConstants(0, 2, &dc, 0)
-			ct.cmdlist->DrawIndexedInstanced(prim.index_count, 1, prim.index_offset, 0, 0)
-		}
-	})
+	
+			mesh_to_render := scene.meshes[node.mesh]
+	
+			for prim in mesh_to_render.primitives {
+				dc := DrawConstants {
+					mesh_index = u32(g_mesh_drawn_count),
+					material_index = u32(prim.material_index),
+				}
+				ct.cmdlist->SetGraphicsRoot32BitConstants(0, 2, &dc, 0)
+				ct.cmdlist->DrawIndexedInstanced(prim.index_count, 1, prim.index_offset, 0, 0)
+			}
+		})
+	
+	}
 }
 
 render_lighting_pass :: proc() {
@@ -2044,11 +2081,9 @@ arena_report :: proc(arena_name: string, arena: virtual.Arena) {
 	 		cast(f32)arena.total_reserved / cast(f32)mem.Megabyte)
 }
 
-
 scene_swap :: proc(new_scene: string) {
-	scene_destroy(&g_scene)
+	// scene_destroy(&g_scene)
 	g_scene = scene_from_gltf(new_scene)
-	g_dx_context.queue->Wait(g_dx_context.upload_service.fence, g_dx_context.upload_service.fence_value)
 }
 
 scene_destroy :: proc(scene: ^Scene) {

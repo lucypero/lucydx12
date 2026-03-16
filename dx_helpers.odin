@@ -224,7 +224,7 @@ create_structured_buffer_with_data :: proc(
 	)
 	
 	default_res := dxma.Allocation_GetResource(allocation)
-	dx_upload_trigger(&ct.upload_service, default_res, buffer_data)
+	dx_upload_order_buffer(default_res, buffer_data)
 	
 	append(pool_resource, cast(^dxgi.IUnknown)allocation)
 	
@@ -287,7 +287,7 @@ create_texture_with_data :: proc(
 		res->SetName(texture_name_cstring)
 	}
 	
-	dx_upload_texture_trigger(&ct.upload_service, res, image_data, &texture_desc)
+	dx_upload_order_texture(res, image_data, texture_desc)
 	
 	return res
 }
@@ -448,7 +448,7 @@ generate_uv_sphere :: proc(meridians: u32, parallels: u32, allocator: runtime.Al
 // TODO: try to not hold so much memory at once without need. use checkpoints
 parse_dds_file :: proc(dds_filepath: string) -> DDSFile {
 	
-	file_data, err := os.read_entire_file_from_path(dds_filepath, context.temp_allocator)
+	file_data, err := os.read_entire_file_from_path(dds_filepath, g_temp_allocator)
 	assert(err == os.General_Error.None)
 	magic_num, ok := endian.get_u32(file_data, .Little)
 	assert(ok)
@@ -534,7 +534,7 @@ parse_dds_file :: proc(dds_filepath: string) -> DDSFile {
 		width = header.Width,
 		height = header.Height,
 		format = text_format,
-		mipmap_data = make([][]byte, header.MipMapCount, g_temp_allocator)
+		mipmap_data = make([][]byte, header.MipMapCount, context.allocator) // freed by upload thread
 	}
 	
 	for i in 0..<header.MipMapCount {
@@ -549,7 +549,7 @@ parse_dds_file :: proc(dds_filepath: string) -> DDSFile {
 	    current_h = max(1, current_h >> 1)
 					
 		// TODO: this memory lives in the allocator used for the file read
-		dds_output.mipmap_data[i] = mip_data
+		dds_output.mipmap_data[i] = slice.clone(mip_data, context.allocator)
 	}
 	
 	return dds_output
@@ -764,12 +764,11 @@ load_white_texture :: proc() {
 	
 	w, h, channels : c.int
 	image_data := img.load("white.png", &w, &h, &channels, 4)
-	assert(image_data != nil)
 	defer img.image_free(image_data)
+	assert(image_data != nil)
 	
-	img_data_mipmaps := [?][]byte{
-		slice.from_ptr(image_data, cast(int)(w * h * channels))
-	}
+	img_data_mipmaps := make([][]byte, 1, context.allocator)
+	img_data_mipmaps[0] = slice.clone(slice.from_ptr(image_data, cast(int)(w * h * channels)), context.allocator)
 	
 	texture_res := create_texture_with_data(img_data_mipmaps[:], u64(w), u32(h), .R8G8B8A8_UNORM, 
 		&g_resources_longterm, "white")
