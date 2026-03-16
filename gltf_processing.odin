@@ -63,7 +63,7 @@ scene_from_gltf :: proc(model_filepath: string) -> Scene {
 		}
 
 		data := CallbackData {
-			sample_matrix_data = make([]ModelMatrixData, scene.mesh_count, g_temp_allocator),
+			sample_matrix_data = make([]ModelMatrixData, scene.mesh_count, context.allocator), // freed by upload thread.
 			mesh_i = 0,
 		}
 
@@ -91,10 +91,11 @@ scene_from_gltf :: proc(model_filepath: string) -> Scene {
 			},
 		}
 		
-		create_srv_on_uber_heap(scene.sb_model_matrices, true, "model matrices structured buffer", &srv_desc)
+		// create_srv_on_uber_heap(scene.sb_model_matrices, true, "model matrices structured buffer", &srv_desc)
+		
+		// TODO: REFACTOR THIS ABOMINATION. THIS IS HARDVODED AND WRONG!!!
+		g_dx_context.device->CreateShaderResourceView(scene.sb_model_matrices, &srv_desc, get_descriptor_heap_cpu_address(g_dx_context.cbv_srv_uav_heap, 6))
 	}
-	
-	scene.fence_value = g_dx_context.upload_service.fence_value
 	
 	// gizmos stuff
 	
@@ -106,7 +107,7 @@ scene_from_gltf :: proc(model_filepath: string) -> Scene {
 		scene.vb_gizmos_instance_data = create_vertex_buffer_upload(size_of(instance_data[0]), u32(slice.size(instance_data)), pool = &scene.resource_pool)
 	}
 	
-	
+	scene.ready_value = g_resource_id - 1
 	return scene
 }
 
@@ -116,8 +117,8 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	
 	ct := &g_dx_context
 	
-	vertices := make([dynamic]VertexData, g_temp_allocator)
-	indices := make([dynamic]u32, g_temp_allocator)
+	vertices := make([dynamic]VertexData, context.allocator) // freed by upload thread
+	indices := make([dynamic]u32, context.allocator) // freed by upload thread
 	
 	scene_allocator := virtual.arena_allocator(&scene.allocator)
 	
@@ -293,7 +294,7 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 		SizeInBytes = u32(vertex_buffer_size),
 	}
 	
-	dx_upload_trigger(&ct.upload_service, scene.vertex_buffer, slice.to_bytes(vertices[:]))
+	dx_upload_order_buffer(scene.vertex_buffer, slice.to_bytes(vertices[:]))
 
 	// creating index buffer resource
 
@@ -324,7 +325,7 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 		Format = .R32_UINT,
 	}
 	
-	dx_upload_trigger(&ct.upload_service, scene.index_buffer, slice.to_bytes(indices[:]))
+	dx_upload_order_buffer(scene.index_buffer, slice.to_bytes(indices[:]))
 }
 
 gltf_load_nodes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
@@ -421,13 +422,8 @@ get_texture_uv :: proc(data: ^cgltf.data, tex_view: cgltf.texture_view) -> u32 {
 
 gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string, scene: ^Scene) {
 	
-	ct := &g_dx_context
+	mats := make([]Material, len(data.materials), context.allocator)
 	
-	scene_allocator := virtual.arena_allocator(&scene.allocator)
-	
-	mats := make([]Material, len(data.materials), scene_allocator)
-	
-	load_white_texture()
 	
 	textures_srv_index : u32 = TEXTURE_INDEX_BASE // starting at 100 to not interfere with other views
 	
@@ -499,5 +495,8 @@ gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string
 		},
 	}
 	
-	create_srv_on_uber_heap(scene.sb_materials, true, "materials srv", &srv_desc)
+	// create_srv_on_uber_heap(scene.sb_materials, true, "materials srv", &srv_desc)
+	
+	// TODO: REFACTOR THIS ABOMINATION. THIS IS HARDVODED AND WRONG!!!
+	g_dx_context.device->CreateShaderResourceView(scene.sb_materials, &srv_desc, get_descriptor_heap_cpu_address(g_dx_context.cbv_srv_uav_heap, 5))
 }

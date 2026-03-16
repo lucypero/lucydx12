@@ -1,3 +1,5 @@
+// project-wide public types
+
 package main
 
 import "core:mem/virtual"
@@ -116,9 +118,6 @@ Context :: struct {
 	command_allocator: ^dx.ICommandAllocator,
 	cmdlist: ^dx.IGraphicsCommandList,
 	
-	// Copy core resources
-	upload_service: DXUploadService,
-	
 	// Other
 	
 	swapchain: ^dxgi.ISwapChain3,
@@ -210,7 +209,6 @@ Scene :: struct {
 	mesh_count: uint,
 	meshes: []Mesh,
 	allocator: virtual.Arena,
-	fence_value: u64, // fence value to wait on for all scene resources to be uploaded to the GPU
 	
 	// dx resources
 	sb_model_matrices: ^dx.IResource,
@@ -225,7 +223,11 @@ Scene :: struct {
 	// TODO
 	vb_gizmos_instance_data: VertexBuffer,
 	
-	resource_pool: DXResourcePool
+	resource_pool: DXResourcePool,
+	
+	fence_value: u64, // (set after it is ready) fence value to wait on for all scene resources to be uploaded to the GPU
+	ready_value: u64, // when u get a resource back from the upload thread with this value, u know the scene is ready. (cpu)
+	is_ready: bool // ready to be rendered (on cpu side)
 }
 
 Node :: struct {
