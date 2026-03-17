@@ -17,9 +17,15 @@ import dxgi "vendor:directx/dxgi"
 import "base:runtime"
 import "core:mem/virtual"
 import dxma "libs/odin-d3d12ma"
+import "core:prof/spall"
 
 @(private="package")
 scene_from_gltf :: proc(model_filepath: string) -> Scene {
+	
+	when PROFILE {
+		load_gltf_profile_str := string_append("loading gltf file: ", model_filepath, allocator = g_temp_allocator)
+		spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, name = load_gltf_profile_str)
+	}
 	
 	// loading gltf files
 	
@@ -108,6 +114,7 @@ scene_from_gltf :: proc(model_filepath: string) -> Scene {
 	}
 	
 	scene.ready_value = g_resource_id - 1
+	scene.status = .Loading
 	return scene
 }
 
