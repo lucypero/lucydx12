@@ -1,3 +1,14 @@
+# multi threading - profiling results
+
+GPU upload thread / multi threading - Report:
+
+- i compared how long the gltf_to_scene proc takes on the main thread. before and after attempting CPU multi threading.
+- they both block the main thread for 88.8ms when loading sponza.
+- conclusion: I don't know how that's even possible. so far the multi threading has been a complete failure. 
+- what to do now: refactor the sync scheme (remove channels) and offload more tasks to the upload thread.
+
+- context: for now the upload thread simply does the memcpy() to GPU mapped memory and issues copy commands on the copy queue for a requested resource. It does not load data from files.
+
 # multi-threading todo
 
 - for now i just allocate all the data on context.allocator and free each thing individually on the upload thread. this isn't good!! i don't like it. refactor ASAP!
