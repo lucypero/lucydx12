@@ -26,6 +26,7 @@ import "core:sync"
 import dxc "vendor:directx/dxc"
 import "core:prof/spall"
 import dxma "libs/odin-d3d12ma"
+import sa "core:container/small_array"
 
 // imgui
 import im "../odin-imgui"
@@ -53,6 +54,8 @@ g_upload_thread_inbox : [dynamic]DXUploadOutput
 @(private="package")
 g_channel_upload_recv: chan.Chan(DXUploadOutput)
 
+// private global staet
+
 g_global_trace_ctx: trace.Context
 g_frame_dt : f64 = 0.2 // in ms
 g_mesh_drawn_count: int = 0
@@ -62,13 +65,15 @@ g_light_draw_gizmos: bool
 g_light_int: f32
 g_the_time_sec: f32
 g_exit_app: bool
-g_scene: Scene
+g_scenes: sa.Small_Array(3, Scene)
 
 // Profiling stuff
 
 when PROFILE {
+@(private="package")
 g_spall_ctx: spall.Context
 @(thread_local)
+@(private="package")
 g_spall_buffer: spall.Buffer
 }
 
@@ -212,8 +217,12 @@ main :: proc() {
 
 	// setting up profiling
 	when PROFILE {
-		g_spall_ctx = spall.context_create("trace_test.spall")
-		defer spall.context_destroy(&g_spall_ctx)
+		SPALL_FILE :: "trace_test.spall"
+		g_spall_ctx = spall.context_create(SPALL_FILE)
+		defer {
+			lprintfln("Spall profiling data written to: " + SPALL_FILE)
+			spall.context_destroy(&g_spall_ctx)
+		}
 
 		buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
 		defer delete(buffer_backing)
@@ -258,7 +267,12 @@ main :: proc() {
 	{
 		imgui_destoy()
 		
-		scene_destroy(&g_scene)
+		// TODO destroy scenes ( wait for all gpu to be done) (actually we already are.)
+		// scene_destroy(&g_scene)
+		
+		for &scene in sa.slice(&g_scenes) {
+			if scene.status == .Ready do scene_destroy(&scene)
+		}
 		
 		#reverse for &i in g_resources_longterm {
 			i->Release()
@@ -282,11 +296,6 @@ main :: proc() {
 			dxgi.DXGIGetDebugInterface1(0, dxgi.IDebug1_UUID, (^rawptr)(&dxgi_debug))
 			dxgi_debug->ReportLiveObjects(dxgi.DEBUG_ALL, {})
 		}
-		
-		
-		when PROFILE {
-			lprintfln("highest stack count: %v, total instrument hits: %v", highest_stack_count, instrument_hit_count)
-		}
 	}
 }
 
@@ -296,6 +305,7 @@ do_main_loop :: proc() {
 	
 	main_loop: for {
 		when PROFILE do spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, name = "main loop")
+		
 		for e: sdl.Event; sdl.PollEvent(&e); {
 
 			imgui_impl_sdl2.ProcessEvent(&e)
@@ -310,29 +320,7 @@ do_main_loop :: proc() {
 			}
 		}
 		
-		// check if scenes are ready
-		// TODO: instead of g_scene, turn it into a list of scenes.
-		// flush data that is already in the channel
-		
-		flush_receive_channel()
-		
-		// loop over scene list (for now it's just g_scene)
-		// TODO: turn into scene list
-		
-		if !g_scene.is_ready {
-			for out_thing in g_upload_thread_inbox {
-				if out_thing.resource_id == g_scene.ready_value {
-					g_scene.is_ready = true
-					g_scene.fence_value = out_thing.fence_value
-					lprintfln("scene ready!")
-				}
-			}
-			
-			clear(&g_upload_thread_inbox)
-		}
-		
-		
-		// TODO: do a render_scene method that just takes care of rendering one scene.
+		check_scenes_statuses()
 
 		imgui_impl_dx12.NewFrame()
 		imgui_impl_sdl2.NewFrame()
@@ -466,9 +454,12 @@ init_dx_other :: proc() {
 	
 	load_white_texture()
 	
-	g_scene = scene_from_gltf(MODEL_FILEPATH_SPONZA)
-	// g_scene = scene_from_gltf(MODEL_FILEPATH_SUZANNE)
-
+	SCENE_MAX_LEN :: 3
+	
+	sa.resize(&g_scenes, SCENE_MAX_LEN)
+	first_scene := sa.get_ptr(&g_scenes, 0) 
+	first_scene^ = scene_from_gltf(MODEL_FILEPATH_SPONZA)
+	
 	// This fence is used to wait for frames to finish
 	{
 		hr = ct.device->CreateFence(ct.fence_value, {}, dx.IFence_UUID, (^rawptr)(&ct.fence))
@@ -1778,15 +1769,17 @@ render_gbuffer_pass :: proc() {
 	// draw call
 	ct.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
 	
-	if g_scene.is_ready {
+	// drawing all scenes
+	for &scene in sa.slice(&g_scenes) {
+		if scene.status != .Ready do continue
 		
-		queue_wait_on_upload_fence(ct.queue, g_scene.fence_value)
+		queue_wait_on_upload_fence(ct.queue, scene.fence_value)
 		
 		// binding vertex buffer view and instance buffer view
-		vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW{g_scene.vertex_buffer_view}
+		vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW{scene.vertex_buffer_view}
 	
 		ct.cmdlist->IASetVertexBuffers(0, len(vertex_buffers_views), &vertex_buffers_views[0])
-		ct.cmdlist->IASetIndexBuffer(&g_scene.index_buffer_view)
+		ct.cmdlist->IASetIndexBuffer(&scene.index_buffer_view)
 	
 		// rendering each mesh individually
 		// going through scene tree
@@ -1798,7 +1791,7 @@ render_gbuffer_pass :: proc() {
 		    material_index: u32,
 		}
 	
-		scene_walk(g_scene, nil, proc(node: Node, scene: Scene, data: rawptr) {
+		scene_walk(scene, nil, proc(node: Node, scene: Scene, data: rawptr) {
 			ct := &g_dx_context
 	
 			if node.mesh == -1 {
@@ -1816,11 +1809,12 @@ render_gbuffer_pass :: proc() {
 				ct.cmdlist->DrawIndexedInstanced(prim.index_count, 1, prim.index_offset, 0, 0)
 			}
 		})
-	
 	}
+	
 }
 
 render_lighting_pass :: proc() {
+	
 
 	ct := &g_dx_context
 
@@ -1901,7 +1895,19 @@ render_lighting_pass :: proc() {
 	ct.cmdlist->DrawInstanced(3, 1, 0, 0)
 }
 
+// TODO: this is using resources from any loaded scene. change that.
 render_gizmos :: proc () {
+	
+	get_first_active_scene :: proc() -> (scene: ^Scene, ok: bool) {
+		for &scene in sa.slice(&g_scenes) {
+			if scene.status == .Ready do return &scene, true
+		}
+		
+		return nil, false
+	}
+	
+	scene, ok:= get_first_active_scene() 
+	if !ok do return
 	
 	ct := &g_dx_context
 	
@@ -1915,7 +1921,7 @@ render_gizmos :: proc () {
 			color = v4{1,0,0, 0.5}
 		}
 		
-		copy_to_buffer(g_scene.vb_gizmos_instance_data.buffer, slice.to_bytes(gizmos_instances))
+		copy_to_buffer(scene.vb_gizmos_instance_data.buffer, slice.to_bytes(gizmos_instances))
 	}
 	
 	ct.cmdlist->SetPipelineState(ct.pso_gizmos)
@@ -1946,10 +1952,10 @@ render_gizmos :: proc () {
 	ct.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
 	
 	// binding vertex buffer view and instance buffer view
-	vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW{g_scene.vertex_buffer_view, g_scene.vb_gizmos_instance_data.vbv}
+	vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW{scene.vertex_buffer_view, scene.vb_gizmos_instance_data.vbv}
 	
 	ct.cmdlist->IASetVertexBuffers(0, len(vertex_buffers_views), &vertex_buffers_views[0])
-	ct.cmdlist->IASetIndexBuffer(&g_scene.index_buffer_view)
+	ct.cmdlist->IASetIndexBuffer(&scene.index_buffer_view)
 	
 	// TEST: use first mesh primitive from main vertex buffer
 	uv_sphere_primitive := g_uv_sphere_mesh.primitives[0]
@@ -1965,39 +1971,6 @@ print_ref_count :: proc(obj: ^dx.IUnknown) {
 	lprintfln("count: %v", count)
 }
 */
-
-// Automatic profiling of every procedure:
-
-when PROFILE {
-	
-	highest_stack_count: u32
-	cur_stack_count: u32
-	instrument_hit_count: u64
-
-	@(instrumentation_enter)
-	spall_enter :: proc "contextless" (
-		proc_address, call_site_return_address: rawptr,
-		loc: runtime.Source_Code_Location,
-	) {
-		spall._buffer_begin(&g_spall_ctx, &g_spall_buffer, "", "", loc)
-		cur_stack_count += 1
-		instrument_hit_count += 1
-		
-		if cur_stack_count > highest_stack_count {
-			highest_stack_count = cur_stack_count
-		}
-	}
-
-	@(instrumentation_exit)
-	spall_exit :: proc "contextless" (
-		proc_address, call_site_return_address: rawptr,
-		loc: runtime.Source_Code_Location,
-	) {
-		spall._buffer_end(&g_spall_ctx, &g_spall_buffer)
-		cur_stack_count -= 1
-	}
-
-}
 
 pso_creation_signature :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState
 
@@ -2082,14 +2055,44 @@ arena_report :: proc(arena_name: string, arena: virtual.Arena) {
 }
 
 scene_swap :: proc(new_scene: string) {
-	// scene_destroy(&g_scene)
-	g_scene = scene_from_gltf(new_scene)
+	// queue for deletion all active scenes. start loading on a free slot
+	found_free : bool
+	for &s in sa.slice(&g_scenes) {
+		#partial switch s.status {
+		case .Ready:
+			s.status = .QueuedForDeletion
+		case .Free:
+			if !found_free do s = scene_from_gltf(new_scene)
+			found_free = true
+		}
+	}
 }
 
 scene_destroy :: proc(scene: ^Scene) {
 	for r in scene.resource_pool {
 		r->Release()
 	}
-	
 	virtual.arena_destroy(&scene.allocator)
+	scene.status = .Free
+}
+
+check_scenes_statuses :: proc () {
+	
+	flush_receive_channel()
+
+	for &scene in sa.slice(&g_scenes) {
+		#partial switch scene.status {
+		case .Loading: // Checking if scene finished loading
+			for out_thing in g_upload_thread_inbox {
+				if out_thing.resource_id == scene.ready_value {
+					scene.status = .Ready
+					scene.fence_value = out_thing.fence_value
+				}
+			}
+		case .QueuedForDeletion: // delete scene (it's safe to do now as we waited for the graphics fence)
+			scene_destroy(&scene)
+		}
+	}
+	
+	clear(&g_upload_thread_inbox)
 }

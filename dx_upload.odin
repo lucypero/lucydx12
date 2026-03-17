@@ -304,7 +304,6 @@ flush_receive_channel :: proc() {
 	for {
 		if dx_upload_output, ok := chan.try_recv(g_channel_upload_recv); ok {
 			append(&g_upload_thread_inbox, dx_upload_output)
-			lprintfln("resorce %v is uploaded!", dx_upload_output.resource_id)
 		} else {
 			break
 		}

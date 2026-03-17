@@ -822,3 +822,21 @@ get_node_world_matrix :: proc(node: Node, scene: Scene) -> dxm {
 
 	return res
 }
+
+string_append :: proc(the_strs: ..string, allocator: mem.Allocator = context.allocator) -> string {
+	sb: strings.Builder
+	
+	// calc len
+	sb_cap : int
+	for str in the_strs {
+		sb_cap += len(str)
+	}
+	
+	strings.builder_init_len_cap(&sb, 0, sb_cap, allocator)
+	
+	for str in the_strs {
+		strings.write_string(&sb, str)
+	}
+	
+	return strings.to_string(sb)
+}

@@ -1,14 +1,12 @@
 # multi-threading todo
 
-- (done, badly) HUGE THING: the data u send has to be owned by the upload thread, so it can free it appropriately. NOT ON THE TEMP ALLOCATOR!!
-	- this is a big problem. esp in parse_dds_file()
-	- for now i just allocate all the data on context.allocator and free each thing individually on the upload thread. this isn't good!! i don't like it. refactor ASAP!
+- for now i just allocate all the data on context.allocator and free each thing individually on the upload thread. this isn't good!! i don't like it. refactor ASAP!
 - refactor a lot of stuff. get rid of g_scene. make a list of scenes.
 - only destroy scenes when they are ready. at the end of a loop, check for scenes that were queued for destruction. only destroy them there.
-
-# TODO
-
-- find a way to reset the pointer on the SRV heap when u swap scenes
+- isolate SRV's scene to scene. u are kinda reusing SRV's. might turn ugly. =
+	- find a way to reset the pointer on the SRV heap when u swap scenes (i am setting material and model matrix srvs on a fixed SRV slot on the heap.) (will not work when u render multiple scenes.)
+	
+	
 
 # scene resources
 

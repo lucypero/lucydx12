@@ -203,6 +203,8 @@ ConstantBufferData :: struct #align (256) {
 
 // testing
 
+SceneStatus :: enum {Free, Loading, Ready, QueuedForDeletion}
+
 Scene :: struct {
 	nodes: []Node,
 	root_nodes: []int,
@@ -227,7 +229,7 @@ Scene :: struct {
 	
 	fence_value: u64, // (set after it is ready) fence value to wait on for all scene resources to be uploaded to the GPU
 	ready_value: u64, // when u get a resource back from the upload thread with this value, u know the scene is ready. (cpu)
-	is_ready: bool // ready to be rendered (on cpu side)
+	status: SceneStatus
 }
 
 Node :: struct {
