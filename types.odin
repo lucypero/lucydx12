@@ -202,10 +202,10 @@ ConstantBufferData :: struct #align (256) {
 }
 
 // testing
-
 SceneStatus :: enum {Free, Loading, Ready, QueuedForDeletion}
 
 Scene :: struct {
+	path: string, // set this before scheduling upload
 	nodes: []Node,
 	root_nodes: []int,
 	mesh_count: uint,
@@ -228,7 +228,8 @@ Scene :: struct {
 	resource_pool: DXResourcePool,
 	
 	fence_value: u64, // (set after it is ready) fence value to wait on for all scene resources to be uploaded to the GPU
-	ready_value: u64, // when u get a resource back from the upload thread with this value, u know the scene is ready. (cpu)
+	
+	// NOTE: This is a very thread-sensitive field. check that all modifications follow the right constraints.
 	status: SceneStatus
 }
 
