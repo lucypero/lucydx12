@@ -1,3 +1,10 @@
+# loading scene on upload thread - problems to solve:
+
+- CreateShaderResourceView on uber heap - i must do this thread safe.
+- that.. seems to be the only thing
+- remove channels and do sync via a free list
+
+
 # multi threading - profiling results
 
 GPU upload thread / multi threading - Report:
@@ -18,11 +25,9 @@ GPU upload thread / multi threading - Report:
 	- find a way to reset the pointer on the SRV heap when u swap scenes (i am setting material and model matrix srvs on a fixed SRV slot on the heap.) (will not work when u render multiple scenes.)
 	
 	
+# general todo
 
-# scene resources
-
-- keep a pool of IResource on the scene. add the resources on that pool instead of the global pool.
-- when u switch scene, you just Release() all the resources in the scene resource pool.
+- use enhanced barriers, even if u get no warnings, still transition resources.
 
 # switching scenes in runtime
 

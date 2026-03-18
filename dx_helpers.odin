@@ -191,48 +191,6 @@ compile_individual_shader :: proc(source_buffer: ^dxc.Buffer, compiler: ^dxc.ICo
 	return output_blob, true
 }
 
-create_structured_buffer_with_data :: proc(
-	buffer_name: string,
-	pool_resource : ^DXResourcePool,
-	buffer_data : []byte
-	) -> ^dx.IResource {
-	
-	ct := &g_dx_context
-	
-	buffer_desc := dx.RESOURCE_DESC {
-		Width = u64(len(buffer_data)),
-		Height = 1,
-		Dimension = .BUFFER,
-		Layout = .ROW_MAJOR,
-		Format = .UNKNOWN,
-		DepthOrArraySize = 1,
-		MipLevels = 1,
-		SampleDesc = {Count = 1},
-		Flags = {},
-	}
-
-	allocation : ^dxma.Allocation
-	dxma.Allocator_CreateResource(
-		pSelf = ct.dxma_allocator,
-		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
-		pResourceDesc = &buffer_desc,
-		InitialResourceState = dx.RESOURCE_STATE_COMMON,
-		pOptimizedClearValue = nil,
-		ppAllocation = &allocation,
-		riidResource = nil,
-		ppvResource = nil
-	)
-	
-	default_res := dxma.Allocation_GetResource(allocation)
-	dx_upload_order_buffer(default_res, buffer_data)
-	
-	append(pool_resource, cast(^dxgi.IUnknown)allocation)
-	
-	buffer_name_cstring := windows.utf8_to_wstring_alloc(buffer_name, g_temp_allocator)
-	default_res->SetName(buffer_name_cstring)
-	
-	return default_res
-}
 
 DDSFile :: struct {
 	width: u32,
@@ -287,7 +245,7 @@ create_texture_with_data :: proc(
 		res->SetName(texture_name_cstring)
 	}
 	
-	dx_upload_order_texture(res, image_data, texture_desc)
+	dx_upload_texture_trigger(&g_upload_service, res, image_data, &texture_desc)
 	
 	return res
 }
@@ -444,11 +402,9 @@ generate_uv_sphere :: proc(meridians: u32, parallels: u32, allocator: runtime.Al
 }
 
 // DDS file format docs: https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dds-header
-// TODO: proper memory handling
-// TODO: try to not hold so much memory at once without need. use checkpoints
 parse_dds_file :: proc(dds_filepath: string) -> DDSFile {
 	
-	file_data, err := os.read_entire_file_from_path(dds_filepath, g_temp_allocator)
+	file_data, err := os.read_entire_file_from_path(dds_filepath, context.temp_allocator)
 	assert(err == os.General_Error.None)
 	magic_num, ok := endian.get_u32(file_data, .Little)
 	assert(ok)
@@ -534,7 +490,7 @@ parse_dds_file :: proc(dds_filepath: string) -> DDSFile {
 		width = header.Width,
 		height = header.Height,
 		format = text_format,
-		mipmap_data = make([][]byte, header.MipMapCount, context.allocator) // freed by upload thread
+		mipmap_data = make([][]byte, header.MipMapCount, context.temp_allocator)
 	}
 	
 	for i in 0..<header.MipMapCount {
@@ -547,9 +503,7 @@ parse_dds_file :: proc(dds_filepath: string) -> DDSFile {
 	    advance += level_size
 	    current_w = max(1, current_w >> 1)
 	    current_h = max(1, current_h >> 1)
-					
-		// TODO: this memory lives in the allocator used for the file read
-		dds_output.mipmap_data[i] = slice.clone(mip_data, context.allocator)
+		dds_output.mipmap_data[i] = slice.clone(mip_data, context.temp_allocator)
 	}
 	
 	return dds_output
@@ -625,8 +579,8 @@ texture_cache_query :: proc(model_filepath, image_name: string, format: dxgi.FOR
 
 hash_thing :: proc(thing: string) -> string {
 	ENC_TABLE := [64]byte { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '+', '_', }
-	thing_hash_temp := hash.hash_string(.SHA256, thing, g_temp_allocator)
-	thing_hash, ok := base64.encode(thing_hash_temp, ENC_TABLE, g_temp_allocator)
+	thing_hash_temp := hash.hash_string(.SHA256, thing, context.temp_allocator)
+	thing_hash, ok := base64.encode(thing_hash_temp, ENC_TABLE, context.temp_allocator)
 	assert(ok == .None)
 	return thing_hash
 }
@@ -640,10 +594,15 @@ check :: proc(res: dx.HRESULT, message: string = "dx call error") {
 	os.exit(-1)
 }
 
+arena_temp_end :: proc(arena_temp : virtual.Arena_Temp, loc := #caller_location) {
+	virtual.arena_temp_end(arena_temp)
+}
 
 // Convenience function for clearing used memory in scope
+// NOTE: this assumes temp allocator is a virtual arena
 @(deferred_out=virtual.arena_temp_end)
-TEMP_GUARD :: #force_inline proc(arena: ^virtual.Arena, loc := #caller_location) -> (virtual.Arena_Temp, runtime.Source_Code_Location) {
+TEMP_GUARD :: #force_inline proc(loc := #caller_location) -> (virtual.Arena_Temp, runtime.Source_Code_Location) {
+	arena := (^virtual.Arena)(context.temp_allocator.data)
 	return virtual.arena_temp_begin(arena, loc), loc
 }
 
@@ -767,8 +726,8 @@ load_white_texture :: proc() {
 	defer img.image_free(image_data)
 	assert(image_data != nil)
 	
-	img_data_mipmaps := make([][]byte, 1, context.allocator)
-	img_data_mipmaps[0] = slice.clone(slice.from_ptr(image_data, cast(int)(w * h * channels)), context.allocator)
+	img_data_mipmaps := make([][]byte, 1, context.temp_allocator)
+	img_data_mipmaps[0] = slice.clone(slice.from_ptr(image_data, cast(int)(w * h * channels)), context.temp_allocator)
 	
 	texture_res := create_texture_with_data(img_data_mipmaps[:], u64(w), u32(h), .R8G8B8A8_UNORM, 
 		&g_resources_longterm, "white")
@@ -839,4 +798,50 @@ string_append :: proc(the_strs: ..string, allocator: mem.Allocator = context.all
 	}
 	
 	return strings.to_string(sb)
+}
+
+create_structured_buffer_with_data :: proc(
+	buffer_name: string,
+	pool_resource : ^DXResourcePool,
+	buffer_data : []byte
+	) -> (res: ^dx.IResource, fence_value: u64) {
+	
+	ct := &g_dx_context
+	
+	buffer_desc := dx.RESOURCE_DESC {
+		Width = u64(len(buffer_data)),
+		Height = 1,
+		Dimension = .BUFFER,
+		Layout = .ROW_MAJOR,
+		Format = .UNKNOWN,
+		DepthOrArraySize = 1,
+		MipLevels = 1,
+		SampleDesc = {Count = 1},
+		Flags = {},
+	}
+
+	allocation : ^dxma.Allocation
+	dxma.Allocator_CreateResource(
+		pSelf = ct.dxma_allocator,
+		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
+		pResourceDesc = &buffer_desc,
+		InitialResourceState = dx.RESOURCE_STATE_COMMON,
+		pOptimizedClearValue = nil,
+		ppAllocation = &allocation,
+		riidResource = nil,
+		ppvResource = nil
+	)
+	
+	default_res := dxma.Allocation_GetResource(allocation)
+	// already in upload thread. just do the copy.
+	
+	// TODO: put data thing back to temp allocator (upload allocator), if the upload thread allocated it.
+	fence_value = dx_upload_trigger(&g_upload_service, default_res, buffer_data)
+	
+	append(pool_resource, cast(^dxgi.IUnknown)allocation)
+	
+	buffer_name_cstring := windows.utf8_to_wstring_alloc(buffer_name, context.temp_allocator)
+	default_res->SetName(buffer_name_cstring)
+	
+	return default_res, fence_value
 }

@@ -22,14 +22,17 @@ import "core:math"
 import "core:slice"
 import dxma "libs/odin-d3d12ma"
 import "core:sync"
+import "core:time"
 
 UPLOAD_BUFFER_SIZE :: mem.Gigabyte * 1
 
+@(private="package")
 g_upload_service : DXUploadService
 
 @(private="package")
 g_resource_id: u64
 
+@(private="package")
 DXUploadService :: struct {
 	allocation : ^dxma.Allocation,
 	allocation_dest: []byte,
@@ -124,8 +127,10 @@ dx_upload_init :: proc() {
 }
 
 // Order an upload to the gpu. populate resource given
-// this can run on a worker thread i think.
-dx_upload_trigger :: proc(up_service: ^DXUploadService, resource_dest : ^dx.IResource, data: []byte, temp_allocator: mem.Allocator) -> u64 {
+// this can run on any thread.
+// TODO: run this on a mutex.
+@(private="package")
+dx_upload_trigger :: proc(up_service: ^DXUploadService, resource_dest : ^dx.IResource, data: []byte) -> u64 {
 	if up_service.next_allocation_pt + cast(u64)len(data) > cast(u64)len(up_service.allocation_dest) {
 		up_service.next_allocation_pt = 0
 	}
@@ -145,19 +150,20 @@ dx_upload_trigger :: proc(up_service: ^DXUploadService, resource_dest : ^dx.IRes
 }
 
 // Order a texture upload to the gpu. populate resource given
-// this can run on a worker thread i think.
+// this can run on any thread
+// TODO: do a MUTEX HERE!!!
+@(private="package")
 dx_upload_texture_trigger :: proc(up_service: ^DXUploadService, resource_dest : ^dx.IResource, 
 	image_data: [][]byte, // slice of mipmap data
 	texture_desc : ^dx.RESOURCE_DESC,
-	temp_allocator: mem.Allocator
 ) -> u64 {
 	
 	mip_levels := cast(u16)len(image_data)
 	
 	// getting data from texture that we'll use later
-	text_footprint := make([]dx.PLACED_SUBRESOURCE_FOOTPRINT, mip_levels, temp_allocator)
-	num_rows := make([]u32, mip_levels, temp_allocator)
-	row_size := make([]u64, mip_levels, temp_allocator)
+	text_footprint := make([]dx.PLACED_SUBRESOURCE_FOOTPRINT, mip_levels, context.temp_allocator)
+	num_rows := make([]u32, mip_levels, context.temp_allocator)
+	row_size := make([]u64, mip_levels, context.temp_allocator)
 	text_bytes: u64
 
 	g_dx_context.device->GetCopyableFootprints(texture_desc, 0, cast(u32)mip_levels, 0, &text_footprint[0], &num_rows[0], 
@@ -217,95 +223,51 @@ dx_upload_texture_trigger :: proc(up_service: ^DXUploadService, resource_dest : 
 }
 
 @(private="package")
-upload_thread_start :: proc(recv_chan: chan.Chan(DXUploadInput, .Recv), send_chan: chan.Chan(DXUploadOutput, .Send) ) {
+upload_thread_start :: proc() {
 	
 	context.allocator = mem.tracking_allocator(&g_track)
 	
 	// make temp allocator for upload thread
 	upload_temp_arena := arena_new()
 	upload_temp_allocator := virtual.arena_allocator(&upload_temp_arena)
+	context.temp_allocator = upload_temp_allocator
 	
+	// TODO: do proper thread wake-up on condition
 	for {
-		upload_input, ok := chan.recv(recv_chan)
-		if !ok {
+		// scanning for .Loading scenes
+		
+		found_scene: bool
+		the_scene : ^Scene
+		
+		for &scene in g_scenes {
+			if scene.status == .Loading {
+				found_scene = true
+				the_scene = &scene
+				break
+			}
+		}
+		
+		if !found_scene {
+			// sleep thread
+			thread.yield()
+		} else {
+			// loading first scene found that is scheduled for loading
+			
+			scene_from_gltf(the_scene)
+			
+			// Move scene to main thread by setting status as ready
+			the_scene.status = .Ready
+			
+			virtual.arena_free_all(&upload_temp_arena)
+		}
+		
+		if g_is_app_shutting_down {
 			break
 		}
-		
-		fence_val : u64
-		
-		switch &t in upload_input.data {
-		case BufferInput: // buffer
-			fence_val = dx_upload_trigger(&g_upload_service, upload_input.dest_resource, t, temp_allocator = upload_temp_allocator)
-			// freeing data
-			delete(t)
-		case TextureInput: // texture
-			fence_val = dx_upload_texture_trigger(&g_upload_service, upload_input.dest_resource, t.data, &t.texture_desc, temp_allocator = upload_temp_allocator)
-			// freeing data
-			for mip in t.data {
-				delete(mip)
-			}
-			delete(t.data)
-		}
-	
-		chan.send(send_chan, DXUploadOutput{
-			resource_id = upload_input.resource_id,
-			fence_value = fence_val,
-		})
-		
-		virtual.arena_free_all(&upload_temp_arena)
 	}
-}
-
-// schedule upload
-@(private="package")
-dx_upload_order_buffer :: proc(dest_res: ^dx.IResource, data: []byte) -> u64 {
-	return dx_upload_thing(dest_res, DXUploadInput {
-		dest_resource = dest_res,
-		data = data,
-		resource_id = g_resource_id
-	})
-}
-
-@(private="package")
-dx_upload_order_texture :: proc(dest_res: ^dx.IResource, data: [][]byte, texture_desc: dx.RESOURCE_DESC) -> u64 {
-	return dx_upload_thing(dest_res, DXUploadInput {
-		data = TextureInput {
-			data = data,
-			texture_desc = texture_desc
-		},
-		resource_id = g_resource_id,
-		dest_resource = dest_res
-	})
 }
 
 @(private="package")
 queue_wait_on_upload_fence :: proc(queue: ^dx.ICommandQueue, fence_value: u64) {
 	queue->Wait(g_upload_service.fence, fence_value)
-}
-
-dx_upload_thing :: proc(dest_res: ^dx.IResource, input: DXUploadInput) -> u64 {
-	
-	for {
-		did_send := chan.try_send(g_channel_upload_send, input)
-		if !did_send {
-			flush_receive_channel()
-		}
-		else {
-			break
-		}
-	}
-	
-	g_resource_id += 1
-	return g_resource_id - 1
-}
-
-@(private="package")
-flush_receive_channel :: proc() {
-	for {
-		if dx_upload_output, ok := chan.try_recv(g_channel_upload_recv); ok {
-			append(&g_upload_thread_inbox, dx_upload_output)
-		} else {
-			break
-		}
-	}
 }

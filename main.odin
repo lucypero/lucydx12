@@ -37,22 +37,11 @@ import "../odin-imgui/imgui_impl_dx12"
 
 // ---- GLOBAL STATE ----
 
-@(private="package") g_temp_arena : virtual.Arena
-@(private="package") g_temp_allocator : mem.Allocator
+@(private="package") g_is_app_shutting_down: bool
 @(private="package") g_dx_context: Context
 @(private="package") g_resources_longterm: DXResourcePool
 @(private="package") g_uv_sphere_mesh: Mesh
-
-// Channel to send things to load to upload thread
-@(private="package")
-g_channel_upload_send: chan.Chan(DXUploadInput)
-
-@(private="package")
-g_upload_thread_inbox : [dynamic]DXUploadOutput
-
-// Channel for main thread to get resources that are loaded
-@(private="package")
-g_channel_upload_recv: chan.Chan(DXUploadOutput)
+@(private="package") g_scenes: [3]Scene
 
 // private global staet
 
@@ -65,7 +54,6 @@ g_light_draw_gizmos: bool
 g_light_int: f32
 g_the_time_sec: f32
 g_exit_app: bool
-g_scenes: sa.Small_Array(3, Scene)
 
 // Profiling stuff
 
@@ -150,10 +138,15 @@ g_track : mem.Tracking_Allocator
 main :: proc() {
 	
 	// set up memory
-	alloc_err := virtual.arena_init_growing(&g_temp_arena, mem.Megabyte)
-	assert(alloc_err == .None)
-	g_temp_allocator = virtual.arena_allocator(&g_temp_arena)
-	context.temp_allocator = g_temp_allocator
+	{
+		temp_arena : virtual.Arena
+		temp_allocator : mem.Allocator
+		
+		alloc_err := virtual.arena_init_growing(&temp_arena, mem.Megabyte)
+		assert(alloc_err == .None)
+		temp_allocator = virtual.arena_allocator(&temp_arena)
+		context.temp_allocator = temp_allocator
+	}
 	
 	when ODIN_DEBUG {
 		lprintln("Tracking Allocations...")
@@ -167,39 +160,17 @@ main :: proc() {
 		defer {
 			tracking_allocator_report("context.allocator", g_track, true)
 			// tracking_allocator_report("context.temp_allocator", temp_track, false)
-			arena_report("temp arena", g_temp_arena)
+			ar := cast(^virtual.Arena)context.temp_allocator.data
+			arena_report("temp arena", ar^)
 			mem.tracking_allocator_destroy(&g_track)
 		}
 	}
 	
 	// /set up memory
 	
-	g_upload_thread_inbox = make([dynamic]DXUploadOutput, context.allocator)
-	defer delete(g_upload_thread_inbox)
-	
-	UPLOAD_CHANNEL_BUFFER_SIZE :: 100
-	
-	// Setting up channels
-	err :runtime.Allocator_Error
-	g_channel_upload_send, err = chan.create_buffered(chan.Chan(DXUploadInput), UPLOAD_CHANNEL_BUFFER_SIZE, context.allocator)
-	assert(err == .None)
-	
-	g_channel_upload_recv, err = chan.create_buffered(chan.Chan(DXUploadOutput), UPLOAD_CHANNEL_BUFFER_SIZE, context.allocator)
-	assert(err == .None)
-	
 	// setting up upload thread
-	upload_thread := thread.create_and_start_with_poly_data2(chan.as_recv(g_channel_upload_send),
-		chan.as_send(g_channel_upload_recv),
-		upload_thread_start
-	)
+	upload_thread := thread.create_and_start(upload_thread_start)
 	
-	defer {
-		chan.close(g_channel_upload_send)
-		chan.close(g_channel_upload_send)
-		chan.destroy(g_channel_upload_send)
-		chan.destroy(g_channel_upload_recv)
-		thread.destroy(upload_thread)
-	}
 	
 	// setting up long term resource pool
 	
@@ -262,16 +233,19 @@ main :: proc() {
 	
 	g_start_time = time.now()
 	do_main_loop()
+	g_is_app_shutting_down = true
 	
 	// cleanup
 	{
 		imgui_destoy()
 		
+		thread.destroy(upload_thread)
+		
 		// TODO destroy scenes ( wait for all gpu to be done) (actually we already are.)
 		// scene_destroy(&g_scene)
 		
-		for &scene in sa.slice(&g_scenes) {
-			if scene.status == .Ready do scene_destroy(&scene)
+		for &scene in g_scenes {
+			if (scene.status == .Ready || scene.status == .QueuedForDeletion) do scene_destroy(&scene)
 		}
 		
 		#reverse for &i in g_resources_longterm {
@@ -297,184 +271,6 @@ main :: proc() {
 			dxgi_debug->ReportLiveObjects(dxgi.DEBUG_ALL, {})
 		}
 	}
-}
-
-do_main_loop :: proc() {
-	
-	last_time := time.now()
-	
-	main_loop: for {
-		when PROFILE do spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, name = "main loop")
-		
-		for e: sdl.Event; sdl.PollEvent(&e); {
-
-			imgui_impl_sdl2.ProcessEvent(&e)
-
-			#partial switch e.type {
-			case .QUIT:
-				break main_loop
-			case .WINDOWEVENT:
-				if e.window.event == .CLOSE {
-					break main_loop
-				}
-			}
-		}
-		
-		check_scenes_statuses()
-
-		imgui_impl_dx12.NewFrame()
-		imgui_impl_sdl2.NewFrame()
-		im.NewFrame()
-		update()
-		im.End()
-		im.Render()
-		render()
-		free_all(g_temp_allocator)
-		
-		new_time := time.now()
-		dur := time.diff(last_time, new_time)
-		g_frame_dt = time.duration_milliseconds(dur)
-		last_time = new_time
-
-		if g_exit_app {
-			break main_loop
-		}
-	}
-}
-
-create_swapchain :: proc(
-	factory: ^dxgi.IFactory4,
-	queue: ^dx.ICommandQueue,
-	window: ^sdl.Window,
-) -> (
-	swapchain: ^dxgi.ISwapChain3,
-) {
-
-	// Get the window handle from SDL
-	window_info: sdl.SysWMinfo
-	sdl.GetWindowWMInfo(window, &window_info)
-	window_handle := dxgi.HWND(window_info.info.win.window)
-
-
-	desc := dxgi.SWAP_CHAIN_DESC1 {
-		Width = u32(WINDOW_WIDTH),
-		Height = u32(WINDOW_HEIGHT),
-		Format = .R8G8B8A8_UNORM,
-		SampleDesc = {Count = 1, Quality = 0},
-		BufferUsage = {.RENDER_TARGET_OUTPUT},
-		BufferCount = NUM_RENDERTARGETS,
-		Scaling = .NONE,
-		SwapEffect = .FLIP_DISCARD,
-		AlphaMode = .UNSPECIFIED,
-	}
-
-	hr := factory->CreateSwapChainForHwnd(
-		(^dxgi.IUnknown)(queue),
-		window_handle,
-		&desc,
-		nil,
-		nil,
-		(^^dxgi.ISwapChain1)(&swapchain),
-	)
-	check(hr, "Failed to create swap chain")
-	append(&g_resources_longterm, swapchain)
-
-	return
-}
-
-init_dx_other :: proc() {
-	ct := &g_dx_context
-	hr : dx.HRESULT
-	
-	// Creating G-Buffer textures and RTV's
-	ct.gbuffer = create_gbuffer()
-
-	// constant buffer
-	{
-		constant_buffer_desc := dx.RESOURCE_DESC {
-			Width = size_of(ConstantBufferData),
-			Dimension = .BUFFER,
-			Height = 1,
-			Layout = .ROW_MAJOR,
-			Format = .UNKNOWN,
-			DepthOrArraySize = 1,
-			MipLevels = 1,
-			SampleDesc = {Count = 1},
-		}
-
-		upload_allocation : ^dxma.Allocation
-		hr = dxma.Allocator_CreateResource(
-			pSelf = ct.dxma_allocator,
-			pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .UPLOAD, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
-			pResourceDesc = &constant_buffer_desc,
-			InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
-			pOptimizedClearValue = nil,
-			ppAllocation = &upload_allocation,
-			riidResource = nil,
-			ppvResource = nil
-		)
-		check(hr, "failed creating upload texture")
-		ct.constant_buffer = dxma.Allocation_GetResource(upload_allocation)
-		append(&g_resources_longterm, cast(^dx.IUnknown)upload_allocation)
-		ct.constant_buffer->SetName("lucy's constant buffer")
-
-		// empty range means the cpu won't read from it
-		ct.constant_buffer->Map(0, &dx.RANGE{}, &ct.constant_buffer_map)
-	}
-	
-	/* 
-	From https://docs.microsoft.com/en-us/windows/win32/direct3d12/root-signatures-overview:
-	
-	A root signature is configured by the app and links command lists to the resources the shaders require.
-	The graphics command list has both a graphics and compute root signature. A compute command list will
-	simply have one compute root signature. These root signatures are independent of each other.
-	*/
-
-	create_gbuffer_pass_root_signature()
-
-	create_gbuffer_pso_initial()
-	create_lighting_pso_initial()
-	ct.rs_gizmos, ct.pso_gizmos = create_gizmos_pso()
-	
-	
-	// hr = ct.command_allocator->Reset()
-	// hr = ct.cmdlist->Reset(ct.command_allocator, nil)
-	create_depth_buffer()
-	
-	// TODO: delete this?
-	close_and_execute_cmdlist()
-
-	imgui_init()
-	
-	// creating our constant buffer
-	create_cbv_on_uber_heap(&dx.CONSTANT_BUFFER_VIEW_DESC{
-		BufferLocation = g_dx_context.constant_buffer->GetGPUVirtualAddress(),
-		SizeInBytes = size_of(ConstantBufferData),
-	}, true, "General Constants Buffer")
-	
-	load_white_texture()
-	
-	SCENE_MAX_LEN :: 3
-	
-	sa.resize(&g_scenes, SCENE_MAX_LEN)
-	first_scene := sa.get_ptr(&g_scenes, 0) 
-	first_scene^ = scene_from_gltf(MODEL_FILEPATH_SPONZA)
-	
-	// This fence is used to wait for frames to finish
-	{
-		hr = ct.device->CreateFence(ct.fence_value, {}, dx.IFence_UUID, (^rawptr)(&ct.fence))
-		check(hr, "Failed to create fence")
-		append(&g_resources_longterm, ct.fence)
-		ct.fence_value += 1
-		manual_reset: windows.BOOL = false
-		initial_state: windows.BOOL = false
-		ct.fence_event = windows.CreateEventW(nil, manual_reset, initial_state, nil)
-		if ct.fence_event == nil {
-			lprintln("Failed to create fence event")
-			return
-		}
-	}
-	
 }
 
 // inits all basic dx resources.
@@ -642,6 +438,186 @@ init_dx :: proc() {
 	}
 }
 
+init_dx_other :: proc() {
+	ct := &g_dx_context
+	hr : dx.HRESULT
+	
+	// Creating G-Buffer textures and RTV's
+	ct.gbuffer = create_gbuffer()
+
+	// constant buffer
+	{
+		constant_buffer_desc := dx.RESOURCE_DESC {
+			Width = size_of(ConstantBufferData),
+			Dimension = .BUFFER,
+			Height = 1,
+			Layout = .ROW_MAJOR,
+			Format = .UNKNOWN,
+			DepthOrArraySize = 1,
+			MipLevels = 1,
+			SampleDesc = {Count = 1},
+		}
+
+		upload_allocation : ^dxma.Allocation
+		hr = dxma.Allocator_CreateResource(
+			pSelf = ct.dxma_allocator,
+			pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .UPLOAD, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
+			pResourceDesc = &constant_buffer_desc,
+			InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
+			pOptimizedClearValue = nil,
+			ppAllocation = &upload_allocation,
+			riidResource = nil,
+			ppvResource = nil
+		)
+		check(hr, "failed creating upload texture")
+		ct.constant_buffer = dxma.Allocation_GetResource(upload_allocation)
+		append(&g_resources_longterm, cast(^dx.IUnknown)upload_allocation)
+		ct.constant_buffer->SetName("lucy's constant buffer")
+
+		// empty range means the cpu won't read from it
+		ct.constant_buffer->Map(0, &dx.RANGE{}, &ct.constant_buffer_map)
+	}
+	
+	/* 
+	From https://docs.microsoft.com/en-us/windows/win32/direct3d12/root-signatures-overview:
+	
+	A root signature is configured by the app and links command lists to the resources the shaders require.
+	The graphics command list has both a graphics and compute root signature. A compute command list will
+	simply have one compute root signature. These root signatures are independent of each other.
+	*/
+
+	create_gbuffer_pass_root_signature()
+
+	create_gbuffer_pso_initial()
+	create_lighting_pso_initial()
+	ct.rs_gizmos, ct.pso_gizmos = create_gizmos_pso()
+	
+	
+	// hr = ct.command_allocator->Reset()
+	// hr = ct.cmdlist->Reset(ct.command_allocator, nil)
+	create_depth_buffer()
+	
+	// TODO: delete this?
+	close_and_execute_cmdlist()
+
+	imgui_init()
+	
+	// creating our constant buffer
+	create_cbv_on_uber_heap(&dx.CONSTANT_BUFFER_VIEW_DESC{
+		BufferLocation = g_dx_context.constant_buffer->GetGPUVirtualAddress(),
+		SizeInBytes = size_of(ConstantBufferData),
+	}, true, "General Constants Buffer")
+	
+	load_white_texture()
+	
+	SCENE_MAX_LEN :: 3
+	
+	// initting g_scenes
+	for &scene in g_scenes {
+		scene.allocator = arena_new()
+	}
+	
+	scene_schedule_load(&g_scenes[0], MODEL_FILEPATH_SPONZA)
+	
+	// This fence is used to wait for frames to finish
+	{
+		hr = ct.device->CreateFence(ct.fence_value, {}, dx.IFence_UUID, (^rawptr)(&ct.fence))
+		check(hr, "Failed to create fence")
+		append(&g_resources_longterm, ct.fence)
+		ct.fence_value += 1
+		manual_reset: windows.BOOL = false
+		initial_state: windows.BOOL = false
+		ct.fence_event = windows.CreateEventW(nil, manual_reset, initial_state, nil)
+		if ct.fence_event == nil {
+			lprintln("Failed to create fence event")
+			return
+		}
+	}
+}
+
+do_main_loop :: proc() {
+	
+	last_time := time.now()
+	
+	main_loop: for {
+		when PROFILE do spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, name = "main loop")
+		
+		for e: sdl.Event; sdl.PollEvent(&e); {
+
+			imgui_impl_sdl2.ProcessEvent(&e)
+
+			#partial switch e.type {
+			case .QUIT:
+				break main_loop
+			case .WINDOWEVENT:
+				if e.window.event == .CLOSE {
+					break main_loop
+				}
+			}
+		}
+		
+		imgui_impl_dx12.NewFrame()
+		imgui_impl_sdl2.NewFrame()
+		im.NewFrame()
+		update()
+		im.End()
+		im.Render()
+		render()
+		free_all(context.temp_allocator)
+		
+		new_time := time.now()
+		dur := time.diff(last_time, new_time)
+		g_frame_dt = time.duration_milliseconds(dur)
+		last_time = new_time
+
+		if g_exit_app {
+			break main_loop
+		}
+	}
+}
+
+create_swapchain :: proc(
+	factory: ^dxgi.IFactory4,
+	queue: ^dx.ICommandQueue,
+	window: ^sdl.Window,
+) -> (
+	swapchain: ^dxgi.ISwapChain3,
+) {
+
+	// Get the window handle from SDL
+	window_info: sdl.SysWMinfo
+	sdl.GetWindowWMInfo(window, &window_info)
+	window_handle := dxgi.HWND(window_info.info.win.window)
+
+
+	desc := dxgi.SWAP_CHAIN_DESC1 {
+		Width = u32(WINDOW_WIDTH),
+		Height = u32(WINDOW_HEIGHT),
+		Format = .R8G8B8A8_UNORM,
+		SampleDesc = {Count = 1, Quality = 0},
+		BufferUsage = {.RENDER_TARGET_OUTPUT},
+		BufferCount = NUM_RENDERTARGETS,
+		Scaling = .NONE,
+		SwapEffect = .FLIP_DISCARD,
+		AlphaMode = .UNSPECIFIED,
+	}
+
+	hr := factory->CreateSwapChainForHwnd(
+		(^dxgi.IUnknown)(queue),
+		window_handle,
+		&desc,
+		nil,
+		nil,
+		(^^dxgi.ISwapChain1)(&swapchain),
+	)
+	check(hr, "Failed to create swap chain")
+	append(&g_resources_longterm, swapchain)
+
+	return
+}
+
+
+
 
 dx_log_callback :: proc "c" (
 	category: dx.MESSAGE_CATEGORY,
@@ -738,7 +714,7 @@ do_imgui_ui :: proc() {
 
 	// Drawing delta time
 	{
-		sb := strings.builder_make_len_cap(0, 30, g_temp_allocator)
+		sb := strings.builder_make_len_cap(0, 30, context.temp_allocator)
 		fmt.sbprintfln(&sb, "DT: %.2f", g_frame_dt)
 		dt_cstring := strings.to_cstring(&sb)
 		im.Text(dt_cstring)
@@ -746,7 +722,7 @@ do_imgui_ui :: proc() {
 	
 	// Drawing cam position
 	{
-		sb := strings.builder_make_len_cap(0, 30, g_temp_allocator)
+		sb := strings.builder_make_len_cap(0, 30, context.temp_allocator)
 		fmt.sbprintfln(&sb, "cam position: %.2v", cur_cam.pos)
 		dt_cstring := strings.to_cstring(&sb)
 		im.Text(dt_cstring)
@@ -862,6 +838,25 @@ render :: proc() {
 		check(ct.command_allocator->Reset())
 
 		// swap PSO here if needed (hot reload of shaders)
+		
+		// destroy scenes queued for deletion (only of another scene is ready)
+		
+		is_a_scene_ready : bool
+		
+		for &scene in g_scenes {
+			if scene.status == .Ready {
+				is_a_scene_ready = true
+				break
+			}
+		}
+		
+		if is_a_scene_ready {
+			for &scene in g_scenes {
+				if scene.status == .QueuedForDeletion {
+					scene_destroy(&scene)
+				}
+			}
+		}
 
 		// hot swap handling
 		hotswap_swap(&ct.lighting_hotswap, &ct.pipeline_lighting)
@@ -1770,7 +1765,7 @@ render_gbuffer_pass :: proc() {
 	ct.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
 	
 	// drawing all scenes
-	for &scene in sa.slice(&g_scenes) {
+	for &scene in g_scenes {
 		if scene.status != .Ready do continue
 		
 		queue_wait_on_upload_fence(ct.queue, scene.fence_value)
@@ -1899,8 +1894,8 @@ render_lighting_pass :: proc() {
 render_gizmos :: proc () {
 	
 	get_first_active_scene :: proc() -> (scene: ^Scene, ok: bool) {
-		for &scene in sa.slice(&g_scenes) {
-			if scene.status == .Ready do return &scene, true
+		for &scene in g_scenes {
+			if (scene.status == .Ready) do return &scene, true
 		}
 		
 		return nil, false
@@ -1914,7 +1909,7 @@ render_gizmos :: proc () {
 	// updating gizmo data (looking at lights)
 	gizmos_count : u32 = 1
 	{
-		gizmos_instances := make([]InstanceData, gizmos_count, g_temp_allocator)
+		gizmos_instances := make([]InstanceData, gizmos_count, context.temp_allocator)
 		
 		gizmos_instances[0] = InstanceData {
 			world_mat = get_world_mat(g_light_pos, 0.1),
@@ -2057,14 +2052,21 @@ arena_report :: proc(arena_name: string, arena: virtual.Arena) {
 scene_swap :: proc(new_scene: string) {
 	// queue for deletion all active scenes. start loading on a free slot
 	found_free : bool
-	for &s in sa.slice(&g_scenes) {
+	for &s in g_scenes {
 		#partial switch s.status {
 		case .Ready:
 			s.status = .QueuedForDeletion
 		case .Free:
-			if !found_free do s = scene_from_gltf(new_scene)
+			if !found_free {
+				scene_schedule_load(&s, new_scene)
+			}
 			found_free = true
 		}
+	}
+	
+	if !found_free {
+		lprintln("could not find a free scene. scene swap FAILED")
+		os.exit(1)
 	}
 }
 
@@ -2072,27 +2074,23 @@ scene_destroy :: proc(scene: ^Scene) {
 	for r in scene.resource_pool {
 		r->Release()
 	}
-	virtual.arena_destroy(&scene.allocator)
+	virtual.arena_free_all(&scene.allocator)
 	scene.status = .Free
 }
 
-check_scenes_statuses :: proc () {
-	
-	flush_receive_channel()
-
-	for &scene in sa.slice(&g_scenes) {
-		#partial switch scene.status {
-		case .Loading: // Checking if scene finished loading
-			for out_thing in g_upload_thread_inbox {
-				if out_thing.resource_id == scene.ready_value {
-					scene.status = .Ready
-					scene.fence_value = out_thing.fence_value
-				}
-			}
-		case .QueuedForDeletion: // delete scene (it's safe to do now as we waited for the graphics fence)
-			scene_destroy(&scene)
-		}
+// call this on scene slot u wanna start to load
+scene_schedule_load :: proc(scene: ^Scene, scene_name: string) {
+	if scene.status != .Free {
+		lprintfln("cannot schedule load for scene unless it's status=free")
+		assert(false)
+		return
 	}
 	
-	clear(&g_upload_thread_inbox)
+	virtual.arena_free_all(&scene.allocator)
+	scene_allocator := virtual.arena_allocator(&scene.allocator)
+	scene.path = strings.clone(scene_name, scene_allocator)
+	
+	// This "moves" the scene to the upload thread.
+	// the upload thread will move the scene back to the main thread by setting status to "Ready"
+	scene.status = .Loading 
 }

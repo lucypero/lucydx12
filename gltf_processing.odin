@@ -20,16 +20,17 @@ import dxma "libs/odin-d3d12ma"
 import "core:prof/spall"
 
 @(private="package")
-scene_from_gltf :: proc(model_filepath: string) -> Scene {
+scene_from_gltf :: proc(scene: ^Scene) {
 	
 	when PROFILE {
-		load_gltf_profile_str := string_append("loading gltf file: ", model_filepath, allocator = g_temp_allocator)
+		load_gltf_profile_str := string_append("loading gltf file: ", model_filepath, allocator = context.temp_allocator)
 		spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, name = load_gltf_profile_str)
 	}
 	
 	// loading gltf files
+	last_fence_value: u64
 	
-	model_filepath_c := strings.clone_to_cstring(model_filepath, g_temp_allocator)
+	model_filepath_c := strings.clone_to_cstring(scene.path, context.temp_allocator)
 	cgltf_options: cgltf.options
 	
 	data, ok := cgltf.parse_file(cgltf_options, model_filepath_c)
@@ -42,23 +43,21 @@ scene_from_gltf :: proc(model_filepath: string) -> Scene {
 
 	load_buffers_result := cgltf.load_buffers(cgltf_options, data, model_filepath_c)
 	if load_buffers_result != .success {
-		fmt.eprintln("Error loading buffers from gltf: {} - {}", model_filepath, load_buffers_result)
+		fmt.eprintln("Error loading buffers from gltf: {} - {}", scene.path, load_buffers_result)
 		os.exit(1)
 	}
 	
 	// loading up the Scene
-	scene : Scene
-	scene_arena := arena_new()
-	scene.allocator = scene_arena
+	
 	scene_allocator := virtual.arena_allocator(&scene.allocator)
 	scene.resource_pool = make(DXResourcePool, scene_allocator)
 
 	assert(len(data.scenes) == 1)
 	
-	gltf_load_materials_into_scene(data, model_filepath, &scene)
+	gltf_load_materials_into_scene(data, scene.path, scene)
 	
-	gltf_load_nodes_into_scene(data, &scene)
-	gltf_load_meshes_into_scene(data, &scene)
+	gltf_load_nodes_into_scene(data, scene)
+	gltf_load_meshes_into_scene(data, scene)
 	
 	// doing the structured buffer with the model matrices
 	{
@@ -69,18 +68,18 @@ scene_from_gltf :: proc(model_filepath: string) -> Scene {
 		}
 
 		data := CallbackData {
-			sample_matrix_data = make([]ModelMatrixData, scene.mesh_count, context.allocator), // freed by upload thread.
+			sample_matrix_data = make([]ModelMatrixData, scene.mesh_count, context.temp_allocator),
 			mesh_i = 0,
 		}
 
-		scene_walk(scene, &data, proc(node: Node, scene: Scene, data: rawptr) {
+		scene_walk(scene^, &data, proc(node: Node, scene: Scene, data: rawptr) {
 			if node.mesh == -1 do return
 			data := cast(^CallbackData)data
 			data.sample_matrix_data[data.mesh_i].model_matrix = get_node_world_matrix(node, scene)
 			data.mesh_i += 1
 		})
 		
-		scene.sb_model_matrices = create_structured_buffer_with_data("model matrix data",
+		scene.sb_model_matrices, last_fence_value = create_structured_buffer_with_data("model matrix data",
 		 	&scene.resource_pool,
 			slice.to_bytes(data.sample_matrix_data))
 		
@@ -101,6 +100,7 @@ scene_from_gltf :: proc(model_filepath: string) -> Scene {
 		
 		// TODO: REFACTOR THIS ABOMINATION. THIS IS HARDVODED AND WRONG!!!
 		g_dx_context.device->CreateShaderResourceView(scene.sb_model_matrices, &srv_desc, get_descriptor_heap_cpu_address(g_dx_context.cbv_srv_uav_heap, 6))
+		
 	}
 	
 	// gizmos stuff
@@ -109,23 +109,20 @@ scene_from_gltf :: proc(model_filepath: string) -> Scene {
 	
 	// instance data for gizmos
 	{
-		instance_data := make([]InstanceData, MAX_GIZMOS, g_temp_allocator)
+		instance_data := make([]InstanceData, MAX_GIZMOS, context.temp_allocator)
+		// TODO: when u use the upload service for this, remember to re-set the scene fence value.
 		scene.vb_gizmos_instance_data = create_vertex_buffer_upload(size_of(instance_data[0]), u32(slice.size(instance_data)), pool = &scene.resource_pool)
 	}
 	
-	scene.ready_value = g_resource_id - 1
-	scene.status = .Loading
-	return scene
+	scene.fence_value = last_fence_value
 }
 
 gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	
-	TEMP_GUARD(&g_temp_arena)
+	TEMP_GUARD()
 	
-	ct := &g_dx_context
-	
-	vertices := make([dynamic]VertexData, context.allocator) // freed by upload thread
-	indices := make([dynamic]u32, context.allocator) // freed by upload thread
+	vertices := make([dynamic]VertexData, context.temp_allocator)
+	indices := make([dynamic]u32, context.temp_allocator)
 	
 	scene_allocator := virtual.arena_allocator(&scene.allocator)
 	
@@ -231,7 +228,7 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	// add uv sphere (for gizmos)
 	
 	// TODO: separate gizmos from scene
-	sphere_verts_base, sphere_indices := generate_uv_sphere(32, 32, g_temp_allocator)
+	sphere_verts_base, sphere_indices := generate_uv_sphere(32, 32, context.temp_allocator)
 	
 	for v in sphere_verts_base {
 		append(&vertices, VertexData {
@@ -256,11 +253,7 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	vertex_count := u32(len(vertices))
 
 	// VERTEXDATA
-	// vertex data and index data is in an upload heap.
-	// This isn't optimal for geometry that doesn't change much.
-	// If we want to make this fast, the vertex data needs to be in
-	// a DEFAULT heap (vram). you transfer the data from an upload heap
-	// to the default heap. but it's more complicated.
+	
 	vertex_buffer_size := len(vertices) * size_of(vertices[0])
 
 	resource_desc := dx.RESOURCE_DESC {
@@ -278,7 +271,7 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	
 	vb_allocation : ^dxma.Allocation
 	hr := dxma.Allocator_CreateResource(
-		pSelf = ct.dxma_allocator,
+		pSelf = g_dx_context.dxma_allocator,
 		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT},
 		pResourceDesc = &resource_desc,
 		InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
@@ -301,7 +294,7 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 		SizeInBytes = u32(vertex_buffer_size),
 	}
 	
-	dx_upload_order_buffer(scene.vertex_buffer, slice.to_bytes(vertices[:]))
+	dx_upload_trigger(&g_upload_service, scene.vertex_buffer, slice.to_bytes(vertices[:]))
 
 	// creating index buffer resource
 
@@ -312,7 +305,7 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	
 	upload_allocation_2 : ^dxma.Allocation
 	hr = dxma.Allocator_CreateResource(
-		pSelf = ct.dxma_allocator,
+		pSelf = g_dx_context.dxma_allocator,
 		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT},
 		pResourceDesc = &resource_desc,
 		InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
@@ -332,7 +325,7 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 		Format = .R32_UINT,
 	}
 	
-	dx_upload_order_buffer(scene.index_buffer, slice.to_bytes(indices[:]))
+	dx_upload_trigger(&g_upload_service, scene.index_buffer, slice.to_bytes(indices[:]))
 }
 
 gltf_load_nodes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
@@ -394,7 +387,7 @@ gltf_load_nodes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: string, res_pool : ^DXResourcePool, textures_srv_index: ^u32) {
 	
 	ct := &g_dx_context
-	TEMP_GUARD(&g_temp_arena)
+	TEMP_GUARD()
 	
 	image_name : string
 	
@@ -417,20 +410,20 @@ load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: s
 	textures_srv_index^ += 1
 }
 
-get_texture_uv :: proc(data: ^cgltf.data, tex_view: cgltf.texture_view) -> u32 {
-	
-	if tex_view.texture != nil {
-		return u32(tex_view.texcoord)
-	}
-	
-	assert(false)
-	return 0
-}
 
 gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string, scene: ^Scene) {
 	
-	mats := make([]Material, len(data.materials), context.allocator)
+	get_texture_uv :: proc(data: ^cgltf.data, tex_view: cgltf.texture_view) -> u32 {
+		
+		if tex_view.texture != nil {
+			return u32(tex_view.texcoord)
+		}
+		
+		assert(false)
+		return 0
+	}
 	
+	mats := make([]Material, len(data.materials), context.temp_allocator)
 	
 	textures_srv_index : u32 = TEXTURE_INDEX_BASE // starting at 100 to not interfere with other views
 	
@@ -484,7 +477,7 @@ gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string
 		}
 	}
 	
-	scene.sb_materials = create_structured_buffer_with_data(
+	scene.sb_materials, _ = create_structured_buffer_with_data(
 		"material buffer",
 		&scene.resource_pool,
 		slice.to_bytes(mats)
