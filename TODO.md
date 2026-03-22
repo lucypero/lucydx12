@@ -1,8 +1,9 @@
 # loading scene on upload thread - problems to solve:
 
 - CreateShaderResourceView on uber heap - i must do this thread safe.
-- that.. seems to be the only thing
-- remove channels and do sync via a free list
+- `dx_upload_trigger` and `dx_upload_texture_trigger` run on multiple threads. make them thread safe or run them only on the upload thread.
+- a lot of atomic operations that are now in the code on `.status` are not necessary. re-evaluate this.
+
 
 
 # multi threading - profiling results

@@ -245,7 +245,8 @@ main :: proc() {
 		// scene_destroy(&g_scene)
 		
 		for &scene in g_scenes {
-			if (scene.status == .Ready || scene.status == .QueuedForDeletion) do scene_destroy(&scene)
+			st := scene_status_load(&scene.status)
+			if (st == .Ready || st == .QueuedForDeletion) do scene_destroy(&scene)
 		}
 		
 		#reverse for &i in g_resources_longterm {
@@ -845,7 +846,7 @@ render :: proc() {
 		is_a_scene_ready : bool
 		
 		for &scene in g_scenes {
-			if scene.status == .Ready {
+			if scene_status_load(&scene.status) == .Ready {
 				is_a_scene_ready = true
 				break
 			}
@@ -853,7 +854,7 @@ render :: proc() {
 		
 		if is_a_scene_ready {
 			for &scene in g_scenes {
-				if scene.status == .QueuedForDeletion {
+				if scene_status_load(&scene.status) == .QueuedForDeletion {
 					scene_destroy(&scene)
 				}
 			}
@@ -1767,7 +1768,8 @@ render_gbuffer_pass :: proc() {
 	
 	// drawing all scenes
 	for &scene in g_scenes {
-		#partial switch scene.status {
+		st := scene_status_load(&scene.status)
+		#partial switch st {
 		case .Ready, .QueuedForDeletion: // if we draw queued for deletion, a nice effect happens when u switch scenes.
 		case:
 			continue
@@ -1900,7 +1902,8 @@ render_gizmos :: proc () {
 	
 	get_first_active_scene :: proc() -> (scene: ^Scene, ok: bool) {
 		for &scene in g_scenes {
-			#partial switch scene.status {
+			st := scene_status_load(&scene.status)
+			#partial switch st {
 			case .Ready, .QueuedForDeletion: // if we draw queued for deletion, a nice effect happens when u switch scenes.
 				return &scene, true
 			}
@@ -2061,9 +2064,10 @@ scene_swap :: proc(new_scene: string) {
 	// queue for deletion all active scenes. start loading on a free slot
 	found_free : bool
 	for &s in g_scenes {
-		#partial switch s.status {
+		st := scene_status_load(&s.status)
+		#partial switch st {
 		case .Ready:
-			s.status = .QueuedForDeletion
+			scene_status_store(&s.status, .QueuedForDeletion)
 		case .Free:
 			if !found_free {
 				scene_schedule_load(&s, new_scene)
@@ -2083,12 +2087,12 @@ scene_destroy :: proc(scene: ^Scene) {
 		r->Release()
 	}
 	virtual.arena_free_all(&scene.allocator)
-	scene.status = .Free
+	scene_status_store(&scene.status, .Free)
 }
 
 // call this on scene slot u wanna start to load
 scene_schedule_load :: proc(scene: ^Scene, scene_name: string) {
-	if scene.status != .Free {
+	if scene_status_load(&scene.status) != .Free {
 		lprintfln("cannot schedule load for scene unless it's status=free")
 		assert(false)
 		return
@@ -2100,5 +2104,5 @@ scene_schedule_load :: proc(scene: ^Scene, scene_name: string) {
 	
 	// This "moves" the scene to the upload thread.
 	// the upload thread will move the scene back to the main thread by setting status to "Ready"
-	scene.status = .Loading 
+	scene_status_store(&scene.status, .Loading)
 }
