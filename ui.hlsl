@@ -34,7 +34,7 @@ PSInput VSMain(VSInput the_input) {
 	
 	AllSrvsIndices srv_indexes = get_srvs_from_heap();
 	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[srv_indexes.general_constants_idx];
-	StructuredBuffer<MeshTransform> mesh_transforms = ResourceDescriptorHeap[srv_indexes.mesh_transforms_idx];
+	StructuredBuffer<MeshTransform> mesh_transforms = ResourceDescriptorHeap[general_constants.current_scene_mesh_transforms_idx];
 	
 	// instanced drawing
 	float4x4 world_matrix = float4x4(the_input.worldM0, the_input.worldM1, the_input.worldM2, the_input.worldM3);

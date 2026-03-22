@@ -78,6 +78,8 @@ get_cbv :: proc() -> ConstantBufferData {
 	// sending constant buffer data
 	view, projection := get_view_projection(cur_cam)
 	
+	active_scene, scene_is_active := get_first_active_scene()
+	
 	return ConstantBufferData {
 		view = view,
 		projection = projection,
@@ -86,6 +88,8 @@ get_cbv :: proc() -> ConstantBufferData {
 		light_int = g_light_int,
 		view_pos = cur_cam.pos,
 		time = g_the_time_sec,
+		current_scene_materials_idx = scene_is_active ? cast(u32)active_scene.material_srv_index : 0,
+		current_scene_mesh_transforms_idx = scene_is_active ? cast(u32)active_scene.model_matrices_srv_index : 0,
 	}
 }
 
@@ -760,10 +764,6 @@ do_imgui_ui :: proc() {
 	}
 	
 	// im.ShowDemoWindow()
-	
-	// if im.Button("Re-roll teapots") {
-	// 	reroll_teapots()
-	// }
 }
 
 
@@ -1013,7 +1013,7 @@ create_depth_buffer :: proc() {
 		}
 	}
 	
-	create_srv_on_uber_heap(ct.depth_stencil_res, true, "Depth SRV", srv_desc = &srv_desc)
+	create_srv_on_uber_heap(ct.depth_stencil_res, &srv_desc, true, "Depth SRV")
 	transition_resource(ct.depth_stencil_res, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
 }
 
@@ -1212,7 +1212,7 @@ create_gbuffer_unit :: proc(format: dxgi.FORMAT,
 	rtv_descriptor_handle_1: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_heap_heap_start
 	rtv_descriptor_handle_1.ptr += uint(rtv_descriptor_size) * gbuffer_index
 	ct.device->CreateRenderTargetView(gb_res, nil, rtv_descriptor_handle_1)
-	create_srv_on_uber_heap(gb_res, true, debug_name)
+	create_srv_on_uber_heap(gb_res, nil, true, debug_name)
 	
 	return GBufferUnit {
 		res = gb_res,
@@ -1887,7 +1887,7 @@ render_lighting_pass :: proc() {
 	// Setting render targets. Clearing RTV.
 	{
 		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
-			get_descriptor_heap_cpu_address(ct.swapchain_rtv_descriptor_heap, ct.frame_index),
+			get_descriptor_heap_cpu_address(ct.swapchain_rtv_descriptor_heap, cast(uint)ct.frame_index),
 		}
 
 		ct.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
@@ -1907,17 +1907,6 @@ render_lighting_pass :: proc() {
 // TODO: this is using resources from any loaded scene. change that.
 render_gizmos :: proc () {
 	
-	get_first_active_scene :: proc() -> (scene: ^Scene, ok: bool) {
-		for &scene in g_scenes {
-			st := scene_status_load(&scene.status)
-			#partial switch st {
-			case .Ready, .QueuedForDeletion: // if we draw queued for deletion, a nice effect happens when u switch scenes.
-				return &scene, true
-			}
-		}
-		
-		return nil, false
-	}
 	
 	scene, ok:= get_first_active_scene() 
 	if !ok do return
@@ -1953,7 +1942,7 @@ render_gizmos :: proc () {
 	}
 	
 	rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
-		get_descriptor_heap_cpu_address(ct.swapchain_rtv_descriptor_heap, ct.frame_index),
+		get_descriptor_heap_cpu_address(ct.swapchain_rtv_descriptor_heap, cast(uint)ct.frame_index),
 	}
 	
 	dsv_handle := get_descriptor_heap_cpu_address(g_dx_context.descriptor_heap_dsv, 0)
@@ -2112,4 +2101,16 @@ scene_schedule_load :: proc(scene: ^Scene, scene_name: string) {
 	// This "moves" the scene to the upload thread.
 	// the upload thread will move the scene back to the main thread by setting status to "Ready"
 	scene_status_store(&scene.status, .Loading)
+}
+
+get_first_active_scene :: proc() -> (scene: ^Scene, ok: bool) {
+	for &scene in g_scenes {
+		st := scene_status_load(&scene.status)
+		#partial switch st {
+		case .Ready, .QueuedForDeletion: // if we draw queued for deletion, a nice effect happens when u switch scenes.
+			return &scene, true
+		}
+	}
+	
+	return nil, false
 }

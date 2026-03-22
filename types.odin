@@ -144,7 +144,7 @@ Context :: struct {
 
 	// descriptor heap for ALL our resources
 	cbv_srv_uav_heap: ^dx.IDescriptorHeap,
-	descriptor_count : u32, // count for how many descriptors are in the srv heap
+	descriptor_count : uint, // count for how many descriptors are in the srv heap
 
 	// depth buffer
 	depth_stencil_res: ^dx.IResource,
@@ -199,6 +199,8 @@ ConstantBufferData :: struct #align (256) {
 	light_int: f32,
 	view_pos: v3,
 	time: f32,
+	current_scene_materials_idx: u32,
+    current_scene_mesh_transforms_idx: u32,
 }
 
 // testing
@@ -213,6 +215,8 @@ Scene :: struct {
 	meshes: []Mesh,
 	allocator: virtual.Arena,
 	
+	material_srv_index: uint,
+	model_matrices_srv_index: uint,
 	
 	// dx resources
 	sb_model_matrices: ^dx.IResource,

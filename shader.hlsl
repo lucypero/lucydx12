@@ -51,7 +51,7 @@ PSInput VSMain(VSInput the_input) {
 	AllSrvsIndices srv_indexes = get_srvs_from_heap();
 	
 	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[srv_indexes.general_constants_idx];
-	StructuredBuffer<MeshTransform> mesh_transforms = ResourceDescriptorHeap[srv_indexes.mesh_transforms_idx];
+	StructuredBuffer<MeshTransform> mesh_transforms = ResourceDescriptorHeap[general_constants.current_scene_mesh_transforms_idx];
 	
 	PSInput result;
 	
@@ -119,7 +119,7 @@ PSOutput PSMain(PSInput input) {
 	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[srv_indexes.general_constants_idx];
 	PSOutput output;
 	
-	StructuredBuffer<Material> materials = ResourceDescriptorHeap[srv_indexes.materials_idx];
+	StructuredBuffer<Material> materials = ResourceDescriptorHeap[general_constants.current_scene_materials_idx];
 	
 	Material mat = materials[draw_constants.material_index];
 	

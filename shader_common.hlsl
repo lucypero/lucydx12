@@ -8,12 +8,12 @@ struct GeneralConstants {
     float light_int;
     float3 view_pos;
     float time;
+    uint current_scene_materials_idx;
+    uint current_scene_mesh_transforms_idx;
 };
 
 struct AllSrvsIndices {
 	int general_constants_idx;
-	int mesh_transforms_idx;
-	int materials_idx;
 	
 	// g buffer
 	int g_buffer_color_idx;
@@ -33,8 +33,6 @@ AllSrvsIndices get_srvs_from_heap() {
 	
 	idxs.depth_idx = 3;
 	idxs.general_constants_idx = 4;
-	idxs.materials_idx = 5;
-	idxs.mesh_transforms_idx = 6;
 	
 	return idxs;
 }
