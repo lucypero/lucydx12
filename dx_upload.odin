@@ -4,7 +4,6 @@ package main
 import "vendor:portmidi"
 import "core:reflect"
 import "core:thread"
-import "core:sync/chan"
 import "core:mem/virtual"
 
 import "core:path/filepath"
@@ -240,7 +239,7 @@ upload_thread_start :: proc() {
 		the_scene : ^Scene
 		
 		for &scene in g_scenes {
-			if scene.status == .Loading {
+			if scene_status_load(&scene.status) == .Loading {
 				found_scene = true
 				the_scene = &scene
 				break
@@ -256,8 +255,7 @@ upload_thread_start :: proc() {
 			scene_from_gltf(the_scene)
 			
 			// Move scene to main thread by setting status as ready
-			the_scene.status = .Ready
-			
+			scene_status_store(&the_scene.status, .Ready)
 			virtual.arena_free_all(&upload_temp_arena)
 		}
 		
@@ -270,4 +268,14 @@ upload_thread_start :: proc() {
 @(private="package")
 queue_wait_on_upload_fence :: proc(queue: ^dx.ICommandQueue, fence_value: u64) {
 	queue->Wait(g_upload_service.fence, fence_value)
+}
+
+@(private="package")
+scene_status_load :: #force_inline proc(status: ^SceneStatus) -> SceneStatus {
+	return sync.atomic_load_explicit(status, .Acquire)
+}
+
+@(private="package")
+scene_status_store :: #force_inline proc(status: ^SceneStatus, new_status: SceneStatus) {
+	sync.atomic_store_explicit(status, new_status, .Release)
 }
