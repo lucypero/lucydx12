@@ -2,6 +2,7 @@
 package main
 
 import "core:math/linalg"
+import "core:path/filepath"
 import "core:mem"
 import "core:c"
 import img "vendor:stb/image"
@@ -390,17 +391,18 @@ load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: s
 	TEMP_GUARD()
 	
 	image_name : string
+	image_data : Maybe([]byte) = nil
 	
 	if image.uri != nil {
 		image_name = string(image.uri)
 	} else {
 		image_name = string(image.name)
-		// TODO: you will need to write this to a file first.
-		lprintfln("TEXTURE TYPE NOT IMPLEMENTED. EXITING.")
-		os.exit(1)
+		// Turning image data (offset from the buffer) to a []byte
+		data_multipointer : [^]byte = cast([^]byte)image.buffer_view.buffer.data
+		image_data = slice.bytes_from_ptr(data_multipointer[image.buffer_view.offset:], cast(int)image.buffer_view.size)
 	}
 	
-	texture_final_path := texture_cache_query(model_filepath, image_name, format)
+	texture_final_path := texture_cache_query(model_filepath, image_name, format, image_data)
 	dds_file := parse_dds_file(texture_final_path)
 	
 	texture_res := create_texture_with_data(dds_file.mipmap_data, u64(dds_file.width), dds_file.height, dds_file.format, 

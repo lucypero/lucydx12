@@ -20,7 +20,8 @@ Camera :: struct {
 	pos : v3,
 	pitch: f32, // rad
 	yaw: f32, // rad
-	speed: f32
+	speed: f32,
+	cruising_speed: f32,
 }
 
 camera_init :: proc() -> Camera {
@@ -54,6 +55,10 @@ camera_static_tick :: proc(buttons: u32, keyboard: []u8) {
 		camera_toggle_mode()
 		return
 	}
+	
+	// cruise
+	cam_dir := cam_get_direction(cur_cam)
+	cur_cam.pos += cam_dir * - cur_cam.cruising_speed
 }
 
 camera_tick :: proc(keyboard: []u8) {

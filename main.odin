@@ -711,6 +711,7 @@ do_imgui_ui :: proc() {
 	im.DragFloat("light intensity", &g_light_int, 0.1, 0, 20)
 	im.Checkbox("draw light gizmos", &g_light_draw_gizmos)
 	im.DragFloat("cam speed", &cur_cam.speed, 0.0001, 0, 20)
+	im.DragFloat("cam cruise speed", &cur_cam.cruising_speed, 0.0001, 0, 20)
 
 	// Drawing delta time
 	{
@@ -1766,7 +1767,11 @@ render_gbuffer_pass :: proc() {
 	
 	// drawing all scenes
 	for &scene in g_scenes {
-		if scene.status != .Ready do continue
+		#partial switch scene.status {
+		case .Ready, .QueuedForDeletion: // if we draw queued for deletion, a nice effect happens when u switch scenes.
+		case:
+			continue
+		}
 		
 		queue_wait_on_upload_fence(ct.queue, scene.fence_value)
 		
@@ -1895,7 +1900,10 @@ render_gizmos :: proc () {
 	
 	get_first_active_scene :: proc() -> (scene: ^Scene, ok: bool) {
 		for &scene in g_scenes {
-			if (scene.status == .Ready) do return &scene, true
+			#partial switch scene.status {
+			case .Ready, .QueuedForDeletion: // if we draw queued for deletion, a nice effect happens when u switch scenes.
+				return &scene, true
+			}
 		}
 		
 		return nil, false
