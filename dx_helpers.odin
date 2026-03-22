@@ -523,7 +523,7 @@ get_mip_level_size :: proc(width, height: u32, format_is_compressed: bool, bytes
     }
 }
 
-texture_cache_query :: proc(model_filepath, image_name: string, format: dxgi.FORMAT) -> (texture_out_path: string) {
+texture_cache_query :: proc(model_filepath, image_name: string, format: dxgi.FORMAT, image_data: Maybe([]byte)) -> (texture_out_path: string) {
 	
 	// test if this exists already
 	
@@ -553,7 +553,14 @@ texture_cache_query :: proc(model_filepath, image_name: string, format: dxgi.FOR
 	
 	input_image_dir := filepath.dir(model_filepath, context.temp_allocator)
 	input_image_path, alloc_err_2 := filepath.join({input_image_dir, image_name}, context.temp_allocator)
+	
 	assert(alloc_err_2 == .None)
+	
+	// Writing data to a file if a data slice was sent (necessary for texconv)
+	if image_data_inner, ok := image_data.?; ok {
+		err := os.write_entire_file_from_bytes(input_image_path, image_data_inner)
+		assert(err == os.General_Error.None)
+	}
 	
 	state, _, _, err := os.process_exec(os.Process_Desc {
 		command = {
@@ -592,10 +599,6 @@ check :: proc(res: dx.HRESULT, message: string = "dx call error") {
 
 	lprintfln("%v. Error code: %0x", message, u32(res))
 	os.exit(-1)
-}
-
-arena_temp_end :: proc(arena_temp : virtual.Arena_Temp, loc := #caller_location) {
-	virtual.arena_temp_end(arena_temp)
 }
 
 // Convenience function for clearing used memory in scope
