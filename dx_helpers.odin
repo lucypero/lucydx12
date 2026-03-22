@@ -132,11 +132,11 @@ compile_shader :: proc(compiler: ^dxc.ICompiler3, shader_filename: string) -> (v
 		Encoding = dxc.CP_ACP
 	}
 	
-	vs, ok = compile_individual_shader(&source_buffer, compiler, .Vertex)
+	vs, ok = compile_individual_shader(shader_filename, &source_buffer, compiler, .Vertex)
 	
 	if !ok do return vs, ps, false
 	
-	ps, ok = compile_individual_shader(&source_buffer, compiler, .Pixel)
+	ps, ok = compile_individual_shader(shader_filename, &source_buffer, compiler, .Pixel)
 	
 	if !ok do return vs, ps, false
 	
@@ -148,7 +148,7 @@ ShaderKind :: enum {
 	Pixel
 }
 
-compile_individual_shader :: proc(source_buffer: ^dxc.Buffer, compiler: ^dxc.ICompiler3, shader_kind: ShaderKind) -> (res:^dxc.IBlob, ok: bool) {
+compile_individual_shader :: proc(shader_filename: string, source_buffer: ^dxc.Buffer, compiler: ^dxc.ICompiler3, shader_kind: ShaderKind) -> (res:^dxc.IBlob, ok: bool) {
 	
 	arguments := [?]string {
 		"-E", "VSMain", // Entry point
@@ -176,7 +176,7 @@ compile_individual_shader :: proc(source_buffer: ^dxc.Buffer, compiler: ^dxc.ICo
 	results->GetOutput(.ERRORS, dxc.IBlobUtf8_UUID, (^rawptr)(&errors), nil)
 	if errors != nil && errors->GetStringLength() > 0 {
 		error_str := strings.string_from_ptr((^u8)(errors->GetBufferPointer()), int(errors->GetBufferSize()))
-		lprintfln("dxc: errors: %v", error_str)
+		lprintfln("dxc: errors at %v: %v", shader_filename, error_str)
 	}
 	
 	output_blob : ^dxc.IBlob
@@ -260,19 +260,21 @@ copy_to_buffer :: proc(buffer: ^dx.IResource, data: []byte) {
 }
 
 // creates a SRV for the resource on the uber SRV heap
-create_srv_on_uber_heap :: proc(res : ^dx.IResource, debug_index: bool = false, debug_name: string = "",
-		srv_desc : ^dx.SHADER_RESOURCE_VIEW_DESC = nil
-	) {
+create_srv_on_uber_heap :: proc(res : ^dx.IResource, srv_desc : ^dx.SHADER_RESOURCE_VIEW_DESC = nil,
+	debug_index: bool = false, debug_name: string = "",
+	) -> (srv_index: uint){
 	ct := &g_dx_context
 	ct.device->CreateShaderResourceView(res, srv_desc, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, ct.descriptor_count))
 	uber_heap_count(debug_index, debug_name)
+	return ct.descriptor_count - 1
 }
 
 create_cbv_on_uber_heap :: proc(
-		cbv_desc : ^dx.CONSTANT_BUFFER_VIEW_DESC, debug_index: bool = false, debug_name: string = "") {
+		cbv_desc : ^dx.CONSTANT_BUFFER_VIEW_DESC, debug_index: bool = false, debug_name: string = "") -> (srv_index: uint) {
 	ct := &g_dx_context
 	ct.device->CreateConstantBufferView(cbv_desc, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, ct.descriptor_count))
 	uber_heap_count(debug_index, debug_name)
+	return ct.descriptor_count - 1
 }
 
 uber_heap_count :: proc(debug_index: bool, debug_name: string) {
@@ -641,7 +643,7 @@ lprintfln :: proc(fmt_s: string, args: ..any) {
 
 get_descriptor_heap_cpu_address :: proc(
 	heap: ^dx.IDescriptorHeap,
-	offset: u32 = 0,
+	offset: uint = 0,
 ) -> (
 	cpu_descriptor_handle: dx.CPU_DESCRIPTOR_HANDLE,
 ) {
@@ -649,7 +651,7 @@ get_descriptor_heap_cpu_address :: proc(
 	desc: dx.DESCRIPTOR_HEAP_DESC
 	heap->GetDesc(&desc)
 	increment := g_dx_context.device->GetDescriptorHandleIncrementSize(desc.Type)
-	cpu_descriptor_handle.ptr += uint(offset * increment)
+	cpu_descriptor_handle.ptr += uint(offset * cast(uint)increment)
 	return
 }
 

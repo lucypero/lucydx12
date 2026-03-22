@@ -4,7 +4,9 @@
 - `dx_upload_trigger` and `dx_upload_texture_trigger` run on multiple threads. make them thread safe or run them only on the upload thread.
 - a lot of atomic operations that are now in the code on `.status` are not necessary. re-evaluate this.
 
-
+- manage the uber heap better. make it more into a ring buffer. have a global tracker on where the last SRV is.
+	- for now, the counter keeps going up forever. make it wrap.
+	- it's also not thread safe probably.
 
 # multi threading - profiling results
 

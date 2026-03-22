@@ -97,11 +97,7 @@ scene_from_gltf :: proc(scene: ^Scene) {
 			},
 		}
 		
-		// create_srv_on_uber_heap(scene.sb_model_matrices, true, "model matrices structured buffer", &srv_desc)
-		
-		// TODO: REFACTOR THIS ABOMINATION. THIS IS HARDVODED AND WRONG!!!
-		g_dx_context.device->CreateShaderResourceView(scene.sb_model_matrices, &srv_desc, get_descriptor_heap_cpu_address(g_dx_context.cbv_srv_uav_heap, 6))
-		
+		scene.model_matrices_srv_index = create_srv_on_uber_heap(scene.sb_model_matrices, &srv_desc)
 	}
 	
 	// gizmos stuff
@@ -385,9 +381,9 @@ gltf_load_nodes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	scene.mesh_count = mesh_count
 }
 
-load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: string, res_pool : ^DXResourcePool, textures_srv_index: ^u32) {
+@(require_results)
+load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: string, res_pool : ^DXResourcePool) -> (srv_index: uint) {
 	
-	ct := &g_dx_context
 	TEMP_GUARD()
 	
 	image_name : string
@@ -408,10 +404,8 @@ load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: s
 	texture_res := create_texture_with_data(dds_file.mipmap_data, u64(dds_file.width), dds_file.height, dds_file.format, 
 		res_pool, string(image.name))
 	
-	ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, textures_srv_index^))
-	textures_srv_index^ += 1
+	return create_srv_on_uber_heap(texture_res)
 }
-
 
 gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string, scene: ^Scene) {
 	
@@ -427,8 +421,6 @@ gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string
 	
 	mats := make([]Material, len(data.materials), context.temp_allocator)
 	
-	textures_srv_index : u32 = TEXTURE_INDEX_BASE // starting at 100 to not interfere with other views
-	
 	for mat, i in data.materials {
 		assert(bool(mat.has_pbr_metallic_roughness))
 		
@@ -441,13 +433,13 @@ gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string
 			// process base color (BC 7 SRGB)
 			// load mat.pbr_metallic_roughness.base_color_texture.texture.image_
 			
+			srv_i := load_texture(mat.pbr_metallic_roughness.base_color_texture.texture.image_, 
+				.BC7_UNORM_SRGB, model_filepath, &scene.resource_pool)
+			
 			mats[i].base_color = TextureUV {
-				texture_id = textures_srv_index,
+				texture_id = cast(u32)srv_i,
 				uv_id = get_texture_uv(data, mat.pbr_metallic_roughness.base_color_texture),
 			}
-			
-			load_texture(mat.pbr_metallic_roughness.base_color_texture.texture.image_, 
-				.BC7_UNORM_SRGB, model_filepath, &scene.resource_pool, &textures_srv_index)
 		}
 		
 		// metallic roughness
@@ -455,13 +447,14 @@ gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string
 			// process metallic roughness (BC 7 UNORM)
 			// load mat.pbr_metallic_roughness.metallic_roughness_texture.texture.image_
 			
+			srv_i := load_texture(mat.pbr_metallic_roughness.metallic_roughness_texture.texture.image_,
+			 .BC7_UNORM, model_filepath, &scene.resource_pool)
+			
+			
 			mats[i].metallic_roughness = TextureUV {
-				texture_id = textures_srv_index,
+				texture_id = cast(u32)srv_i,
 				uv_id = get_texture_uv(data, mat.pbr_metallic_roughness.metallic_roughness_texture),
 			}
-			
-			load_texture(mat.pbr_metallic_roughness.metallic_roughness_texture.texture.image_,
-			 .BC7_UNORM, model_filepath, &scene.resource_pool, &textures_srv_index)
 		}
 		
 		// normal
@@ -469,13 +462,13 @@ gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string
 			// process normal texture (BC 5 UNORM)
 			// load mat.normal_texture.texture.image_
 			
+			srv_i := load_texture(mat.normal_texture.texture.image_,
+			 .BC5_UNORM, model_filepath, &scene.resource_pool)
+			
 			mats[i].normal = TextureUV {
-				texture_id = textures_srv_index,
+				texture_id = cast(u32)srv_i,
 				uv_id = get_texture_uv(data, mat.normal_texture),
 			}
-			
-			load_texture(mat.normal_texture.texture.image_,
-			 .BC5_UNORM, model_filepath, &scene.resource_pool, &textures_srv_index)
 		}
 	}
 	
@@ -497,8 +490,5 @@ gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string
 		},
 	}
 	
-	// create_srv_on_uber_heap(scene.sb_materials, true, "materials srv", &srv_desc)
-	
-	// TODO: REFACTOR THIS ABOMINATION. THIS IS HARDVODED AND WRONG!!!
-	g_dx_context.device->CreateShaderResourceView(scene.sb_materials, &srv_desc, get_descriptor_heap_cpu_address(g_dx_context.cbv_srv_uav_heap, 5))
+	scene.material_srv_index = create_srv_on_uber_heap(scene.sb_materials, &srv_desc, true, "materials srv")
 }
