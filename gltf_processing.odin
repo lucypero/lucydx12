@@ -247,7 +247,7 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 		index_count = u32(len(sphere_indices))
 	}
 	
-	g_uv_sphere_mesh = Mesh {
+	scene.uv_sphere_mesh = Mesh {
 		primitives = sphere_primitive
 	}
 	

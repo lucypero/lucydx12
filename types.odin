@@ -209,8 +209,10 @@ Scene :: struct {
 	nodes: []Node,
 	root_nodes: []int,
 	mesh_count: uint,
+	uv_sphere_mesh: Mesh,
 	meshes: []Mesh,
 	allocator: virtual.Arena,
+	
 	
 	// dx resources
 	sb_model_matrices: ^dx.IResource,

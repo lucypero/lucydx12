@@ -40,7 +40,6 @@ import "../odin-imgui/imgui_impl_dx12"
 @(private="package") g_is_app_shutting_down: bool
 @(private="package") g_dx_context: Context
 @(private="package") g_resources_longterm: DXResourcePool
-@(private="package") g_uv_sphere_mesh: Mesh
 @(private="package") g_scenes: [3]Scene
 
 // private global staet
@@ -179,7 +178,6 @@ main :: proc() {
 	
 	// destroy stray meshes (gizmo sphere)
 	// (it's now in g_scene)
-	// defer delete(g_uv_sphere_mesh.primitives)
 	
 	trace.init(&g_global_trace_ctx)
 	defer trace.destroy(&g_global_trace_ctx)
@@ -744,10 +742,19 @@ do_imgui_ui :: proc() {
 		
 		switch current_selected {
 		case 0:
-			lprintln("swap with  scene 0 (sponza)")
 			scene_swap(MODEL_FILEPATH_SPONZA)
 		case 1:
-			lprintln("swap with  scene 1 (something else)")
+			scene_swap(MODEL_FILEPATH_FLIGHTHELMET)
+		}
+	}
+	
+	if im.Button("switch scenes") {
+		current_selected = current_selected == 0 ? 1 : 0
+		
+		switch current_selected {
+		case 0:
+			scene_swap(MODEL_FILEPATH_SPONZA)
+		case 1:
 			scene_swap(MODEL_FILEPATH_FLIGHTHELMET)
 		}
 	}
@@ -1964,7 +1971,7 @@ render_gizmos :: proc () {
 	ct.cmdlist->IASetIndexBuffer(&scene.index_buffer_view)
 	
 	// TEST: use first mesh primitive from main vertex buffer
-	uv_sphere_primitive := g_uv_sphere_mesh.primitives[0]
+	uv_sphere_primitive := scene.uv_sphere_mesh.primitives[0]
 	ct.cmdlist->DrawIndexedInstanced(uv_sphere_primitive.index_count, gizmos_count, uv_sphere_primitive.index_offset, 0, 0)
 }
 
