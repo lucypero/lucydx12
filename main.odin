@@ -29,11 +29,11 @@ import dxma "libs/odin-d3d12ma"
 import sa "core:container/small_array"
 
 // imgui
-import im "../odin-imgui"
+import im "libs/odin-imgui"
 // imgui sdl2 implementation
-import "../odin-imgui/imgui_impl_sdl2"
+import "libs/odin-imgui/imgui_impl_sdl2"
 // imgui dx12 implementation
-import "../odin-imgui/imgui_impl_dx12"
+import "libs/odin-imgui/imgui_impl_dx12"
 
 // ---- GLOBAL STATE ----
 
