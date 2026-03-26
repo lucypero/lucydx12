@@ -566,7 +566,7 @@ texture_cache_query :: proc(model_filepath, image_name: string, format: dxgi.FOR
 	
 	state, _, _, err := os.process_exec(os.Process_Desc {
 		command = {
-			"texconv.exe",
+			"./texconv.exe",
 			"-f", reflect.enum_string(format), // select output format
 			"-m", "0", // all mip levels
 			"-y", // overwrite
