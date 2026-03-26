@@ -46,13 +46,14 @@ MODEL_FILEPATH_TEAPOT :: "models/teapot.glb"
 MODEL_FILEPATH_TEST_SCENE :: "models/test_scene.glb"
 // model_filepath :: "models/main_sponza/sponza_blender.glb"
 
+GLTF_SAMPLES_DIR :: "models/glTF-Sample-Models/2.0"
 // no decals (ruins solid rendering)
 MODEL_FILEPATH_BIG_SPOZA_NO_DECALS :: "models/main_sponza/sponza_blender_no_decals.glb"
-MODEL_FILEPATH_SPONZA :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/Sponza/glTF/Sponza.gltf"
-MODEL_FILEPATH_TOYCAR :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/ToyCar/glTF/ToyCar.gltf"
+MODEL_FILEPATH_SPONZA :: GLTF_SAMPLES_DIR + "/Sponza/glTF/Sponza.gltf"
+MODEL_FILEPATH_TOYCAR :: GLTF_SAMPLES_DIR + "/ToyCar/glTF/ToyCar.gltf"
 MODEL_FILEPATH_NORMAL_MAP_TEST :: "models/normal_map_test.glb"
-MODEL_FILEPATH_SUZANNE :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/Suzanne/glTF/Suzanne.gltf"
-MODEL_FILEPATH_FLIGHTHELMET :: "C:/Users/Lucy/third_party/glTF-Sample-Models/2.0/FlightHelmet/glTF/FlightHelmet.gltf"
+MODEL_FILEPATH_SUZANNE :: GLTF_SAMPLES_DIR + "/Suzanne/glTF/Suzanne.gltf"
+MODEL_FILEPATH_FLIGHTHELMET :: GLTF_SAMPLES_DIR + "/FlightHelmet/glTF/FlightHelmet.gltf"
 
 
 
