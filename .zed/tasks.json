@@ -1,7 +1,7 @@
 [
   {
     "label": "build debug",
-    "command": "odin build . -debug -out:lucydx12.exe -linker:radlink -vet-packages:main -vet-unused-variables -vet-shadowing -vet-using-stmt -vet-cast",
+    "command": "odin build . -debug -out:lucydx12.exe -linker:radlink -vet-packages:main,sluggish_generator -vet-unused-variables -vet-shadowing -vet-using-stmt -vet-cast",
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
     "reveal": "always",
@@ -11,6 +11,10 @@
     },
     "show_summary": true,
     "show_command": true,
+  },
+  {
+  	"label": "build sluggish generator",
+   "command": "odin build src/sluggish_generator -debug -build-mode:dynamic -linker:radlink -vet-packages:sluggish_generator -vet-unused-variables -vet-shadowing -vet-using-stmt -vet-cast",
   },
   {
     "label": "build profile - debug",
@@ -40,7 +44,7 @@
   },
   {
     "label": "run debug",
-    "command": "odin run . -debug -out:lucydx12.exe -linker:radlink -keep-executable",
+    "command": "odin run . -debug -out:lucydx12.exe -linker:radlink -keep-executable -vet-packages:main,sluggish_generator -vet-unused-variables -vet-shadowing -vet-using-stmt -vet-cast",
     "use_new_terminal": false,
     "allow_concurrent_runs": false,
     "reveal": "always",
