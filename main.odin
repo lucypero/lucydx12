@@ -28,6 +28,8 @@ import "core:prof/spall"
 import dxma "libs/odin-d3d12ma"
 import sa "core:container/small_array"
 
+import sg "src/sluggish_generator"
+
 // imgui
 import im "libs/odin-imgui"
 // imgui sdl2 implementation
@@ -228,6 +230,8 @@ main :: proc() {
 	}
 
 	defer sdl.DestroyWindow(ct.window)
+	
+	sluggish_test()
 
 	init_dx()
 	init_dx_other()
@@ -2113,4 +2117,14 @@ get_first_active_scene :: proc() -> (scene: ^Scene, ok: bool) {
 	}
 	
 	return nil, false
+}
+
+sluggish_test :: proc() {
+	sluggish_out :: "fonts/sluggish/arial.sluggish"
+	sluggish_codepoints, ok := sg.build_sluggish("fonts/ttf/arial.ttf", band_count = 16, allocator = context.allocator)
+	assert(ok)
+	defer delete(sluggish_codepoints)
+	
+	os_err := os.write_entire_file(sluggish_out, slice.to_bytes(sluggish_codepoints))
+	assert(os_err == os.General_Error.None)
 }

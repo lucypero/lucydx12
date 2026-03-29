@@ -1,4 +1,4 @@
 {
 	"$schema": "https://raw.githubusercontent.com/DanielGavin/ols/master/misc/ols.schema.json",
-	"checker_args": "-vet-shadowing"
+	"checker_args": "-vet-packages:main,sluggish_generator -vet-unused-variables -vet-shadowing -vet-using-stmt -vet-cast"
 }
