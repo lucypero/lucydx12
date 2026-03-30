@@ -1,5 +1,9 @@
 package sluggish_generator
 
+import "core:encoding/endian"
+import "core:strconv/decimal"
+import "core:strconv"
+import "core:io"
 import "core:math"
 import "core:slice"
 import "core:fmt"
@@ -11,6 +15,29 @@ import "core:mem"
 TEXTURE_WIDTH :: 4096
 TEXTURE_MASK :: 0xFFF
 TEXTURE_SHIFT :: 12
+
+/*
+Sluggish font file format
+
+SLUGGISH (8 bytes)
+# code points (u16)
+array of SluggishCodePoint
+curves texture width (u16)
+curves texture height (u16)
+curves texture bytes (u32)
+curves texture data (RGBA 32f)
+bands texture width (u16)
+bands texture height (u16)
+bands texture bytes (u32)
+bands texture data (RG 16)
+*/
+
+SluggishData :: struct {
+	codepoints: []SluggishCodePoint, // g_codePoints
+	curves_data: []f32, // g_curvesTexture
+	bands_texture_band_offsets: []u16, // g_bandsTextureBandOffsets
+	bands_texture_curve_offsets: []u16, // g_bandsTextureCurveOffsets
+}
 
 SluggishCodePoint :: struct #packed {
 	codePoint: u32,
@@ -32,7 +59,7 @@ Curve :: struct {
 }
 
 build_sluggish :: proc(tt_truetype_filepath: string, band_count: u32 = 16, allocator: mem.Allocator = context.allocator) ->
-	(codepoints: []SluggishCodePoint, ok : bool) {
+	(sluggish_data: SluggishData, ok : bool) {
 	
 	tt_font: tt.fontinfo
 	tt_file_data, err := os.read_entire_file(tt_truetype_filepath, context.temp_allocator)
@@ -42,12 +69,12 @@ build_sluggish :: proc(tt_truetype_filepath: string, band_count: u32 = 16, alloc
 	
 	ignored_codepoints : int
 	curves := make([dynamic]Curve, allocator = allocator) // this doesn't get written to the file
-	curves_data := make([dynamic]f32, allocator = allocator) // GL_RGBA32F [x1 y1 x2 y2]
+	curves_data := make([dynamic]f32, allocator = allocator) // GL_RGBA32F [x1 y1 x2 y2] (g_curvesTexture)
 	
-	bands_texture_band_offsets := make([dynamic]u16, allocator = allocator); // GL_RG16 [curve_count band_offset]
-	bands_texture_curve_offsets := make([dynamic]u16, allocator = allocator) // GL_RG16 [curve_offset curve_offset]
+	bands_texture_band_offsets := make([dynamic]u16, allocator = allocator); // GL_RG16 [curve_count band_offset] (g_bandsTextureBandOffsets)
+	bands_texture_curve_offsets := make([dynamic]u16, allocator = allocator) // GL_RG16 [curve_offset curve_offset] (g_bandsTextureCurveOffsets)
 	
-	codepoints_dyn := make([dynamic]SluggishCodePoint, allocator = allocator)
+	codepoints_dyn := make([dynamic]SluggishCodePoint, allocator = allocator) // g_codePoints
 	
 	for codepoint in 33..=126 {
 		// process code points
@@ -332,7 +359,108 @@ build_sluggish :: proc(tt_truetype_filepath: string, band_count: u32 = 16, alloc
 		}
 	}
 	
-	return codepoints_dyn[:], true
+	return SluggishData {
+		codepoints = codepoints_dyn[:],
+		curves_data = curves_data[:],
+		bands_texture_band_offsets = bands_texture_band_offsets[:],
+		bands_texture_curve_offsets = bands_texture_curve_offsets[:],
+	}, true
 }
 
+build_sluggish_to_file :: proc(tt_truetype_filepath: string, out_file:string, band_count: u32 = 16) ->
+		(ok : bool) {
+			
+	sluggish_data, s_ok := build_sluggish(tt_truetype_filepath, band_count, allocator = context.temp_allocator)
+	assert(s_ok)
+	
+	file, err := os.open(out_file, {.Create, .Write, .Trunc})
+	assert(err == os.ERROR_NONE)
+	
+	// fix up the bands' texel offsets first
+	bandsTexTexels: u32 = cast(u32)(len(sluggish_data.bands_texture_band_offsets) + len(sluggish_data.bands_texture_curve_offsets)) / 2;
+	bandHeaderTexels: u16 = cast(u16)(len(sluggish_data.bands_texture_band_offsets) / 2);
+	
+	for i := 1; i < len(sluggish_data.bands_texture_band_offsets); i += 2 {
+		sluggish_data.bands_texture_band_offsets[i] += bandHeaderTexels;
+		if cast(u32)sluggish_data.bands_texture_band_offsets[i] >= bandsTexTexels {
+			fmt.eprintln("Too much data generated to be indexed! Try a lower band count.\n");
+			return false
+		}
+	}
+	
+	stream := os.to_writer(file)
+	io_err : io.Error
+	
+	_, io_err = io.write_string(stream, "SLUGGISH")
+	assert(io_err == .None)
+	
+	// err = os.close(file)
+	// assert(err == os.ERROR_NONE)
+	
+	// io.write_f16
+	write_num(stream, cast(u16)len(sluggish_data.codepoints))
+	io.write_slice(stream, sluggish_data.codepoints)
+	
+	curvesTexWidth: u16 = TEXTURE_WIDTH
+	curvesTexTexels: u32 = cast(u32)len(sluggish_data.curves_data) / 4
+	curvesTexBytes: u32 = cast(u32)len(sluggish_data.curves_data) * cast(u32)size_of(sluggish_data.curves_data[0])
+	curvesTexHeight: u16 = cast(u16)((curvesTexTexels + cast(u32)curvesTexWidth - 1) / cast(u32)curvesTexWidth)
+	
+	write_num(stream, curvesTexWidth)
+	write_num(stream, curvesTexHeight)
+	write_num(stream, curvesTexBytes)
+	io.write_slice(stream, sluggish_data.curves_data)
+	
+	bandsTexWidth: u16 = TEXTURE_WIDTH;
+	
+	bandsTexBytes: u32 = bandsTexTexels * cast(u32)size_of(u16) * 2;
+	bandsTexHeight: u16 = cast(u16)((bandsTexTexels + cast(u32)bandsTexWidth - 1) / cast(u32)bandsTexWidth);
+	
+	write_num(stream, bandsTexWidth)
+	write_num(stream, bandsTexHeight)
+	write_num(stream, bandsTexBytes)
+	io.write_slice(stream, sluggish_data.bands_texture_band_offsets)
+	io.write_slice(stream, sluggish_data.bands_texture_curve_offsets)
+	
+	// done. closing
+	
+	io_err = io.close(stream)
+	assert(io_err == .None)
+	
+	return true
+}
+
+@(private="file")
+write_u16 :: proc(w: io.Writer, i: u16, n_written: ^int = nil) -> (n: int, err: io.Error) {
+	buf: [2]byte
+	endian.put_u16(buf[:], .Little, i)
+	return io.write(w, buf[:])
+	
+	// buf: [10]byte
+	// s := strconv.write_bits(buf[:], u64(i), 10, false, 16, strconv.digits, nil)
+	// return io.write_string(w, s, n_written)
+}
+
+@(private="file")
+write_u32 :: proc(w: io.Writer, i: u32, n_written: ^int = nil) -> (n: int, err: io.Error) {
+	buf: [4]byte
+	endian.put_u32(buf[:], .Little, i)
+	return io.write(w, buf[:])
+	
+	// buf: [10]byte
+	// s := strconv.write_bits(buf[:], u64(i), 10, false, 32, strconv.digits, nil)
+	// return io.write_string(w, s, n_written)
+}
+
+write_num :: proc {write_u16, write_u32}
+
 //  todo: make the file following the file format. and compare it with the files generated by sluggish.
+
+// run this command to compare files
+// E:\dev\Sluggish: fc arial.sluggish ..\dx12\fonts\sluggish\arial.sluggish
+
+// done! no differences encountered
+
+// E:\dev\Sluggish: fc arial.sluggish ..\dx12\fonts\sluggish\arial.sluggish
+// Comparing files arial.sluggish and ..\DX12\FONTS\SLUGGISH\ARIAL.SLUGGISH
+// FC: no differences encountered
