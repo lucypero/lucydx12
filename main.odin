@@ -2120,11 +2120,14 @@ get_first_active_scene :: proc() -> (scene: ^Scene, ok: bool) {
 }
 
 sluggish_test :: proc() {
+	sluggish_in :: "fonts/ttf/arial.ttf"
 	sluggish_out :: "fonts/sluggish/arial.sluggish"
-	sluggish_codepoints, ok := sg.build_sluggish("fonts/ttf/arial.ttf", band_count = 16, allocator = context.allocator)
-	assert(ok)
-	defer delete(sluggish_codepoints)
+	// sluggish_codepoints, ok := sg.build_sluggish("fonts/ttf/arial.ttf", band_count = 16, allocator = context.allocator)
+	// assert(ok)
 	
-	os_err := os.write_entire_file(sluggish_out, slice.to_bytes(sluggish_codepoints))
-	assert(os_err == os.General_Error.None)
+	ok_2 := sg.build_sluggish_to_file(sluggish_in, sluggish_out)
+	assert(ok_2)
+	
+	// os_err := os.write_entire_file(sluggish_out, slice.to_bytes(sluggish_codepoints))
+	// assert(os_err == os.General_Error.None)
 }
