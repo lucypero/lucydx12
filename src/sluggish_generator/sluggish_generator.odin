@@ -373,8 +373,6 @@ build_sluggish_to_file :: proc(tt_truetype_filepath: string, out_file:string, ba
 	sluggish_data, s_ok := build_sluggish(tt_truetype_filepath, band_count, allocator = context.temp_allocator)
 	assert(s_ok)
 	
-	file, err := os.open(out_file, {.Create, .Write, .Trunc})
-	assert(err == os.ERROR_NONE)
 	
 	// fix up the bands' texel offsets first
 	bandsTexTexels: u32 = cast(u32)(len(sluggish_data.bands_texture_band_offsets) + len(sluggish_data.bands_texture_curve_offsets)) / 2;
@@ -388,16 +386,14 @@ build_sluggish_to_file :: proc(tt_truetype_filepath: string, out_file:string, ba
 		}
 	}
 	
+	file, err := os.open(out_file, {.Create, .Write, .Trunc})
+	assert(err == os.ERROR_NONE)
 	stream := os.to_writer(file)
 	io_err : io.Error
 	
 	_, io_err = io.write_string(stream, "SLUGGISH")
 	assert(io_err == .None)
 	
-	// err = os.close(file)
-	// assert(err == os.ERROR_NONE)
-	
-	// io.write_f16
 	write_num(stream, cast(u16)len(sluggish_data.codepoints))
 	io.write_slice(stream, sluggish_data.codepoints)
 	
@@ -421,8 +417,6 @@ build_sluggish_to_file :: proc(tt_truetype_filepath: string, out_file:string, ba
 	write_num(stream, bandsTexBytes)
 	io.write_slice(stream, sluggish_data.bands_texture_band_offsets)
 	io.write_slice(stream, sluggish_data.bands_texture_curve_offsets)
-	
-	// done. closing
 	
 	io_err = io.close(stream)
 	assert(io_err == .None)
