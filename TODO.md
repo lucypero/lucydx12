@@ -9,13 +9,6 @@
 	- hot swap init
 	- free shader references
 	
-	
-```odin
-
-
-
-```
-	
 # Rendering sluggish
 
 - you already have sluggish data generated.

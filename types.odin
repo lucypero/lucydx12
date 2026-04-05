@@ -36,7 +36,7 @@ ui_shader_filename :: "ui.hlsl"
 WINDOW_WIDTH :: i32(2000)
 WINDOW_HEIGHT :: i32(1000)
 
-GBUFFER_COUNT :: 3
+GBUFFER_COUNT :: len(GBufferUnitName)
 
 TEXTURE_WHITE_INDEX :: TEXTURE_INDEX_BASE - 1
 TEXTURE_INDEX_BASE :: 400
@@ -54,9 +54,6 @@ MODEL_FILEPATH_TOYCAR :: GLTF_SAMPLES_DIR + "/ToyCar/glTF/ToyCar.gltf"
 MODEL_FILEPATH_NORMAL_MAP_TEST :: "models/normal_map_test.glb"
 MODEL_FILEPATH_SUZANNE :: GLTF_SAMPLES_DIR + "/Suzanne/glTF/Suzanne.gltf"
 MODEL_FILEPATH_FLIGHTHELMET :: GLTF_SAMPLES_DIR + "/FlightHelmet/glTF/FlightHelmet.gltf"
-
-
-
 
 VertexData :: struct {
 	pos: v3,
@@ -82,39 +79,22 @@ GBufferUnit :: struct {
 	format: dxgi.FORMAT,
 }
 
+// NEVER CHANGE THE ORDER OF THESE.
+// They are used as render targets in a shader. that's mainly why.
+GBufferUnitName :: enum {
+	Albedo,
+	Normal,
+	AO_Rough_Metal,
+}
+
 GBuffer :: struct {
-	gb_albedo: GBufferUnit,
-	gb_normal: GBufferUnit,
-	gb_ao_rough_metal: GBufferUnit,
+	gbuffers: [GBufferUnitName]GBufferUnit,
 	rtv_heap: ^dx.IDescriptorHeap,
 }
 
 pso_creation_signature :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState
 
 MAX_GIZMOS :: 20
-
-// TODO: refactor all PSO code so it uses this struct
-PSO :: struct {
-	pipeline_state: ^dx.IPipelineState,
-	root_signature: ^dx.IRootSignature,
-	pso_creation_proc: pso_creation_signature,
-	shader_filename: string,
-	
-	/// For hot swapping
-	last_write_time: time.Time,
-	pso_swap: ^dx.IPipelineState,
-
-	// index in the queue array to free the resource
-	// i use this to swap the pointer when the pso gets hot swapped
-	pso_index: int,
-}
-
-// All our PSO's
-PSOName :: enum {
-	GBuffer_Pass,
-	Lighting_Pass,
-	Gizmos
-}
 
 Context :: struct {
 	// sdl stuff

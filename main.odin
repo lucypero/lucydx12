@@ -68,8 +68,8 @@ when PROFILE {
 
 // ----- //// GLOBAL STATE ------
 
-get_cbv :: proc() -> ConstantBufferData {
-
+cb_update :: proc() {
+	
 	// ticking cbv time value
 	thetime := time.diff(g_start_time, time.now())
 	g_the_time_sec = f32(thetime) / f32(time.Second)
@@ -81,8 +81,8 @@ get_cbv :: proc() -> ConstantBufferData {
 	view, projection := get_view_projection(cur_cam)
 
 	active_scene, scene_is_active := get_first_active_scene()
-
-	return ConstantBufferData {
+	
+	cbv_data := ConstantBufferData {
 		view = view,
 		projection = projection,
 		inverse_view_proj = linalg.inverse(projection * view),
@@ -93,11 +93,6 @@ get_cbv :: proc() -> ConstantBufferData {
 		current_scene_materials_idx = scene_is_active ? cast(u32)active_scene.material_srv_index : 0,
 		current_scene_mesh_transforms_idx = scene_is_active ? cast(u32)active_scene.model_matrices_srv_index : 0,
 	}
-}
-
-cb_update :: proc() {
-
-	cbv_data := get_cbv()
 
 	// sending data to the cpu mapped memory that the gpu can read
 	mem.copy(g_dx_context.constant_buffer_map, (rawptr)(&cbv_data), size_of(cbv_data))
@@ -760,14 +755,8 @@ render :: proc() {
 
 	g_mesh_drawn_count = 0
 
-	// case .WINDOWEVENT:
-	// This is equivalent to WM_PAINT in win32 API
-	// if e.window.event == .EXPOSED {
-	check(hr, "Failed resetting command allocator")
-
-	hr = ct.cmdlist->Reset(ct.command_allocator, ct.psos[.GBuffer_Pass].pipeline_state)
-	check(hr, "Failed to reset command list")
-
+	ct.cmdlist->Reset(ct.command_allocator, nil)
+	
 	pso_gbuffer_render()
 	pso_lighting_render()
 	if g_light_draw_gizmos do pso_gizmos_render()
@@ -776,26 +765,11 @@ render :: proc() {
 
 	// Cannot draw after this point!!
 
-
 	// Transitioning the render target to "Present" state
-
-	{
-		to_present_barrier := dx.RESOURCE_BARRIER {
-			Type = .TRANSITION,
-			Flags = {},
-			Transition = {
-				pResource = g_dx_context.targets[g_dx_context.frame_index],
-				StateBefore = {.RENDER_TARGET},
-				StateAfter = dx.RESOURCE_STATE_PRESENT,
-				Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
-			},
-		}
-
-		ct.cmdlist->ResourceBarrier(1, &to_present_barrier)
-	}
-
-	hr = ct.cmdlist->Close()
-	check(hr, "Failed to close command list")
+	transition_resource(g_dx_context.targets[g_dx_context.frame_index],
+	 	ct.cmdlist, {.RENDER_TARGET}, dx.RESOURCE_STATE_PRESENT, subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES)
+	
+	ct.cmdlist->Close()
 
 	// execute
 	cmdlists := [?]^dx.IGraphicsCommandList{ct.cmdlist}
@@ -1174,9 +1148,11 @@ create_gbuffer :: proc() -> GBuffer {
 	// refactor those blocks above with a function
 
 	return GBuffer {
-		gb_albedo = create_gbuffer_unit(.R8G8B8A8_UNORM, "gbuffer - ALBEDO", rtv_descriptor_handle_heap_start, rtv_descriptor_size, 0),
-		gb_normal = create_gbuffer_unit(.R10G10B10A2_UNORM, "gbuffer - NORMALS", rtv_descriptor_handle_heap_start, rtv_descriptor_size, 1),
-		gb_ao_rough_metal = create_gbuffer_unit(.R8G8B8A8_UNORM, "gbuffer - AO ROUGH METAL", rtv_descriptor_handle_heap_start, rtv_descriptor_size, 2),
+		gbuffers = [GBufferUnitName]GBufferUnit {
+			.Albedo = create_gbuffer_unit(.R8G8B8A8_UNORM, "gbuffer - ALBEDO", rtv_descriptor_handle_heap_start, rtv_descriptor_size, 0),
+			.Normal = create_gbuffer_unit(.R10G10B10A2_UNORM, "gbuffer - NORMALS", rtv_descriptor_handle_heap_start, rtv_descriptor_size, 1),
+			.AO_Rough_Metal = create_gbuffer_unit(.R8G8B8A8_UNORM, "gbuffer - AO ROUGH METAL", rtv_descriptor_handle_heap_start, rtv_descriptor_size, 2),
+		},
 		rtv_heap = gb_rtv_dh
 	}
 }
@@ -1532,11 +1508,9 @@ create_lighting_root_signature :: proc() -> ^dx.IRootSignature{
 pso_gbuffer_render :: proc() {
 
 	ct := &g_dx_context
-
-	// setting descriptor heap for our cbv srv uav's
+	
+	ct.cmdlist->SetPipelineState(ct.psos[.GBuffer_Pass].pipeline_state)
 	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap)
-
-	// This state is reset everytime the cmd list is reset, so we need to rebind it
 	ct.cmdlist->SetGraphicsRootSignature(ct.psos[.GBuffer_Pass].root_signature)
 
 	transition_resource(ct.depth_stencil_res, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
@@ -1544,41 +1518,14 @@ pso_gbuffer_render :: proc() {
 	set_viewport_stuff()
 
 	// Transitioning gbuffers from SRVs to render target
-	{
-		res_barriers: [GBUFFER_COUNT]dx.RESOURCE_BARRIER
-
-		// res barrier template
-
-		res_barriers[0] = dx.RESOURCE_BARRIER {
-			Type = .TRANSITION,
-			Flags = {},
-			Transition = {
-				pResource = nil,
-				StateBefore = {.PIXEL_SHADER_RESOURCE},
-				StateAfter = {.RENDER_TARGET},
-				Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
-			},
-		}
-
-		// populating all res barriers with each gbuffer
-		res_barriers[0] = res_barriers[0]
-		res_barriers[0].Transition.pResource = ct.gbuffer.gb_albedo.res
-
-		res_barriers[1] = res_barriers[0]
-		res_barriers[1].Transition.pResource = ct.gbuffer.gb_normal.res
-
-		res_barriers[2] = res_barriers[0]
-		res_barriers[2].Transition.pResource = ct.gbuffer.gb_ao_rough_metal.res
-
-		ct.cmdlist->ResourceBarrier(GBUFFER_COUNT, &res_barriers[0])
-	}
+	transition_gbuffers(true)
 
 	// Setting render targets. Clearing DSV and RTV.
 	{
 		rtv_handles := [GBUFFER_COUNT]dx.CPU_DESCRIPTOR_HANDLE {
-			g_dx_context.gbuffer.gb_albedo.rtv,
-			g_dx_context.gbuffer.gb_normal.rtv,
-			g_dx_context.gbuffer.gb_ao_rough_metal.rtv,
+			g_dx_context.gbuffer.gbuffers[.Albedo].rtv,
+			g_dx_context.gbuffer.gbuffers[.Normal].rtv,
+			g_dx_context.gbuffer.gbuffers[.AO_Rough_Metal].rtv,
 		}
 		dsv_handle := get_descriptor_heap_cpu_address(g_dx_context.descriptor_heap_dsv, 0)
 
@@ -1589,9 +1536,9 @@ pso_gbuffer_render :: proc() {
 		clearcolor := [?]f32{0, 0, 0, 1.0}
 
 		// we should probably clear each gbuffer individually to a sane value...
-		ct.cmdlist->ClearRenderTargetView(rtv_handles[0], &clearcolor, 0, nil)
-		ct.cmdlist->ClearRenderTargetView(rtv_handles[1], &clearcolor, 0, nil)
-		ct.cmdlist->ClearRenderTargetView(rtv_handles[2], &clearcolor, 0, nil)
+		for rtv_handle in rtv_handles {
+			ct.cmdlist->ClearRenderTargetView(rtv_handle, &clearcolor, 0, nil)
+		}
 
 		// clearing depth buffer
 		ct.cmdlist->ClearDepthStencilView(dsv_handle, {.DEPTH, .STENCIL}, 1.0, 0, 0, nil)
@@ -1604,7 +1551,7 @@ pso_gbuffer_render :: proc() {
 	for &scene in g_scenes {
 		st := scene_status_load(&scene.status)
 		#partial switch st {
-		case .Ready, .QueuedForDeletion: // if we draw queued for deletion, a nice effect happens when u switch scenes.
+		case .Ready, .QueuedForDeletion:
 		case:
 			continue
 		}
@@ -1649,6 +1596,37 @@ pso_gbuffer_render :: proc() {
 
 }
 
+// to_render_target = false: transitions from render target to pixel shader resource
+// to_render_target = true: viceversa
+transition_gbuffers :: proc(to_render_target: bool) {
+	
+	ct := &g_dx_context
+	res_barriers: [GBufferUnitName]dx.RESOURCE_BARRIER
+
+	res_barriers[.Albedo] = dx.RESOURCE_BARRIER {
+		Type = .TRANSITION,
+		Flags = {},
+		Transition = {
+			pResource = nil,
+			StateBefore = to_render_target ? {.PIXEL_SHADER_RESOURCE} : {.RENDER_TARGET},
+			StateAfter = to_render_target ? {.RENDER_TARGET} : {.PIXEL_SHADER_RESOURCE},
+			Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
+		},
+	}
+
+	// populating all res barriers with each gbuffer
+	res_barriers[.Albedo] = res_barriers[.Albedo]
+	res_barriers[.Albedo].Transition.pResource = ct.gbuffer.gbuffers[.Albedo].res
+
+	res_barriers[.Normal] = res_barriers[.Albedo]
+	res_barriers[.Normal].Transition.pResource = ct.gbuffer.gbuffers[.Normal].res
+
+	res_barriers[.AO_Rough_Metal] = res_barriers[.Albedo]
+	res_barriers[.AO_Rough_Metal].Transition.pResource = ct.gbuffer.gbuffers[.AO_Rough_Metal].res
+
+	ct.cmdlist->ResourceBarrier(GBUFFER_COUNT, &res_barriers[cast(GBufferUnitName)0])
+}
+
 pso_lighting_render :: proc() {
 
 
@@ -1657,34 +1635,7 @@ pso_lighting_render :: proc() {
 	ct.cmdlist->SetPipelineState(ct.psos[.Lighting_Pass].pipeline_state)
 
 	// Transitioning gbuffers from render target to SRVs
-	{
-		res_barriers: [GBUFFER_COUNT]dx.RESOURCE_BARRIER
-
-		// res barrier template
-
-		res_barriers[0] = dx.RESOURCE_BARRIER {
-			Type = .TRANSITION,
-			Flags = {},
-			Transition = {
-				pResource = nil,
-				StateBefore = {.RENDER_TARGET},
-				StateAfter = {.PIXEL_SHADER_RESOURCE},
-				Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
-			},
-		}
-
-		// populating all res barriers with each gbuffer
-		res_barriers[0] = res_barriers[0]
-		res_barriers[0].Transition.pResource = ct.gbuffer.gb_albedo.res
-
-		res_barriers[1] = res_barriers[0]
-		res_barriers[1].Transition.pResource = ct.gbuffer.gb_normal.res
-
-		res_barriers[2] = res_barriers[0]
-		res_barriers[2].Transition.pResource = ct.gbuffer.gb_ao_rough_metal.res
-
-		ct.cmdlist->ResourceBarrier(GBUFFER_COUNT, &res_barriers[0])
-	}
+	transition_gbuffers(false)
 
 	// here u have to transition the swapchain buffer so it is a RT
 	{
@@ -1949,10 +1900,11 @@ pso_gbuffer_create_pipeline_state :: proc(root_signature: ^dx.IRootSignature, vs
 	}
 
 	rtv_formats := [8]dxgi.FORMAT {
-		0 = g_dx_context.gbuffer.gb_albedo.format,
-		1 = g_dx_context.gbuffer.gb_normal.format,
-		2 = g_dx_context.gbuffer.gb_ao_rough_metal.format,
-		3 ..< 7 = .UNKNOWN,
+		0 ..< 7 = .UNKNOWN,
+	}
+	
+	for g_buffer, i in g_dx_context.gbuffer.gbuffers {
+		rtv_formats[i] = g_buffer.format
 	}
 
 	pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
