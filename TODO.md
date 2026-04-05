@@ -1,8 +1,11 @@
 # text TODO
 
-- put the param struct constant buffer in the uber heap. keep track of the index.
-- update the constant buffer on _render()
-- upload the 2 texture data
+- [x] put the param struct constant buffer in the uber heap. keep track of the index.
+- [x] give a name to the constant buffers
+- [x] fix index in shader of constant buffer
+- [x] update the constant buffer on _render()
+- [ ] upload the 2 texture data
+- [ ] fix index in shader of textures
 - test
 
 # pipeline refactor

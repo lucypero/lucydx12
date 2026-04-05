@@ -33,12 +33,12 @@ TextVertexInput :: struct {
 TextState :: struct {
 	sluggish_data: sg.LucySluggishData,
 	vertex_buffer: VertexBuffer,
-	param_struct_buffer: BufferUpload,
+	param_struct_buffer: ConstantBufferUpload,
 }
 
 ParamStruct :: struct #align(256) {
-	slug_matrix: [4]v4,
-	slug_viewport: f32
+	slug_matrix: dxm, // The four rows of the MVP matrix.
+	slug_viewport: v4 // The viewport dimensions, in pixels.
 }
 
 populate_text_vertex_buffer :: proc() {
@@ -56,7 +56,7 @@ text_init :: proc() {
 	sluggish_data, ok := sg.build_sluggish_lucy("fonts/ttf/arial.ttf", band_count = 16, allocator = context.allocator)
 	assert(ok)
 	
-	param_struct_buffer := create_buffer_upload(size_of(ParamStruct), &g_resources_longterm)
+	param_struct_buffer := create_constant_buffer_upload(size_of(ParamStruct), &g_resources_longterm, name = "text constants cbv")
 	
 	// Create vertex buffer
 	ct.text_state = TextState {
@@ -162,6 +162,18 @@ pso_text_render :: proc() {
 		}
 		
 		copy_to_buffer_already_mapped(ct.text_state.vertex_buffer.gpu_pointer, slice.to_bytes(vertex_data_test))
+	}
+	
+	// updating cbv
+	{
+		view, projection := get_view_projection(cur_cam)
+		
+		ps := ParamStruct {
+			slug_matrix = view * projection,
+			slug_viewport = {WINDOW_WIDTH, WINDOW_HEIGHT, 0, 0}
+		}
+		
+		copy_to_buffer_already_mapped_value(ct.text_state.param_struct_buffer.gpu_pointer, &ps)
 	}
 	
 	ct.cmdlist->SetPipelineState(ct.psos[.Text].pipeline_state)
