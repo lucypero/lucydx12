@@ -28,7 +28,6 @@ import "core:prof/spall"
 import dxma "libs/odin-d3d12ma"
 import sa "core:container/small_array"
 
-import sg "src/sluggish_generator"
 
 // imgui
 import im "libs/odin-imgui"
@@ -95,7 +94,8 @@ cb_update :: proc() {
 	}
 
 	// sending data to the cpu mapped memory that the gpu can read
-	mem.copy(g_dx_context.constant_buffer_map, (rawptr)(&cbv_data), size_of(cbv_data))
+	// copy_to_buffer_already_mapped(g_dx_context.constant_buffer.gpu_pointer, slice.to_bytes([]ConstantBufferData{cbv_data}))
+	copy_to_buffer_already_mapped_value(g_dx_context.constant_buffer.gpu_pointer, &cbv_data)
 }
 
 // initializes app data in Context struct
@@ -226,7 +226,6 @@ main :: proc() {
 
 	defer sdl.DestroyWindow(ct.window)
 
-	sluggish_test()
 
 	init_dx()
 	init_dx_user()
@@ -448,37 +447,7 @@ init_dx_user :: proc() {
 	ct.gbuffer = create_gbuffer()
 
 	// constant buffer
-	{
-		constant_buffer_desc := dx.RESOURCE_DESC {
-			Width = size_of(ConstantBufferData),
-			Dimension = .BUFFER,
-			Height = 1,
-			Layout = .ROW_MAJOR,
-			Format = .UNKNOWN,
-			DepthOrArraySize = 1,
-			MipLevels = 1,
-			SampleDesc = {Count = 1},
-		}
-
-		upload_allocation : ^dxma.Allocation
-		hr = dxma.Allocator_CreateResource(
-			pSelf = ct.dxma_allocator,
-			pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .UPLOAD, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
-			pResourceDesc = &constant_buffer_desc,
-			InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
-			pOptimizedClearValue = nil,
-			ppAllocation = &upload_allocation,
-			riidResource = nil,
-			ppvResource = nil
-		)
-		check(hr, "failed creating upload texture")
-		ct.constant_buffer = dxma.Allocation_GetResource(upload_allocation)
-		append(&g_resources_longterm, cast(^dx.IUnknown)upload_allocation)
-		ct.constant_buffer->SetName("lucy's constant buffer")
-
-		// empty range means the cpu won't read from it
-		ct.constant_buffer->Map(0, &dx.RANGE{}, &ct.constant_buffer_map)
-	}
+	ct.constant_buffer = create_buffer_upload(size_of(ConstantBufferData), &g_resources_longterm)
 
 	/* 
 	From https://docs.microsoft.com/en-us/windows/win32/direct3d12/root-signatures-overview:
@@ -501,12 +470,6 @@ init_dx_user :: proc() {
 	close_and_execute_cmdlist()
 
 	imgui_init()
-
-	// creating our constant buffer
-	create_cbv_on_uber_heap(&dx.CONSTANT_BUFFER_VIEW_DESC{
-			BufferLocation = g_dx_context.constant_buffer->GetGPUVirtualAddress(),
-			SizeInBytes = size_of(ConstantBufferData),
-		}, true, "General Constants Buffer")
 
 	load_white_texture()
 
@@ -533,6 +496,8 @@ init_dx_user :: proc() {
 			return
 		}
 	}
+	
+	text_init()
 }
 
 do_main_loop :: proc() {
@@ -761,6 +726,7 @@ render :: proc() {
 	pso_gbuffer_render()
 	pso_lighting_render()
 	if g_light_draw_gizmos do pso_gizmos_render()
+	pso_text_render()
 
 	render_imgui()
 
@@ -1700,7 +1666,7 @@ pso_gizmos_render :: proc () {
 			color = v4{1,0,0, 0.5}
 		}
 
-		copy_to_buffer(scene.vb_gizmos_instance_data.buffer, slice.to_bytes(gizmos_instances))
+		copy_to_buffer_already_mapped(scene.vb_gizmos_instance_data.gpu_pointer, slice.to_bytes(gizmos_instances))
 	}
 
 	ct.cmdlist->SetPipelineState(ct.psos[.Gizmos].pipeline_state)
@@ -1750,26 +1716,6 @@ print_ref_count :: proc(obj: ^dx.IUnknown) {
 }
 */
 
-set_viewport_stuff :: proc() {
-	ct := &g_dx_context
-
-	viewport := dx.VIEWPORT {
-		Width = f32(WINDOW_WIDTH),
-		Height = f32(WINDOW_HEIGHT),
-		MinDepth = 0,
-		MaxDepth = 1,
-	}
-
-	scissor_rect := dx.RECT {
-		left = 0,
-		right = WINDOW_WIDTH,
-		top = 0,
-		bottom = WINDOW_HEIGHT,
-	}
-
-	ct.cmdlist->RSSetViewports(1, &viewport)
-	ct.cmdlist->RSSetScissorRects(1, &scissor_rect)
-}
 
 
 arena_report :: proc(arena_name: string, arena: virtual.Arena) {
@@ -1834,19 +1780,6 @@ get_first_active_scene :: proc() -> (scene: ^Scene, ok: bool) {
 	}
 
 	return nil, false
-}
-
-sluggish_test :: proc() {
-	sluggish_in :: "fonts/ttf/arial.ttf"
-	sluggish_out :: "fonts/sluggish/arial.sluggish"
-	// sluggish_codepoints, ok := sg.build_sluggish("fonts/ttf/arial.ttf", band_count = 16, allocator = context.allocator)
-	// assert(ok)
-
-	ok_2 := sg.build_sluggish_to_file(sluggish_in, sluggish_out)
-	assert(ok_2)
-
-	// os_err := os.write_entire_file(sluggish_out, slice.to_bytes(sluggish_codepoints))
-	// assert(os_err == os.General_Error.None)
 }
 
 pso_gbuffer_create_pipeline_state :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState {

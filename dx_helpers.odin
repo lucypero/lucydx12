@@ -250,13 +250,20 @@ create_texture_with_data :: proc(
 	return res
 }
 
-// copies data to a dx resource. then unmaps the memory
+// copies data to a dx UPLOAD resource. then unmaps the memory
 copy_to_buffer :: proc(buffer: ^dx.IResource, data: []byte) {
 	gpu_data: rawptr
-	hr := buffer->Map(0, &dx.RANGE{}, &gpu_data)
-	check(hr, "Failed mapping")
+	buffer->Map(0, &dx.RANGE{}, &gpu_data)
 	mem.copy(gpu_data, raw_data(data), len(data))
 	buffer->Unmap(0, nil)
+}
+
+copy_to_buffer_already_mapped :: proc(gpu_data: rawptr, data: []byte){
+	mem.copy(gpu_data, raw_data(data), len(data))
+}
+
+copy_to_buffer_already_mapped_value :: proc(gpu_data: rawptr, data: ^$T){
+	mem.copy(gpu_data, data, size_of(T))
 }
 
 // creates a SRV for the resource on the uber SRV heap
@@ -292,6 +299,7 @@ close_and_execute_cmdlist :: proc() {
 
 // it's a vertex buffer in the upload heap.
 // meant for buffers that are modified often.
+// keeps it mapped
 create_vertex_buffer_upload :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^DXResourcePool) -> VertexBuffer {
 
 	vb: ^dx.IResource
@@ -332,13 +340,70 @@ create_vertex_buffer_upload :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^
 		StrideInBytes = stride_in_bytes,
 		SizeInBytes = size_in_bytes,
 	}
-
+	
+	gpu_data: rawptr
+	vb->Map(0, &dx.RANGE{}, &gpu_data)
+	
 	return VertexBuffer {
 		buffer = vb,
+		gpu_pointer = gpu_data,
 		vbv = vbv,
 		vertex_count = size_in_bytes / stride_in_bytes,
 		buffer_size = size_in_bytes,
 		buffer_stride = stride_in_bytes,
+	}
+}
+
+// created buffer on the upload heap, and maps it. keeps it mapped
+create_buffer_upload :: proc(size_in_bytes: u32, pool: ^DXResourcePool, name: string = "") -> BufferUpload {
+
+	vb: ^dx.IResource
+
+	// For now we'll just store stuff in an upload heap.
+	// it's not optimal for most things but it's more practical for me
+
+	resource_desc := dx.RESOURCE_DESC {
+		Dimension = .BUFFER,
+		Alignment = 0,
+		Width = u64(size_in_bytes),
+		Height = 1,
+		DepthOrArraySize = 1,
+		MipLevels = 1,
+		Format = .UNKNOWN,
+		SampleDesc = {Count = 1, Quality = 0},
+		Layout = .ROW_MAJOR,
+		Flags = {},
+	}
+	
+	allocation : ^dxma.Allocation
+	hr := dxma.Allocator_CreateResource(
+		pSelf = g_dx_context.dxma_allocator,
+		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .UPLOAD, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
+		pResourceDesc = &resource_desc,
+		InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
+		pOptimizedClearValue = nil,
+		ppAllocation = &allocation,
+		riidResource = nil,
+		ppvResource = nil
+	)
+	check(hr, "Failed creating upload buffer")
+	vb = dxma.Allocation_GetResource(allocation)
+	append(pool, cast(^dxgi.IUnknown)allocation)
+
+	gpu_data: rawptr
+	vb->Map(0, &dx.RANGE{}, &gpu_data)
+	
+	// creating our constant buffer
+	srv_index := create_cbv_on_uber_heap(&dx.CONSTANT_BUFFER_VIEW_DESC{
+		BufferLocation = vb->GetGPUVirtualAddress(),
+		SizeInBytes = size_in_bytes
+	}, true)
+	
+	return BufferUpload {
+		buffer = vb,
+		gpu_pointer = gpu_data,
+		buffer_size = size_in_bytes,
+		srv_index = srv_index
 	}
 }
 
@@ -849,4 +914,25 @@ create_structured_buffer_with_data :: proc(
 	default_res->SetName(buffer_name_cstring)
 	
 	return default_res, fence_value
+}
+
+set_viewport_stuff :: proc() {
+	ct := &g_dx_context
+
+	viewport := dx.VIEWPORT {
+		Width = f32(WINDOW_WIDTH),
+		Height = f32(WINDOW_HEIGHT),
+		MinDepth = 0,
+		MaxDepth = 1,
+	}
+
+	scissor_rect := dx.RECT {
+		left = 0,
+		right = WINDOW_WIDTH,
+		top = 0,
+		bottom = WINDOW_HEIGHT,
+	}
+
+	ct.cmdlist->RSSetViewports(1, &viewport)
+	ct.cmdlist->RSSetScissorRects(1, &scissor_rect)
 }

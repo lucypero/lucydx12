@@ -51,7 +51,6 @@ struct ParamStruct {
 	float4 slug_viewport;							// The viewport dimensions, in pixels.
 };
 
-
 // The curve and band textures use a fixed width of 4096 texels.
 #define kLogBandTextureWidth 12
 
