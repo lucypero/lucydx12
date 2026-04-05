@@ -53,5 +53,8 @@ PSInput VSMain(VSInput the_input) {
 }
 
 float4 PSMain(PSInput input) : SV_TARGET {
-	return float4(input.color);
+	float4 red = float4(1.0f, 0.0f, 0.0f, 1.0f);
+	float4 green = float4(0.0f, 1.0f, 0.0f, 1.0f);
+	return input.color;
+	// return red;
 }
