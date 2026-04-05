@@ -69,7 +69,7 @@ when PROFILE {
 // ----- //// GLOBAL STATE ------
 
 cb_update :: proc() {
-	
+
 	// ticking cbv time value
 	thetime := time.diff(g_start_time, time.now())
 	g_the_time_sec = f32(thetime) / f32(time.Second)
@@ -81,7 +81,7 @@ cb_update :: proc() {
 	view, projection := get_view_projection(cur_cam)
 
 	active_scene, scene_is_active := get_first_active_scene()
-	
+
 	cbv_data := ConstantBufferData {
 		view = view,
 		projection = projection,
@@ -491,6 +491,7 @@ init_dx_user :: proc() {
 	pso_gbuffer_create()
 	pso_lighting_create()
 	pso_gizmos_create()
+	pso_text_create()
 
 	// hr = ct.command_allocator->Reset()
 	// hr = ct.cmdlist->Reset(ct.command_allocator, nil)
@@ -756,7 +757,7 @@ render :: proc() {
 	g_mesh_drawn_count = 0
 
 	ct.cmdlist->Reset(ct.command_allocator, nil)
-	
+
 	pso_gbuffer_render()
 	pso_lighting_render()
 	if g_light_draw_gizmos do pso_gizmos_render()
@@ -767,8 +768,8 @@ render :: proc() {
 
 	// Transitioning the render target to "Present" state
 	transition_resource(g_dx_context.targets[g_dx_context.frame_index],
-	 	ct.cmdlist, {.RENDER_TARGET}, dx.RESOURCE_STATE_PRESENT, subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES)
-	
+		ct.cmdlist, {.RENDER_TARGET}, dx.RESOURCE_STATE_PRESENT, subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES)
+
 	ct.cmdlist->Close()
 
 	// execute
@@ -1508,7 +1509,7 @@ create_lighting_root_signature :: proc() -> ^dx.IRootSignature{
 pso_gbuffer_render :: proc() {
 
 	ct := &g_dx_context
-	
+
 	ct.cmdlist->SetPipelineState(ct.psos[.GBuffer_Pass].pipeline_state)
 	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap)
 	ct.cmdlist->SetGraphicsRootSignature(ct.psos[.GBuffer_Pass].root_signature)
@@ -1599,7 +1600,7 @@ pso_gbuffer_render :: proc() {
 // to_render_target = false: transitions from render target to pixel shader resource
 // to_render_target = true: viceversa
 transition_gbuffers :: proc(to_render_target: bool) {
-	
+
 	ct := &g_dx_context
 	res_barriers: [GBufferUnitName]dx.RESOURCE_BARRIER
 
@@ -1902,7 +1903,7 @@ pso_gbuffer_create_pipeline_state :: proc(root_signature: ^dx.IRootSignature, vs
 	rtv_formats := [8]dxgi.FORMAT {
 		0 ..< 7 = .UNKNOWN,
 	}
-	
+
 	for g_buffer, i in g_dx_context.gbuffer.gbuffers {
 		rtv_formats[i] = g_buffer.format
 	}
@@ -1956,65 +1957,64 @@ pso_gbuffer_create :: proc() {
 	c := &g_dx_context
 
 	// Create gbuffer root signature
-
-	root_parameters_len :: 1
-
-	root_parameters: [root_parameters_len]dx.ROOT_PARAMETER
-
-	// Root constant: the index to the right model matrix of the draw call.
-	// first number: model matrix of the draw call
-	// second number: material index
-	root_parameters[0] = {
-		ParameterType = ._32BIT_CONSTANTS,
-		Constants = {ShaderRegister = 1, RegisterSpace = 0, Num32BitValues = 2},
-		ShaderVisibility = .ALL
-	}
-
-	// our static sampler
-
-	// We'll define a static sampler description
-	sampler_desc := dx.STATIC_SAMPLER_DESC {
-		Filter = .ANISOTROPIC,
-		AddressU = .WRAP,
-		AddressV = .WRAP,
-		AddressW = .WRAP,
-		MipLODBias = 0.0,
-		MaxAnisotropy = 16,
-		ComparisonFunc = .NEVER,
-		BorderColor = .OPAQUE_BLACK,
-		MinLOD = 0.0,
-		MaxLOD = dx.FLOAT32_MAX,
-		ShaderRegister = 0,
-		RegisterSpace = 0,
-		ShaderVisibility = .PIXEL,
-	}
-
-	desc := dx.VERSIONED_ROOT_SIGNATURE_DESC {
-		Version = ._1_0,
-		Desc_1_0 = {
-			NumParameters = root_parameters_len,
-			pParameters = &root_parameters[0],
-			NumStaticSamplers = 1,
-			pStaticSamplers = &sampler_desc,
-		},
-	}
-
-	desc.Desc_1_0.Flags = {.ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT, .CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED}
-	serialized_desc: ^dx.IBlob
-	hr := dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
-	check(hr, "Failed to serialize root signature")
 	root_signature : ^dx.IRootSignature
-	hr = g_dx_context.device->CreateRootSignature(
-		0,
-		serialized_desc->GetBufferPointer(),
-		serialized_desc->GetBufferSize(),
-		dx.IRootSignature_UUID,
-		(^rawptr)(&root_signature),
-	)
-	check(hr, "Failed creating root signature")
+	{
+		root_parameters_len :: 1
 
-	append(&g_resources_longterm, root_signature)
-	serialized_desc->Release()
+		root_parameters: [root_parameters_len]dx.ROOT_PARAMETER
+
+		// Root constant: the index to the right model matrix of the draw call.
+		// first number: model matrix of the draw call
+		// second number: material index
+		root_parameters[0] = {
+			ParameterType = ._32BIT_CONSTANTS,
+			Constants = {ShaderRegister = 1, RegisterSpace = 0, Num32BitValues = 2},
+			ShaderVisibility = .ALL
+		}
+
+		// our static sampler
+
+		// We'll define a static sampler description
+		sampler_desc := dx.STATIC_SAMPLER_DESC {
+			Filter = .ANISOTROPIC,
+			AddressU = .WRAP,
+			AddressV = .WRAP,
+			AddressW = .WRAP,
+			MipLODBias = 0.0,
+			MaxAnisotropy = 16,
+			ComparisonFunc = .NEVER,
+			BorderColor = .OPAQUE_BLACK,
+			MinLOD = 0.0,
+			MaxLOD = dx.FLOAT32_MAX,
+			ShaderRegister = 0,
+			RegisterSpace = 0,
+			ShaderVisibility = .PIXEL,
+		}
+
+		desc := dx.VERSIONED_ROOT_SIGNATURE_DESC {
+			Version = ._1_0,
+			Desc_1_0 = {
+				NumParameters = root_parameters_len,
+				pParameters = &root_parameters[0],
+				NumStaticSamplers = 1,
+				pStaticSamplers = &sampler_desc,
+			},
+		}
+
+		desc.Desc_1_0.Flags = {.ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT, .CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED}
+		serialized_desc: ^dx.IBlob
+		dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
+		g_dx_context.device->CreateRootSignature(
+			0,
+			serialized_desc->GetBufferPointer(),
+			serialized_desc->GetBufferSize(),
+			dx.IRootSignature_UUID,
+			(^rawptr)(&root_signature),
+		)
+		
+		append(&g_resources_longterm, root_signature)
+		serialized_desc->Release()
+	}
 
 	vs, ps, ok := compile_shader(c.dxc_compiler, gbuffer_shader_filename)
 	if !ok {
@@ -2039,4 +2039,195 @@ pso_gbuffer_create :: proc() {
 	}
 
 	pso_hotswap_init(&c.psos[.GBuffer_Pass])
+}
+
+// TODO: PSO Creation code could be reused
+pso_text_create :: proc() {
+	ct := &g_dx_context
+	
+	// creating root signature
+	// TODO: think about reusing ROOT SIGNATURES.
+	//  or reusing RS creation code at least.
+	//  I think my root signatures are all the same or very similar.
+	root_signature : ^dx.IRootSignature
+	{
+		root_parameters_len :: 1
+
+		root_parameters: [root_parameters_len]dx.ROOT_PARAMETER
+
+		// Root constant: the index to the right model matrix of the draw call.
+		// first number: model matrix of the draw call
+		// second number: material index
+		root_parameters[0] = {
+			ParameterType = ._32BIT_CONSTANTS,
+			Constants = {ShaderRegister = 1, RegisterSpace = 0, Num32BitValues = 2},
+			ShaderVisibility = .ALL
+		}
+
+		// our static sampler
+
+		// We'll define a static sampler description
+		sampler_desc := dx.STATIC_SAMPLER_DESC {
+			Filter = .ANISOTROPIC,
+			AddressU = .WRAP,
+			AddressV = .WRAP,
+			AddressW = .WRAP,
+			MipLODBias = 0.0,
+			MaxAnisotropy = 16,
+			ComparisonFunc = .NEVER,
+			BorderColor = .OPAQUE_BLACK,
+			MinLOD = 0.0,
+			MaxLOD = dx.FLOAT32_MAX,
+			ShaderRegister = 0,
+			RegisterSpace = 0,
+			ShaderVisibility = .PIXEL,
+		}
+
+		desc := dx.VERSIONED_ROOT_SIGNATURE_DESC {
+			Version = ._1_0,
+			Desc_1_0 = {
+				NumParameters = root_parameters_len,
+				pParameters = &root_parameters[0],
+				NumStaticSamplers = 1,
+				pStaticSamplers = &sampler_desc,
+			},
+		}
+
+		desc.Desc_1_0.Flags = {.ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT, .CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED}
+		serialized_desc: ^dx.IBlob
+		dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
+		ct.device->CreateRootSignature(
+			0,
+			serialized_desc->GetBufferPointer(),
+			serialized_desc->GetBufferSize(),
+			dx.IRootSignature_UUID,
+			(^rawptr)(&root_signature),
+		)
+		
+		append(&g_resources_longterm, root_signature)
+		serialized_desc->Release()
+	}
+	
+	// compiling shader
+	vs, ps, ok := compile_shader(ct.dxc_compiler, text_shader_filename)
+	if !ok {
+		lprintfln("could not compile shader!! check logs")
+		os.exit(1)
+	}
+	
+	pso := pso_text_create_pipeline_state(root_signature, vs, ps)
+	
+	pso_index := len(g_resources_longterm)
+	append(&g_resources_longterm, pso)
+
+	vs->Release()
+	ps->Release()
+
+	ct.psos[.Text] = PSO {
+		pipeline_state = pso,
+		root_signature = root_signature,
+		pso_creation_proc = pso_text_create_pipeline_state,
+		shader_filename = text_shader_filename,
+		pso_index = pso_index
+	}
+
+	pso_hotswap_init(&ct.psos[.Text])
+}
+
+pso_text_create_pipeline_state :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState {
+	
+	ct := &g_dx_context
+	
+	vertex_format := [?]dx.INPUT_ELEMENT_DESC {
+		{
+			SemanticName = "ATTRIB",
+			SemanticIndex = 0,
+			Format = .R32G32B32A32_FLOAT,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_VERTEX_DATA,
+		},
+		{
+			SemanticName = "ATTRIB",
+			SemanticIndex = 1,
+			Format = .R32G32B32A32_FLOAT,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_VERTEX_DATA,
+		},
+		{
+			SemanticName = "ATTRIB",
+			SemanticIndex = 2,
+			Format = .R32G32B32A32_FLOAT,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_VERTEX_DATA,
+		},
+		{
+			SemanticName = "ATTRIB",
+			SemanticIndex = 3,
+			Format = .R32G32B32A32_FLOAT,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_VERTEX_DATA,
+		},
+		{
+			SemanticName = "ATTRIB",
+			SemanticIndex = 4,
+			Format = .R32G32B32A32_FLOAT,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_VERTEX_DATA,
+		},
+	}
+	
+	default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
+		BlendEnable = false,
+		LogicOpEnable = false,
+		SrcBlend = .ONE,
+		DestBlend = .ZERO,
+		BlendOp = .ADD,
+		SrcBlendAlpha = .ONE,
+		DestBlendAlpha = .ZERO,
+		BlendOpAlpha = .ADD,
+		LogicOp = .NOOP,
+		RenderTargetWriteMask = u8(dx.COLOR_WRITE_ENABLE_ALL),
+	}
+	
+	pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
+		pRootSignature = root_signature,
+		VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
+		PS = {pShaderBytecode = ps->GetBufferPointer(), BytecodeLength = ps->GetBufferSize()},
+		StreamOutput = {},
+		BlendState = {
+			AlphaToCoverageEnable = false,
+			IndependentBlendEnable = false,
+			RenderTarget = {0 = default_blend_state, 1..< 7 = {}}
+		},
+		SampleMask = 0xFFFFFFFF,
+		RasterizerState = {
+			FillMode = .SOLID,
+			CullMode = .BACK,
+			// true because we flipped positions and normals in gltf to convert between coord systems.
+			FrontCounterClockwise = true, 
+			DepthBias = 0,
+			DepthBiasClamp = 0,
+			SlopeScaledDepthBias = 0,
+			DepthClipEnable = true,
+			MultisampleEnable = false,
+			AntialiasedLineEnable = false,
+			ForcedSampleCount = 0,
+			ConservativeRaster = .OFF,
+		},
+		// enabling depth testing
+		DepthStencilState = {DepthEnable = true, StencilEnable = false, DepthWriteMask = .ALL, DepthFunc = .LESS},
+		InputLayout = {pInputElementDescs = &vertex_format[0], NumElements = u32(len(vertex_format))},
+		PrimitiveTopologyType = .TRIANGLE,
+		NumRenderTargets = GBUFFER_COUNT,
+		RTVFormats = {0 = .R8G8B8A8_UNORM, 1 ..< 7 = .UNKNOWN},
+		DSVFormat = .D32_FLOAT,
+		SampleDesc = {Count = 1, Quality = 0},
+	}
+
+	pso: ^dx.IPipelineState
+
+	ct.device->CreateGraphicsPipelineState(&pipeline_state_desc, dx.IPipelineState_UUID, (^rawptr)(&pso))
+	pso->SetName("PSO for text")
+	
+	return pso
 }

@@ -22,6 +22,11 @@ struct AllSrvsIndices {
 	
 	// depth 
 	int depth_idx;
+	
+	// (for slug text)
+	int param_struct_idx;
+	int curve_texture_idx;
+	int band_texture_idx;
 };
 
 AllSrvsIndices get_srvs_from_heap() {
@@ -33,6 +38,9 @@ AllSrvsIndices get_srvs_from_heap() {
 	
 	idxs.depth_idx = 3;
 	idxs.general_constants_idx = 4;
+	idxs.param_struct_idx = 5;
+	idxs.curve_texture_idx = 6;
+	idxs.band_texture_idx = 7;
 	
 	return idxs;
 }

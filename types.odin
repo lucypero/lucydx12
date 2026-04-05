@@ -31,6 +31,7 @@ DXResourcePool :: [dynamic]^dx.IUnknown
 gbuffer_shader_filename :: "shader.hlsl"
 lighting_shader_filename :: "lighting.hlsl"
 ui_shader_filename :: "ui.hlsl"
+text_shader_filename :: "text.hlsl"
 
 // window dimensions
 WINDOW_WIDTH :: i32(2000)
