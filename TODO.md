@@ -1,3 +1,27 @@
+# pipeline refactor
+
+## current:
+
+- (for gbuffer) runs root signature creation proc, once. before this
+- create_x_pso_initial (runs once at startup)
+	- compiles shader.
+	- creates PSO (this proc is used for hot swap later)
+	- hot swap init
+	- free shader references
+	
+	
+```odin
+
+
+
+```
+	
+# Rendering sluggish
+
+- you already have sluggish data generated.
+- you need to put this on a structured buffer and let a shader render the font.
+
+
 # loading scene on upload thread - problems to solve:
 
 - CreateShaderResourceView on uber heap - i must do this thread safe.

@@ -89,8 +89,18 @@ GBuffer :: struct {
 	rtv_heap: ^dx.IDescriptorHeap,
 }
 
-HotSwapState :: struct {
-	// TODO: store more data here so u don't have to pass the data around in the hotswap methods
+pso_creation_signature :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState
+
+MAX_GIZMOS :: 20
+
+// TODO: refactor all PSO code so it uses this struct
+PSO :: struct {
+	pipeline_state: ^dx.IPipelineState,
+	root_signature: ^dx.IRootSignature,
+	pso_creation_proc: pso_creation_signature,
+	shader_filename: string,
+	
+	/// For hot swapping
 	last_write_time: time.Time,
 	pso_swap: ^dx.IPipelineState,
 
@@ -99,7 +109,12 @@ HotSwapState :: struct {
 	pso_index: int,
 }
 
-MAX_GIZMOS :: 20
+// All our PSO's
+PSOName :: enum {
+	GBuffer_Pass,
+	Lighting_Pass,
+	Gizmos
+}
 
 Context :: struct {
 	// sdl stuff
@@ -119,13 +134,14 @@ Context :: struct {
 	command_allocator: ^dx.ICommandAllocator,
 	cmdlist: ^dx.IGraphicsCommandList,
 	
+	// PSOs
+	psos: [PSOName]PSO,
+	
 	// Other
 	
 	swapchain: ^dxgi.ISwapChain3,
 	dxc_compiler: ^dxc.ICompiler3,
-	pipeline_gbuffer: ^dx.IPipelineState,
 	constant_buffer_map: rawptr, //maps to our test constant buffer
-	gbuffer_pass_root_signature: ^dx.IRootSignature,
 	constant_buffer: ^dx.IResource,
 	dxma_allocator: ^dxma.Allocator,
 	// descriptor heap for the render target view
@@ -133,10 +149,6 @@ Context :: struct {
 	frame_index: u32,
 	targets: [NUM_RENDERTARGETS]^dx.IResource, // render targets
 	gbuffer: GBuffer,
-
-	// lighting pass resources
-	pipeline_lighting: ^dx.IPipelineState,
-	lighting_pass_root_signature: ^dx.IRootSignature,
 
 	// fence stuff (for waiting to render frame)
 	fence: ^dx.IFence,
@@ -150,17 +162,6 @@ Context :: struct {
 	// depth buffer
 	depth_stencil_res: ^dx.IResource,
 	descriptor_heap_dsv: ^dx.IDescriptorHeap,
-
-	// hot swap shader state
-	lighting_hotswap: HotSwapState,
-	gbuffer_hotswap: HotSwapState, // todo this one (make helper functions for setting initial state and swapping code)
-	
-	// --- gizmos drawing ------
-	
-	pso_gizmos : ^dx.IPipelineState,
-	rs_gizmos : ^dx.IRootSignature,
-	
-	// --- gizmos drawing end ----
 }
 
 ModelMatrixData :: struct {
