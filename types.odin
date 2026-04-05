@@ -68,10 +68,18 @@ VertexData :: struct {
 // this could be an instance buffer too. it's the same to dx12.
 VertexBuffer :: struct {
 	buffer: ^dx.IResource,
+	gpu_pointer: rawptr, // only valid if it's on upload heap
 	vbv: dx.VERTEX_BUFFER_VIEW,
 	vertex_count: u32, // vertex count or instance count
 	buffer_size: u32,
 	buffer_stride: u32,
+}
+
+BufferUpload :: struct {
+	buffer: ^dx.IResource,
+	gpu_pointer: rawptr, // only valid if it's on upload heap
+	buffer_size: u32,
+	srv_index: uint // index as constant buffer view in the uber heap
 }
 
 GBufferUnit :: struct {
@@ -122,8 +130,7 @@ Context :: struct {
 	
 	swapchain: ^dxgi.ISwapChain3,
 	dxc_compiler: ^dxc.ICompiler3,
-	constant_buffer_map: rawptr, //maps to our test constant buffer
-	constant_buffer: ^dx.IResource,
+	constant_buffer: BufferUpload,
 	dxma_allocator: ^dxma.Allocator,
 	// descriptor heap for the render target view
 	swapchain_rtv_descriptor_heap: ^dx.IDescriptorHeap,
@@ -143,6 +150,9 @@ Context :: struct {
 	// depth buffer
 	depth_stencil_res: ^dx.IResource,
 	descriptor_heap_dsv: ^dx.IDescriptorHeap,
+	
+	// text state
+	text_state: TextState
 }
 
 ModelMatrixData :: struct {

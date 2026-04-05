@@ -36,8 +36,9 @@ AllSrvsIndices get_srvs_from_heap() {
 	idxs.g_buffer_normal_idx = 1;
 	idxs.g_buffer_ao_rough_metal_idx = 2;
 	
-	idxs.depth_idx = 3;
-	idxs.general_constants_idx = 4;
+	idxs.general_constants_idx = 3;
+	idxs.depth_idx = 4;
+	
 	idxs.param_struct_idx = 5;
 	idxs.curve_texture_idx = 6;
 	idxs.band_texture_idx = 7;

@@ -1,3 +1,10 @@
+# text TODO
+
+- put the param struct constant buffer in the uber heap. keep track of the index.
+- update the constant buffer on _render()
+- upload the 2 texture data
+- test
+
 # pipeline refactor
 
 ## current:
