@@ -28,7 +28,7 @@ transition_resource_from_copy_to_read :: proc(res: ^dx.IResource, cmd_list: ^dx.
 }
 */
 
-transition_resource :: proc(res: ^dx.IResource, cmd_list: ^dx.IGraphicsCommandList, state_before, state_after: dx.RESOURCE_STATES) {
+transition_resource :: proc(res: ^dx.IResource, cmd_list: ^dx.IGraphicsCommandList, state_before, state_after: dx.RESOURCE_STATES, subresource: u32 = 0) {
 	barrier : dx.RESOURCE_BARRIER = {
 		Type = .TRANSITION,
 		Flags = {},
@@ -36,7 +36,7 @@ transition_resource :: proc(res: ^dx.IResource, cmd_list: ^dx.IGraphicsCommandLi
 			pResource = res,
 			StateBefore = state_before,
 			StateAfter = state_after,
-			Subresource = 0
+			Subresource = subresource
 		}
 	}
 	

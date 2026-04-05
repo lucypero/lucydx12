@@ -36,11 +36,32 @@ import "libs/odin-imgui/imgui_impl_sdl2"
 // imgui dx12 implementation
 import "libs/odin-imgui/imgui_impl_dx12"
 
+PSO :: struct {
+	pipeline_state: ^dx.IPipelineState,
+	root_signature: ^dx.IRootSignature,
+	pso_creation_proc: pso_creation_signature,
+	shader_filename: string,
+	
+	/// For hot swapping
+	last_write_time: time.Time,
+	pso_swap: ^dx.IPipelineState,
+
+	// index in the queue array to free the resource
+	// i use this to swap the pointer when the pso gets hot swapped
+	pso_index: int,
+}
+
+// All our PSO's
+PSOName :: enum {
+	GBuffer_Pass,
+	Lighting_Pass,
+	Gizmos,
+	Text
+}
+
 // checks if it should rebuild a shader
 // if it should then compiles the new shader and makes a new PSO with it
-pso_hotswap_watch :: proc(
-	pso: ^PSO
-) {
+pso_hotswap_watch :: proc(pso: ^PSO) {
 	// watch for shader change
 	game_dll_mod, game_dll_mod_err := os.last_write_time_by_name(pso.shader_filename)
 
