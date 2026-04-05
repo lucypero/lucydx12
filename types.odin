@@ -34,8 +34,8 @@ ui_shader_filename :: "ui.hlsl"
 text_shader_filename :: "text.hlsl"
 
 // window dimensions
-WINDOW_WIDTH :: i32(2000)
-WINDOW_HEIGHT :: i32(1000)
+WINDOW_WIDTH :: 2000
+WINDOW_HEIGHT :: 1000
 
 GBUFFER_COUNT :: len(GBufferUnitName)
 
@@ -75,7 +75,7 @@ VertexBuffer :: struct {
 	buffer_stride: u32,
 }
 
-BufferUpload :: struct {
+ConstantBufferUpload :: struct {
 	buffer: ^dx.IResource,
 	gpu_pointer: rawptr, // only valid if it's on upload heap
 	buffer_size: u32,
@@ -130,7 +130,7 @@ Context :: struct {
 	
 	swapchain: ^dxgi.ISwapChain3,
 	dxc_compiler: ^dxc.ICompiler3,
-	constant_buffer: BufferUpload,
+	constant_buffer: ConstantBufferUpload,
 	dxma_allocator: ^dxma.Allocator,
 	// descriptor heap for the render target view
 	swapchain_rtv_descriptor_heap: ^dx.IDescriptorHeap,

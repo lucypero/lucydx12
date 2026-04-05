@@ -355,7 +355,7 @@ create_vertex_buffer_upload :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^
 }
 
 // created buffer on the upload heap, and maps it. keeps it mapped
-create_buffer_upload :: proc(size_in_bytes: u32, pool: ^DXResourcePool, name: string = "") -> BufferUpload {
+create_constant_buffer_upload :: proc(size_in_bytes: u32, pool: ^DXResourcePool, name: string = "") -> ConstantBufferUpload {
 
 	vb: ^dx.IResource
 
@@ -393,13 +393,18 @@ create_buffer_upload :: proc(size_in_bytes: u32, pool: ^DXResourcePool, name: st
 	gpu_data: rawptr
 	vb->Map(0, &dx.RANGE{}, &gpu_data)
 	
+	if len(name) > 0 {
+		name_cstring := windows.utf8_to_wstring_alloc(name, allocator = context.temp_allocator)
+		vb->SetName(name_cstring)
+	}
+	
 	// creating our constant buffer
 	srv_index := create_cbv_on_uber_heap(&dx.CONSTANT_BUFFER_VIEW_DESC{
 		BufferLocation = vb->GetGPUVirtualAddress(),
 		SizeInBytes = size_in_bytes
-	}, true)
+	}, true, debug_name = name)
 	
-	return BufferUpload {
+	return ConstantBufferUpload {
 		buffer = vb,
 		gpu_pointer = gpu_data,
 		buffer_size = size_in_bytes,

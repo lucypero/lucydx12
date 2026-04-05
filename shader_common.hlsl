@@ -40,6 +40,8 @@ AllSrvsIndices get_srvs_from_heap() {
 	idxs.depth_idx = 4;
 	
 	idxs.param_struct_idx = 5;
+	
+	// not done yet
 	idxs.curve_texture_idx = 6;
 	idxs.band_texture_idx = 7;
 	

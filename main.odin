@@ -447,7 +447,7 @@ init_dx_user :: proc() {
 	ct.gbuffer = create_gbuffer()
 
 	// constant buffer
-	ct.constant_buffer = create_buffer_upload(size_of(ConstantBufferData), &g_resources_longterm)
+	ct.constant_buffer = create_constant_buffer_upload(size_of(ConstantBufferData), &g_resources_longterm, name = "general constants cbv")
 
 	/* 
 	From https://docs.microsoft.com/en-us/windows/win32/direct3d12/root-signatures-overview:
