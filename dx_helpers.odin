@@ -199,9 +199,8 @@ DDSFile :: struct {
 	mipmap_data: [][]byte,
 }
 	
-// creates texture then uploads data to it then transitions to a default heap
-// it doesn't execute the command list. u have to do that later.
-// release upload resources after executing command list.
+// creates texture on default heap
+// schedules an upload of data
 create_texture_with_data :: proc(
 	image_data: [][]byte, // slice of mipmap data
 	width: u64,
