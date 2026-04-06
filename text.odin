@@ -34,6 +34,8 @@ TextState :: struct {
 	sluggish_data: sg.LucySluggishData,
 	vertex_buffer: VertexBuffer,
 	param_struct_buffer: ConstantBufferUpload,
+	curve_texture: Texture,
+	band_texture: Texture,
 }
 
 ParamStruct :: struct #align(256) {
@@ -58,11 +60,31 @@ text_init :: proc() {
 	
 	param_struct_buffer := create_constant_buffer_upload(size_of(ParamStruct), &g_resources_longterm, name = "text constants cbv")
 	
-	// Create vertex buffer
+	// creating textures
+	
+	
+	// curve texture
+	curve_texture_data := make([][]byte, 1)
+	curve_texture_data[0] = slice.to_bytes(sluggish_data.curves_data)
+	
+	TEX_WIDTH :: 4096
+	CURVE_TEXEL_SIZE :: 16 * 4
+	
+	tex_height : u32 = u32(len(curve_texture_data[0]) / CURVE_TEXEL_SIZE / TEX_WIDTH)
+	
+	curve_texture := create_texture_with_data_new(curve_texture_data, TEX_WIDTH, tex_height,
+	 	.R16G16B16A16_FLOAT, &g_resources_longterm, "curve texture for slug")
+	
+	// band texture - ????
+	// the Sluggish format is sooo BAD!!
+	// band_texture := create_texture_with_data_new()
+	
 	ct.text_state = TextState {
 		sluggish_data = sluggish_data,
 		vertex_buffer = create_vertex_buffer_upload(size_of(TextVertexInput), VERTEX_COUNT * size_of(TextVertexInput), &g_resources_longterm),
-		param_struct_buffer = param_struct_buffer
+		param_struct_buffer = param_struct_buffer,
+		curve_texture = curve_texture,
+		// band_texture = band_texture,
 	}
 }
 
