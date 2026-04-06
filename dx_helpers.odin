@@ -199,8 +199,10 @@ DDSFile :: struct {
 	mipmap_data: [][]byte,
 }
 	
+
 // creates texture on default heap
 // schedules an upload of data
+// deprecated. use new create texture procs that return a Texture struct
 create_texture_with_data :: proc(
 	image_data: [][]byte, // slice of mipmap data
 	width: u64,
@@ -247,6 +249,60 @@ create_texture_with_data :: proc(
 	dx_upload_texture_trigger(&g_upload_service, res, image_data, &texture_desc)
 	
 	return res
+}
+
+
+// creates texture on default heap
+// schedules an upload of data
+create_texture_with_data_new :: proc(
+	image_data: [][]byte, // slice of mipmap data
+	width: u64,
+	height: u32,
+	format: dxgi.FORMAT,
+	pool_textures : ^DXResourcePool,
+	texture_name := ""
+) -> Texture {
+	
+	ct := &g_dx_context
+	
+	mip_levels := cast(u16)len(image_data)
+
+	texture_desc := dx.RESOURCE_DESC {
+		Width = (u64)(width),
+		Height = (u32)(height),
+		Dimension = .TEXTURE2D,
+		Layout = .UNKNOWN,
+		Format = format,
+		DepthOrArraySize = 1,
+		MipLevels = mip_levels,
+		SampleDesc = {Count = 1},
+	}
+	
+	allocation : ^dxma.Allocation
+	dxma.Allocator_CreateResource(
+		pSelf = ct.dxma_allocator,
+		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
+		pResourceDesc = &texture_desc,
+		InitialResourceState = dx.RESOURCE_STATE_COMMON, // upload queue promotes the resource implicitly, so we set it here as common
+		pOptimizedClearValue = nil,
+		ppAllocation = &allocation,
+		riidResource = nil,
+		ppvResource = nil
+	)
+	res := dxma.Allocation_GetResource(allocation)
+	append(pool_textures, cast(^dxgi.IUnknown)allocation)
+	
+	if len(texture_name) > 0 {
+		texture_name_cstring := windows.utf8_to_wstring_alloc(texture_name, allocator = context.temp_allocator)
+		res->SetName(texture_name_cstring)
+	}
+	
+	dx_upload_texture_trigger(&g_upload_service, res, image_data, &texture_desc)
+	
+	return Texture {
+		buffer = res,
+		srv_index = create_srv_on_uber_heap(res)
+	}
 }
 
 // copies data to a dx UPLOAD resource. then unmaps the memory

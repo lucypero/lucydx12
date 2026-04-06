@@ -64,6 +64,11 @@ VertexData :: struct {
 	uv_2: v2,
 }
 
+Texture :: struct {
+	buffer: ^dx.IResource,
+	srv_index: uint,
+}
+
 // Data associated with a vertex buffer
 // this could be an instance buffer too. it's the same to dx12.
 VertexBuffer :: struct {
