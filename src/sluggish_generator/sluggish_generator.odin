@@ -55,7 +55,7 @@ SluggishCodePoint :: struct #packed {
 LucySluggishData :: struct {
 	codepoints: []LucySluggishCodePoint, // g_codePoints
 	inverse_scale: f32, // for inverse jacobian matrix
-	curves_data: []f32, // g_curvesTexture
+	curves_data: []f16, // g_curvesTexture
 	bands_texture_band_offsets: []u16, // g_bandsTextureBandOffsets
 	bands_texture_curve_offsets: []u16, // g_bandsTextureCurveOffsets
 }
@@ -96,7 +96,7 @@ build_sluggish_lucy :: proc(tt_truetype_filepath: string, band_count: u32 = 16, 
 	
 	ignored_codepoints : int
 	curves := make([dynamic]Curve, allocator = allocator) // this doesn't get written to the file
-	curves_data := make([dynamic]f32, allocator = allocator) // GL_RGBA32F [x1 y1 x2 y2] (g_curvesTexture)
+	curves_data := make([dynamic]f16, allocator = allocator) // GL_RGBA32F [x1 y1 x2 y2] (g_curvesTexture)
 	
 	bands_texture_band_offsets := make([dynamic]u16, allocator = allocator); // GL_RG16 [curve_count band_offset] (g_bandsTextureBandOffsets)
 	bands_texture_curve_offsets := make([dynamic]u16, allocator = allocator) // GL_RG16 [curve_offset curve_offset] (g_bandsTextureCurveOffsets)
@@ -209,8 +209,8 @@ build_sluggish_lucy :: proc(tt_truetype_filepath: string, band_count: u32 = 16, 
 			{
 				c.texelIndex = cast(u32)len(curves_data) / 4
 				assert(len(curves_data) % 4 == 0)
-				append(&curves_data, c.x1)
-				append(&curves_data, c.y1)
+				append(&curves_data, cast(f16)c.x1)
+				append(&curves_data, cast(f16)c.y1)
 			}
 			else
 			{
@@ -218,10 +218,10 @@ build_sluggish_lucy :: proc(tt_truetype_filepath: string, band_count: u32 = 16, 
 			}
 			
 			assert(len(curves_data) % 2 == 0)
-			append(&curves_data, c.x2)
-			append(&curves_data, c.y2)
-			append(&curves_data, c.x3)
-			append(&curves_data, c.y3)
+			append(&curves_data, cast(f16)c.x2)
+			append(&curves_data, cast(f16)c.y2)
+			append(&curves_data, cast(f16)c.x3)
+			append(&curves_data, cast(f16)c.y3)
 		}
 		
 		//
@@ -235,8 +235,6 @@ build_sluggish_lucy :: proc(tt_truetype_filepath: string, band_count: u32 = 16, 
 		{
 			bandCount = math.min(sizeX, sizeY) / 2;
 		}
-		
-		// idk where to put this.. worry about this later.
 		
 		fbandDelta : f32 = 0.0
 		bandsTexelIndex : u32 = cast(u32)(len(bands_texture_band_offsets) / 2);

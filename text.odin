@@ -72,6 +72,7 @@ text_init :: proc() {
 	
 	tex_height : u32 = u32(len(curve_texture_data[0]) / CURVE_TEXEL_SIZE / TEX_WIDTH)
 	
+	
 	curve_texture := create_texture_with_data_new(curve_texture_data, TEX_WIDTH, tex_height,
 	 	.R16G16B16A16_FLOAT, &g_resources_longterm, "curve texture for slug")
 	
@@ -79,12 +80,24 @@ text_init :: proc() {
 	// the Sluggish format is sooo BAD!!
 	// band_texture := create_texture_with_data_new()
 	
+	band_texture_data := make([][]byte, 1)
+	band_texture_data_inner := make([]byte, len(sluggish_data.bands_texture_band_offsets) * 2 + len(sluggish_data.bands_texture_curve_offsets) * 2)
+	copy(band_texture_data_inner, slice.to_bytes(sluggish_data.bands_texture_band_offsets))
+	copy(band_texture_data_inner[len(sluggish_data.bands_texture_band_offsets):], slice.to_bytes(sluggish_data.bands_texture_curve_offsets))
+	band_texture_data[0] = band_texture_data_inner
+	
+	BAND_TEXEL_SIZE :: 16 * 2
+	tex_height = u32(len(band_texture_data_inner) / BAND_TEXEL_SIZE / TEX_WIDTH)
+	
+	band_texture := create_texture_with_data_new(band_texture_data, TEX_WIDTH, tex_height,
+	 	.R16G16_UINT, &g_resources_longterm, "band texture for slug")
+	
 	ct.text_state = TextState {
 		sluggish_data = sluggish_data,
 		vertex_buffer = create_vertex_buffer_upload(size_of(TextVertexInput), VERTEX_COUNT * size_of(TextVertexInput), &g_resources_longterm),
 		param_struct_buffer = param_struct_buffer,
 		curve_texture = curve_texture,
-		// band_texture = band_texture,
+		band_texture = band_texture,
 	}
 }
 
