@@ -370,8 +370,9 @@ float4 PSMain(VertexStruct vresult) : SV_Target
 	// Control point texture.
 	Texture2D curveTexture = ResourceDescriptorHeap[srv_indexes.curve_texture_idx];				
 	// Band data texture.
-	Texture2D<uint4> bandTexture = ResourceDescriptorHeap[srv_indexes.band_texture_idx];		
+	Texture2D<uint4> bandTexture = ResourceDescriptorHeap[srv_indexes.band_texture_idx];
 	
 	float coverage = SlugRender(curveTexture, bandTexture, vresult.texcoord, vresult.banding, vresult.glyph);
+	// return float4(1,0,0,1);
 	return (vresult.color * coverage);
 }

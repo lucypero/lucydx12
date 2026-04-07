@@ -2135,7 +2135,7 @@ pso_text_create_pipeline_state :: proc(root_signature: ^dx.IRootSignature, vs, p
 		SampleMask = 0xFFFFFFFF,
 		RasterizerState = {
 			FillMode = .SOLID,
-			CullMode = .BACK,
+			CullMode = .NONE,
 			// true because we flipped positions and normals in gltf to convert between coord systems.
 			FrontCounterClockwise = true, 
 			DepthBias = 0,
@@ -2148,12 +2148,12 @@ pso_text_create_pipeline_state :: proc(root_signature: ^dx.IRootSignature, vs, p
 			ConservativeRaster = .OFF,
 		},
 		// enabling depth testing
-		DepthStencilState = {DepthEnable = true, StencilEnable = false, DepthWriteMask = .ALL, DepthFunc = .LESS},
+		DepthStencilState = {DepthEnable = false, StencilEnable = false},
 		InputLayout = {pInputElementDescs = &vertex_format[0], NumElements = u32(len(vertex_format))},
 		PrimitiveTopologyType = .TRIANGLE,
 		NumRenderTargets = GBUFFER_COUNT,
 		RTVFormats = {0 = .R8G8B8A8_UNORM, 1 ..< 7 = .UNKNOWN},
-		DSVFormat = .D32_FLOAT,
+		// DSVFormat = .D32_FLOAT,
 		SampleDesc = {Count = 1, Quality = 0},
 	}
 

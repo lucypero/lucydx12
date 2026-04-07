@@ -184,9 +184,10 @@ dx_upload_texture_trigger :: proc(up_service: ^DXUploadService, resource_dest : 
 			fp := text_footprint[mip].Footprint
 			mip_row_size := row_size[mip]
 			for row in 0 ..< num_rows[mip] {
+				data_row_size := min(cast(int)mip_row_size, len(image_data[mip][mip_row_size * u64(row):]))
 				copy(
 					texture_map_start_mp[u64(fp.RowPitch) * u64(row) + text_footprint[mip].Offset:][:mip_row_size],
-					image_data[mip][mip_row_size * u64(row):][:mip_row_size],
+					image_data[mip][mip_row_size * u64(row):][:data_row_size],
 				)
 			}
 		}
