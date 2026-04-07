@@ -2110,7 +2110,7 @@ pso_text_create_pipeline_state :: proc(root_signature: ^dx.IRootSignature, vs, p
 	}
 	
 	default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
-		BlendEnable = false,
+		BlendEnable = true,
 		LogicOpEnable = false,
 		SrcBlend = .ONE,
 		DestBlend = .ZERO,
