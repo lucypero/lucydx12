@@ -184,7 +184,7 @@ pso_text_render :: proc() {
 			}
 			
 			vertex = TextVertexInput {
-				pos = vertex_v_data.pos,
+				pos = vertex_v_data.pos * 0.2 + {30, 30},
 				normal = vertex_v_data.normal,
 				tex = vertex_v_data.tex,
 				tex_band_location = cast(u32)a_glyph.bandsTexCoordY << 16 | cast(u32)a_glyph.bandsTexCoordX & 0xFFFF,
