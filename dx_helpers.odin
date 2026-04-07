@@ -301,7 +301,7 @@ create_texture_with_data_new :: proc(
 	
 	return Texture {
 		buffer = res,
-		srv_index = create_srv_on_uber_heap(res)
+		srv_index = create_srv_on_uber_heap(res, debug_index = true, debug_name = texture_name)
 	}
 }
 

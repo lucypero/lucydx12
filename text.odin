@@ -68,10 +68,10 @@ text_init :: proc() {
 	curve_texture_data[0] = slice.to_bytes(sluggish_data.curves_data)
 	
 	TEX_WIDTH :: 4096
-	CURVE_TEXEL_SIZE :: 16 * 4
+	CURVE_TEXEL_SIZE :: 2 * 4
 	
-	tex_height : u32 = u32(len(curve_texture_data[0]) / CURVE_TEXEL_SIZE / TEX_WIDTH)
-	
+	total_texels := len(curve_texture_data[0]) / CURVE_TEXEL_SIZE
+	tex_height : u32 = u32((total_texels + TEX_WIDTH - 1) / TEX_WIDTH)
 	
 	curve_texture := create_texture_with_data_new(curve_texture_data, TEX_WIDTH, tex_height,
 	 	.R16G16B16A16_FLOAT, &g_resources_longterm, "curve texture for slug")
@@ -86,8 +86,9 @@ text_init :: proc() {
 	copy(band_texture_data_inner[len(sluggish_data.bands_texture_band_offsets):], slice.to_bytes(sluggish_data.bands_texture_curve_offsets))
 	band_texture_data[0] = band_texture_data_inner
 	
-	BAND_TEXEL_SIZE :: 16 * 2
-	tex_height = u32(len(band_texture_data_inner) / BAND_TEXEL_SIZE / TEX_WIDTH)
+	BAND_TEXEL_SIZE :: 2 * 2
+	total_texels = len(band_texture_data_inner) / BAND_TEXEL_SIZE
+	tex_height = u32((total_texels + TEX_WIDTH - 1) / TEX_WIDTH)
 	
 	band_texture := create_texture_with_data_new(band_texture_data, TEX_WIDTH, tex_height,
 	 	.R16G16_UINT, &g_resources_longterm, "band texture for slug")
@@ -163,31 +164,29 @@ pso_text_render :: proc() {
 		
 		for &vertex, i in vertex_data_test {
 			
-			vertex_pos: v2
-			vertex_normal: v2
-			tex_pos: v2
+			vertex_v_data : TextVertexInput
 			
 			switch i {
 			// first triangle
 			case 0: // top left
-				vertex = vertices[0]
+				vertex_v_data = vertices[0]
 			case 1: // top right
-				vertex = vertices[1]
+				vertex_v_data = vertices[1]
 			case 2: // bottom left
-				vertex = vertices[2]
+				vertex_v_data = vertices[2]
 			// second triangle
 			case 3: // top right
-				vertex = vertices[1]
+				vertex_v_data = vertices[1]
 			case 4: // bottom right
-				vertex = vertices[3]
+				vertex_v_data = vertices[3]
 			case 5: // bottom left
-				vertex = vertices[2]
+				vertex_v_data = vertices[2]
 			}
 			
 			vertex = TextVertexInput {
-				pos = vertex_pos,
-				normal = vertex_normal,
-				tex = tex_pos,
+				pos = vertex_v_data.pos,
+				normal = vertex_v_data.normal,
+				tex = vertex_v_data.tex,
 				tex_band_location = cast(u32)a_glyph.bandsTexCoordY << 16 | cast(u32)a_glyph.bandsTexCoordX & 0xFFFF,
 				tex_max_band_index_flags = tex_max_band_index_flags,
 				jac = v4{sd.inverse_scale, 0.0, 0.0, sd.inverse_scale},
@@ -201,12 +200,21 @@ pso_text_render :: proc() {
 	
 	// updating cbv
 	{
-		view, projection := get_view_projection(cur_cam)
+		
+		get_text_view_projection :: proc(cam: Camera) -> (dxm, dxm) {
+			view := linalg.MATRIX4F32_IDENTITY
+			proj := linalg.matrix_ortho3d_f32(0, WINDOW_WIDTH, WINDOW_HEIGHT, 0, -10, 10, true)
+
+			return view, proj
+		}
+		
+		view, projection := get_text_view_projection(cur_cam)
 		
 		ps := ParamStruct {
-			slug_matrix = view * projection,
+			slug_matrix = projection * view,
 			slug_viewport = {WINDOW_WIDTH, WINDOW_HEIGHT, 0, 0}
 		}
+		ps.slug_matrix = linalg.transpose(projection * view)
 		
 		copy_to_buffer_already_mapped_value(ct.text_state.param_struct_buffer.gpu_pointer, &ps)
 	}
@@ -217,10 +225,20 @@ pso_text_render :: proc() {
 	
 	set_viewport_stuff()
 	
+	// Setting render targets. Clearing RTV.
+	{
+		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
+			get_descriptor_heap_cpu_address(ct.swapchain_rtv_descriptor_heap, cast(uint)ct.frame_index),
+		}
+
+		ct.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
+	}
+	
 	// draw call
 	ct.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
 	
 	// binding vertex buffer view and instance buffer view
 	vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW{ct.text_state.vertex_buffer.vbv}
 	ct.cmdlist->IASetVertexBuffers(0, len(vertex_buffers_views), &vertex_buffers_views[0])
+	ct.cmdlist->DrawInstanced(ct.text_state.vertex_buffer.vertex_count, 1, 0, 0)
 }
