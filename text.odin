@@ -14,7 +14,7 @@ import dxc "vendor:directx/dxc"
 import dxma "libs/odin-d3d12ma"
 import sg "src/sluggish_generator"
 
-TextVertexInput :: struct {
+TextVertexInput :: struct #packed {
 	// attrib 0
 	pos: v2, // object-space vertex coords
 	normal: v2, // object space normal vector
@@ -110,7 +110,7 @@ pso_text_render :: proc() {
 		vertex_data_test := make([]TextVertexInput, VERTEX_COUNT, allocator = context.temp_allocator)
 		
 		sd := &ct.text_state.sluggish_data
-		a_glyph := &sd.codepoints[0]
+		a_glyph := &sd.codepoints[2]
 		
 		tx0 := a_glyph.tex_top_left.x
 		ty0 := a_glyph.tex_top_left.y
@@ -155,7 +155,7 @@ pso_text_render :: proc() {
 		em_height := f32(a_glyph.height)
 	
 		bnd_scale_x := f32(a_glyph.bandCount) / em_width
-		bnd_scale_y := f32(a_glyph.bandCount) / em_height
+		bnd_scale_y := -f32(a_glyph.bandCount) / em_height
 		
 		bnd_offset_x := f32(-a_glyph.tex_top_left.x) * bnd_scale_x
 		bnd_offset_y := f32(-a_glyph.tex_top_left.y) * bnd_scale_y
@@ -184,12 +184,12 @@ pso_text_render :: proc() {
 			}
 			
 			vertex = TextVertexInput {
-				pos = vertex_v_data.pos * 0.2 + {30, 30},
+				pos = vertex_v_data.pos * 0.2 + {30, 500},
 				normal = vertex_v_data.normal,
 				tex = vertex_v_data.tex,
 				tex_band_location = cast(u32)a_glyph.bandsTexCoordY << 16 | cast(u32)a_glyph.bandsTexCoordX & 0xFFFF,
 				tex_max_band_index_flags = tex_max_band_index_flags,
-				jac = v4{sd.inverse_scale, 0.0, 0.0, sd.inverse_scale},
+				jac = v4{sd.inverse_scale, 0.0, 0.0, -sd.inverse_scale},
 				bnd = bnd,
 				col = v4{1, 0, 0, 1}
 			}
@@ -241,4 +241,110 @@ pso_text_render :: proc() {
 	vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW{ct.text_state.vertex_buffer.vbv}
 	ct.cmdlist->IASetVertexBuffers(0, len(vertex_buffers_views), &vertex_buffers_views[0])
 	ct.cmdlist->DrawInstanced(ct.text_state.vertex_buffer.vertex_count, 1, 0, 0)
+}
+
+
+pso_text_create_pipeline_state :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState {
+	
+	ct := &g_dx_context
+	
+	vertex_format := [?]dx.INPUT_ELEMENT_DESC {
+		{
+			SemanticName = "ATTRIB",
+			SemanticIndex = 0,
+			Format = .R32G32B32A32_FLOAT,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_VERTEX_DATA,
+		},
+		{
+			SemanticName = "TEXCOORD", // tex.xy
+			SemanticIndex = 0,
+			Format = .R32G32_FLOAT,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_VERTEX_DATA,
+		},
+		{
+			SemanticName = "TEXCOORD", // tex.zw
+			SemanticIndex = 1,
+			Format = .R32G32_UINT,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_VERTEX_DATA,
+		},
+		{
+			SemanticName = "ATTRIB",
+			SemanticIndex = 1,
+			Format = .R32G32B32A32_FLOAT,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_VERTEX_DATA,
+		},
+		{
+			SemanticName = "ATTRIB",
+			SemanticIndex = 2,
+			Format = .R32G32B32A32_FLOAT,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_VERTEX_DATA,
+		},
+		{
+			SemanticName = "ATTRIB",
+			SemanticIndex = 3,
+			Format = .R32G32B32A32_FLOAT,
+			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+			InputSlotClass = .PER_VERTEX_DATA,
+		},
+	}
+	
+	default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
+		BlendEnable = true,
+		LogicOpEnable = false,
+		SrcBlend = .ONE,
+		DestBlend = .ZERO,
+		BlendOp = .ADD,
+		SrcBlendAlpha = .ONE,
+		DestBlendAlpha = .ZERO,
+		BlendOpAlpha = .ADD,
+		LogicOp = .NOOP,
+		RenderTargetWriteMask = u8(dx.COLOR_WRITE_ENABLE_ALL),
+	}
+	
+	pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
+		pRootSignature = root_signature,
+		VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
+		PS = {pShaderBytecode = ps->GetBufferPointer(), BytecodeLength = ps->GetBufferSize()},
+		StreamOutput = {},
+		BlendState = {
+			AlphaToCoverageEnable = false,
+			IndependentBlendEnable = false,
+			RenderTarget = {0 = default_blend_state, 1..< 7 = {}}
+		},
+		SampleMask = 0xFFFFFFFF,
+		RasterizerState = {
+			FillMode = .SOLID,
+			CullMode = .NONE,
+			// true because we flipped positions and normals in gltf to convert between coord systems.
+			FrontCounterClockwise = true, 
+			DepthBias = 0,
+			DepthBiasClamp = 0,
+			SlopeScaledDepthBias = 0,
+			DepthClipEnable = true,
+			MultisampleEnable = false,
+			AntialiasedLineEnable = false,
+			ForcedSampleCount = 0,
+			ConservativeRaster = .OFF,
+		},
+		// enabling depth testing
+		DepthStencilState = {DepthEnable = false, StencilEnable = false},
+		InputLayout = {pInputElementDescs = &vertex_format[0], NumElements = u32(len(vertex_format))},
+		PrimitiveTopologyType = .TRIANGLE,
+		NumRenderTargets = GBUFFER_COUNT,
+		RTVFormats = {0 = .R8G8B8A8_UNORM, 1 ..< 7 = .UNKNOWN},
+		// DSVFormat = .D32_FLOAT,
+		SampleDesc = {Count = 1, Quality = 0},
+	}
+
+	pso: ^dx.IPipelineState
+
+	ct.device->CreateGraphicsPipelineState(&pipeline_state_desc, dx.IPipelineState_UUID, (^rawptr)(&pso))
+	pso->SetName("PSO for text")
+	
+	return pso
 }
