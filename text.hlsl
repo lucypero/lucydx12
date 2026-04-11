@@ -57,14 +57,14 @@ struct ParamStruct {
 // It's convenient to have a texel load function to aid in translation to other shader languages.
 #define TexelLoad2D(x, y) x.Load(int3(y, 0))
 
-void SlugUnpack(float4 tex, float4 bnd, out float4 vbnd, out int4 vgly)
+void SlugUnpack(uint2 tex_zw, float4 bnd, out float4 vbnd, out int4 vgly)
 {
-	uint2 g = asuint(tex.zw);
+	uint2 g = tex_zw;
 	vgly = int4(g.x & 0xFFFFU, g.x >> 16U, g.y & 0xFFFFU, g.y >> 16U);
 	vbnd = bnd;
 }
 
-float2 SlugDilate(float4 pos, float4 tex, float4 jac, float4 m0, float4 m1, float4 m3, float2 dim, out float2 vpos)
+float2 SlugDilate(float4 pos, float2 tex, float4 jac, float4 m0, float4 m1, float4 m3, float2 dim, out float2 vpos)
 {
 	float2 n = normalize(pos.zw);
 	float s = dot(m3.xy, pos.xy) + m3.w;
@@ -82,8 +82,20 @@ float2 SlugDilate(float4 pos, float4 tex, float4 jac, float4 m0, float4 m1, floa
 	return (float2(tex.x + dot(d, jac.xy), tex.y + dot(d, jac.zw)));
 }
 
-VertexStruct VSMain(float4 attrib[5] : ATTRIB, uint vid : SV_VertexID)
+struct VertexInput {
+	float4 pos: ATTRIB0;
+	float2 tex_xy: TEXCOORD0;
+	uint2 tex_zw: TEXCOORD1;
+	float4 jac: ATTRIB1;
+	float4 bnd: ATTRIB2;
+	float4 col: ATTRIB3;
+	uint vid: SV_VertexID;
+};
+
+VertexStruct VSMain(VertexInput vertex_input)
 {
+
+	vertex_input.jac *= 0.01f;
 	float2 p;
 	VertexStruct vresult;
 
@@ -91,7 +103,7 @@ VertexStruct VSMain(float4 attrib[5] : ATTRIB, uint vid : SV_VertexID)
 	AllSrvsIndices srv_indexes = get_srvs_from_heap();
 	ConstantBuffer<ParamStruct> param_struct = ResourceDescriptorHeap[srv_indexes.param_struct_idx];
 
-	vresult.texcoord = SlugDilate(attrib[0], attrib[1], attrib[2], param_struct.slug_matrix[0], param_struct.slug_matrix[1], param_struct.slug_matrix[3], param_struct.slug_viewport.xy, p);
+	vresult.texcoord = SlugDilate(vertex_input.pos, vertex_input.tex_xy, vertex_input.jac, param_struct.slug_matrix[0], param_struct.slug_matrix[1], param_struct.slug_matrix[3], param_struct.slug_viewport.xy, p);
 
 	// Apply MVP matrix to dilated vertex position.
 
@@ -102,8 +114,8 @@ VertexStruct VSMain(float4 attrib[5] : ATTRIB, uint vid : SV_VertexID)
 
 	// Unpack or pass through remaining vertex data.
 
-	SlugUnpack(attrib[1], attrib[3], vresult.banding, vresult.glyph);
-	vresult.color = attrib[4];
+	SlugUnpack(vertex_input.tex_zw, vertex_input.bnd, vresult.banding, vresult.glyph);
+	vresult.color = vertex_input.col;
 	return (vresult);
 }
 
@@ -367,12 +379,45 @@ float SlugRender(Texture2D curveData, Texture2D<uint4> bandData, float2 renderCo
 float4 PSMain(VertexStruct vresult) : SV_Target
 {
 	AllSrvsIndices srv_indexes = get_srvs_from_heap();
-	// Control point texture.
+	// // Control point texture.
 	Texture2D curveTexture = ResourceDescriptorHeap[srv_indexes.curve_texture_idx];				
-	// Band data texture.
+	// // Band data texture.
 	Texture2D<uint4> bandTexture = ResourceDescriptorHeap[srv_indexes.band_texture_idx];
 	
+	// THE REAL DEAL
+	
 	float coverage = SlugRender(curveTexture, bandTexture, vresult.texcoord, vresult.banding, vresult.glyph);
-	// return float4(1,0,0,1);
 	return (vresult.color * coverage);
+	
+	// THE TEST
+	
+	// // 1. Calculate which band this pixel belongs to
+ //    int2 bandMax = vresult.glyph.zw;
+ //    int2 bandIndex = clamp(int2(vresult.texcoord * vresult.banding.xy + vresult.banding.zw), int2(0,0), bandMax);
+    
+ //    // 2. Add the local band index to the glyph's starting location in the texture
+ //    int2 bandAddress = vresult.glyph.xy + bandIndex;
+    
+ //    // 3. Manually fetch the header of that band (Mip level is 0!)
+ //    uint2 hbandData = bandTexture.Load(int3(bandAddress.x, bandAddress.y, 0)).xy;
+    
+ //    // 4. Run the actual Slug coverage math
+ //    // vresult.jac *= -1.0;
+ //    float coverage = SlugRender(curveTexture, bandTexture, vresult.texcoord, vresult.banding, vresult.glyph);
+    
+ //    // --- THE DIAGNOSTIC ---
+    
+ //    if (hbandData.x == 0) {
+ //        // RED: Okay, NOW if it's red, the bnd offset math is genuinely wrong.
+ //        return float4(1, 0, 0, 1); 
+ //    }
+    
+ //    if (coverage <= 0.0) {
+ //        // BLUE: We found the curves, but the Quad is upside down (winding order) 
+ //        // OR the Jacobian (104) is too large.
+ //        return float4(0, 0, 1, 1); 
+ //    }
+    
+ //    // GREEN: Slug works perfectly. 
+ //    return float4(0, 1, 0, 1);
 }
