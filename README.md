@@ -4,7 +4,7 @@ I'm just here learning DX12 in Odin
 
 # Build + run
 
-```cmd 
+```cmd
 dl_scenes.bat
-odin run .
+odin run src
 ```

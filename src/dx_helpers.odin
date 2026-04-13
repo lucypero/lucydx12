@@ -20,7 +20,7 @@ import "core:sys/windows"
 import "core:fmt"
 import "base:runtime"
 import "core:math"
-import dxma "libs/odin-d3d12ma"
+import dxma "../libs/odin-d3d12ma"
 
 /*
 transition_resource_from_copy_to_read :: proc(res: ^dx.IResource, cmd_list: ^dx.IGraphicsCommandList) {
@@ -39,7 +39,7 @@ transition_resource :: proc(res: ^dx.IResource, cmd_list: ^dx.IGraphicsCommandLi
 			Subresource = subresource
 		}
 	}
-	
+
 	// run resource barrier
 	cmd_list->ResourceBarrier(1, &barrier)
 }
@@ -77,21 +77,21 @@ create_texture :: proc(width: u64, height: u32, format: dxgi.FORMAT, resource_fl
 		SampleDesc = {Count = 1},
 		Flags = resource_flags,
 	}
-	
+
 	allocation : ^dxma.Allocation
 	dxma.Allocator_CreateResource(
 		ct.dxma_allocator,
-	 	&dxma.ALLOCATION_DESC{HeapType = .DEFAULT},
+		&dxma.ALLOCATION_DESC{HeapType = .DEFAULT},
 		&texture_desc,
 		initial_state,
-	 	&opt_clear_value,
+		&opt_clear_value,
 		&allocation,
 		nil,
 		nil
 	)
-	
+
 	res = dxma.Allocation_GetResource(allocation)
-	
+
 	append(pool, cast(^dxgi.IUnknown)allocation)
 
 	return res
@@ -103,12 +103,12 @@ dxc_init :: proc() -> ^dxc.ICompiler3 {
 	// todo here
 	utils : ^dxc.IUtils
 	compiler : ^dxc.ICompiler3
-	
+
 	dxc.CreateInstance(dxc.Utils_CLSID, dxc.IUtils_UUID, (^rawptr)(&utils))
 	dxc.CreateInstance(dxc.Compiler_CLSID, dxc.ICompiler3_UUID, (^rawptr)(&compiler))
-	
+
 	utils->CreateDefaultIncludeHandler(&include_handler)
-	
+
 	return compiler
 }
 
@@ -116,30 +116,30 @@ dxc_init :: proc() -> ^dxc.ICompiler3 {
 compile_shader :: proc(compiler: ^dxc.ICompiler3, shader_filename: string) -> (vs, ps: ^dxc.IBlob, ok: bool) {
 
 	data, ok_f := os.read_entire_file_from_path(shader_filename, context.allocator)
-	
+
 	if ok_f != os.General_Error.None {
 		lprintfln("could not read file")
 		os.exit(1)
 	}
 
 	defer(delete(data))
-	
+
 	if len(data) == 0 do return vs, ps, false
-	
+
 	source_buffer := dxc.Buffer {
 		Ptr = &data[0],
 		Size = len(data),
 		Encoding = dxc.CP_ACP
 	}
-	
+
 	vs, ok = compile_individual_shader(shader_filename, &source_buffer, compiler, .Vertex)
-	
+
 	if !ok do return vs, ps, false
-	
+
 	ps, ok = compile_individual_shader(shader_filename, &source_buffer, compiler, .Pixel)
-	
+
 	if !ok do return vs, ps, false
-	
+
 	return vs, ps, true
 }
 
@@ -149,7 +149,7 @@ ShaderKind :: enum {
 }
 
 compile_individual_shader :: proc(shader_filename: string, source_buffer: ^dxc.Buffer, compiler: ^dxc.ICompiler3, shader_kind: ShaderKind) -> (res:^dxc.IBlob, ok: bool) {
-	
+
 	arguments := [?]string {
 		"-E", "VSMain", // Entry point
 		"-T", "vs_6_6", // target profile (pixel shader 6)
@@ -157,36 +157,36 @@ compile_individual_shader :: proc(shader_filename: string, source_buffer: ^dxc.B
 		"-O3", // Optimization level 3
 		// "-I \".\"", // include paths
 	}
-	
+
 	if shader_kind == .Pixel {
 		arguments[1] = "PSMain"
 		arguments[3] = "ps_6_6"
 	}
-	
+
 	arguments_wide : [len(arguments)]windows.wstring
-	
+
 	for arg, i in arguments {
 		arguments_wide[i] = windows.utf8_to_wstring_alloc(arg, allocator = context.temp_allocator)
 	}
-	
+
 	results : ^dxc.IResult
 	compiler->Compile(source_buffer, &arguments_wide[0], len(arguments_wide), include_handler, dxc.IOperationResult_UUID, (^rawptr)(&results))
-	
+
 	errors : ^dxc.IBlobUtf8
 	results->GetOutput(.ERRORS, dxc.IBlobUtf8_UUID, (^rawptr)(&errors), nil)
 	if errors != nil && errors->GetStringLength() > 0 {
 		error_str := strings.string_from_ptr((^u8)(errors->GetBufferPointer()), int(errors->GetBufferSize()))
 		lprintfln("dxc: errors at %v: %v", shader_filename, error_str)
 	}
-	
+
 	output_blob : ^dxc.IBlob
-	
+
 	hr : dxc.HRESULT
 	results->GetStatus(&hr)
 	if hr < 0 {
 		return output_blob, false
 	}
-	
+
 	results->GetOutput(.OBJECT, dxc.IBlob_UUID, (^rawptr)(&output_blob), nil)
 	return output_blob, true
 }
@@ -198,7 +198,7 @@ DDSFile :: struct {
 	format: dxgi.FORMAT,
 	mipmap_data: [][]byte,
 }
-	
+
 
 // creates texture on default heap
 // schedules an upload of data
@@ -211,9 +211,9 @@ create_texture_with_data :: proc(
 	pool_textures : ^DXResourcePool,
 	texture_name := ""
 ) -> (res: ^dx.IResource) {
-	
+
 	ct := &g_dx_context
-	
+
 	mip_levels := cast(u16)len(image_data)
 
 	texture_desc := dx.RESOURCE_DESC {
@@ -226,7 +226,7 @@ create_texture_with_data :: proc(
 		MipLevels = mip_levels,
 		SampleDesc = {Count = 1},
 	}
-	
+
 	allocation : ^dxma.Allocation
 	dxma.Allocator_CreateResource(
 		pSelf = ct.dxma_allocator,
@@ -240,14 +240,14 @@ create_texture_with_data :: proc(
 	)
 	res = dxma.Allocation_GetResource(allocation)
 	append(pool_textures, cast(^dxgi.IUnknown)allocation)
-	
+
 	if len(texture_name) > 0 {
 		texture_name_cstring := windows.utf8_to_wstring_alloc(texture_name, allocator = context.temp_allocator)
 		res->SetName(texture_name_cstring)
 	}
-	
+
 	dx_upload_texture_trigger(&g_upload_service, res, image_data, &texture_desc)
-	
+
 	return res
 }
 
@@ -262,9 +262,9 @@ create_texture_with_data_new :: proc(
 	pool_textures : ^DXResourcePool,
 	texture_name := ""
 ) -> Texture {
-	
+
 	ct := &g_dx_context
-	
+
 	mip_levels := cast(u16)len(image_data)
 
 	texture_desc := dx.RESOURCE_DESC {
@@ -277,7 +277,7 @@ create_texture_with_data_new :: proc(
 		MipLevels = mip_levels,
 		SampleDesc = {Count = 1},
 	}
-	
+
 	allocation : ^dxma.Allocation
 	dxma.Allocator_CreateResource(
 		pSelf = ct.dxma_allocator,
@@ -291,14 +291,14 @@ create_texture_with_data_new :: proc(
 	)
 	res := dxma.Allocation_GetResource(allocation)
 	append(pool_textures, cast(^dxgi.IUnknown)allocation)
-	
+
 	if len(texture_name) > 0 {
 		texture_name_cstring := windows.utf8_to_wstring_alloc(texture_name, allocator = context.temp_allocator)
 		res->SetName(texture_name_cstring)
 	}
-	
+
 	dx_upload_texture_trigger(&g_upload_service, res, image_data, &texture_desc)
-	
+
 	return Texture {
 		buffer = res,
 		srv_index = create_srv_on_uber_heap(res, debug_index = true, debug_name = texture_name)
@@ -324,7 +324,7 @@ copy_to_buffer_already_mapped_value :: proc(gpu_data: rawptr, data: ^$T){
 // creates a SRV for the resource on the uber SRV heap
 create_srv_on_uber_heap :: proc(res : ^dx.IResource, srv_desc : ^dx.SHADER_RESOURCE_VIEW_DESC = nil,
 	debug_index: bool = false, debug_name: string = "",
-	) -> (srv_index: uint){
+) -> (srv_index: uint){
 	ct := &g_dx_context
 	ct.device->CreateShaderResourceView(res, srv_desc, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, ct.descriptor_count))
 	uber_heap_count(debug_index, debug_name)
@@ -332,7 +332,7 @@ create_srv_on_uber_heap :: proc(res : ^dx.IResource, srv_desc : ^dx.SHADER_RESOU
 }
 
 create_cbv_on_uber_heap :: proc(
-		cbv_desc : ^dx.CONSTANT_BUFFER_VIEW_DESC, debug_index: bool = false, debug_name: string = "") -> (srv_index: uint) {
+	cbv_desc : ^dx.CONSTANT_BUFFER_VIEW_DESC, debug_index: bool = false, debug_name: string = "") -> (srv_index: uint) {
 	ct := &g_dx_context
 	ct.device->CreateConstantBufferView(cbv_desc, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, ct.descriptor_count))
 	uber_heap_count(debug_index, debug_name)
@@ -374,7 +374,7 @@ create_vertex_buffer_upload :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^
 		Layout = .ROW_MAJOR,
 		Flags = {},
 	}
-	
+
 	allocation : ^dxma.Allocation
 	hr := dxma.Allocator_CreateResource(
 		pSelf = g_dx_context.dxma_allocator,
@@ -395,10 +395,10 @@ create_vertex_buffer_upload :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^
 		StrideInBytes = stride_in_bytes,
 		SizeInBytes = size_in_bytes,
 	}
-	
+
 	gpu_data: rawptr
 	vb->Map(0, &dx.RANGE{}, &gpu_data)
-	
+
 	return VertexBuffer {
 		buffer = vb,
 		gpu_pointer = gpu_data,
@@ -429,7 +429,7 @@ create_constant_buffer_upload :: proc(size_in_bytes: u32, pool: ^DXResourcePool,
 		Layout = .ROW_MAJOR,
 		Flags = {},
 	}
-	
+
 	allocation : ^dxma.Allocation
 	hr := dxma.Allocator_CreateResource(
 		pSelf = g_dx_context.dxma_allocator,
@@ -447,18 +447,18 @@ create_constant_buffer_upload :: proc(size_in_bytes: u32, pool: ^DXResourcePool,
 
 	gpu_data: rawptr
 	vb->Map(0, &dx.RANGE{}, &gpu_data)
-	
+
 	if len(name) > 0 {
 		name_cstring := windows.utf8_to_wstring_alloc(name, allocator = context.temp_allocator)
 		vb->SetName(name_cstring)
 	}
-	
+
 	// creating our constant buffer
 	srv_index := create_cbv_on_uber_heap(&dx.CONSTANT_BUFFER_VIEW_DESC{
 		BufferLocation = vb->GetGPUVirtualAddress(),
 		SizeInBytes = size_in_bytes
 	}, true, debug_name = name)
-	
+
 	return ConstantBufferUpload {
 		buffer = vb,
 		gpu_pointer = gpu_data,
@@ -468,30 +468,30 @@ create_constant_buffer_upload :: proc(size_in_bytes: u32, pool: ^DXResourcePool,
 }
 
 generate_uv_sphere :: proc(meridians: u32, parallels: u32, allocator: runtime.Allocator) -> ([]v3, []u32) {
-	
+
 	expected_verts := 2 + (parallels - 1) * meridians
 	verts := make([dynamic]v3, 0, expected_verts, allocator)
 	indices := make([dynamic]u32, 0, expected_verts * 6, allocator)
-	
+
 	append(&verts, v3{0.0, 1.0, 0})
-	
+
 	for j in 0..<parallels - 1 {
 		polar : f32 = math.PI * f32(j+1) / f32(parallels)
 		sp : f32 = math.sin(polar)
 		cp : f32 = math.cos(polar)
-		
+
 		for i in 0..<meridians {
-			
+
 			azimuth : f32 = 2.0 * math.PI * f32(i) / f32(meridians)
 			sa : f32 = math.sin(azimuth)
 			ca : f32 = math.cos(azimuth)
-			
+
 			append(&verts, v3{sp * ca, cp, sp * sa})
 		}
 	}
-	
+
 	append(&verts, v3{0, -1, 0})
-	
+
 	for i in 0..<meridians {
 		a : u32 = i + 1
 		b : u32 = (i + 1) % meridians + 1
@@ -499,11 +499,11 @@ generate_uv_sphere :: proc(meridians: u32, parallels: u32, allocator: runtime.Al
 		// 		mesh.addTriangle(0, b, a);
 		append(&indices, 0, b, a)
 	}
-	
+
 	for j in 0..<parallels - 2 {
 		aStart : u32 = j * meridians + 1
 		bStart : u32 = (j + 1) * meridians + 1
-		
+
 		for i in 0..<meridians {
 			a : u32 = aStart + i
 			a1 : u32 = aStart + (i + 1) % meridians
@@ -511,32 +511,32 @@ generate_uv_sphere :: proc(meridians: u32, parallels: u32, allocator: runtime.Al
 			b1: u32 = bStart + (i + 1) % meridians
 			// add quad???? what is this
 			// mesh.addQuad(a, a1, b1, b);
-			
+
 			append(&indices, a, a1, b1)
 			append(&indices, a, b1, b)
 		}
-		
+
 	}
-	
+
 	last_ring_start := (parallels - 2) * meridians + 1
 	for i in 0..<meridians {
-        a := last_ring_start + i
-        b := last_ring_start + (i + 1) % meridians
-        append(&indices, u32(len(verts) - 1), a, b)
-    }
-	
+		a := last_ring_start + i
+		b := last_ring_start + (i + 1) % meridians
+		append(&indices, u32(len(verts) - 1), a, b)
+	}
+
 	return verts[:], indices[:]
 }
 
 // DDS file format docs: https://learn.microsoft.com/en-us/windows/win32/direct3ddds/dds-header
 parse_dds_file :: proc(dds_filepath: string) -> DDSFile {
-	
+
 	file_data, err := os.read_entire_file_from_path(dds_filepath, context.temp_allocator)
 	assert(err == os.General_Error.None)
 	magic_num, ok := endian.get_u32(file_data, .Little)
 	assert(ok)
 	assert(magic_num == 0x20534444)
-	
+
 	PixelFormatFlagsEnum :: enum {
 		ALPHAPIXELS = 0,
 		DDPF_ALPHA = 1,
@@ -556,24 +556,24 @@ parse_dds_file :: proc(dds_filepath: string) -> DDSFile {
 		BBitMask: u32,
 		ABitMask: u32,
 	}
-	
+
 	DDSHeader :: struct #packed {
-	  Size : u32,
-	  Flags: u32,
-	  Height: u32,
-	  Width: u32,
-	  PitchOrLinearSize: u32,
-	  Depth: u32,
-	  MipMapCount: u32,
-	  Reserved1 : [11]u32,
-	  pixel_format : DDSPixelFormat,
-	  Caps : u32,
-	  Caps2: u32,
-	  Caps3: u32,
-	  Caps4: u32,
-	  Reserved2: u32
+		Size : u32,
+		Flags: u32,
+		Height: u32,
+		Width: u32,
+		PitchOrLinearSize: u32,
+		Depth: u32,
+		MipMapCount: u32,
+		Reserved1 : [11]u32,
+		pixel_format : DDSPixelFormat,
+		Caps : u32,
+		Caps2: u32,
+		Caps3: u32,
+		Caps4: u32,
+		Reserved2: u32
 	}
-	
+
 	DDSHeaderDXT10 :: struct #packed {
 		dxgi_format: dxgi.FORMAT,
 		resource_dimension: dx.RESOURCE_DIMENSION,
@@ -581,24 +581,24 @@ parse_dds_file :: proc(dds_filepath: string) -> DDSFile {
 		arraySize: u32,
 		miscFlags2: u32,
 	}
-	
+
 	advance :u32
 	advance += size_of(magic_num)
 	header := (^DDSHeader)(raw_data(file_data[advance:]))
 	advance += size_of(DDSHeader)
-	
+
 	// assume we have the DX10 header.
 	assert(.DDPF_FOURCC in header.pixel_format.Flags && header.pixel_format.FourCC == 0x30315844)
-	
+
 	header_dx10 := (^DDSHeaderDXT10)(raw_data(file_data[advance:]))
 	advance += size_of(DDSHeaderDXT10)
-	
+
 	text_format : dxgi.FORMAT = header_dx10.dxgi_format
 	format_num :i32 = cast(i32)header_dx10.dxgi_format 
-	
+
 	// It's compressed if it's a BC format
 	is_compressed : bool = (format_num >= 70 && format_num <= 84) || (format_num >= 94 && format_num <= 99)
-	
+
 	bytes_per_block : u32 = 0
 	switch format_num {
 	case 70..=72: // BC1
@@ -607,88 +607,88 @@ parse_dds_file :: proc(dds_filepath: string) -> DDSFile {
 	case: // Rest of BCs
 		bytes_per_block = 16
 	}
-	
+
 	current_w := header.Width
 	current_h := header.Height
-	
+
 	// TODO handle freeing
-	
+
 	dds_output := DDSFile {
 		width = header.Width,
 		height = header.Height,
 		format = text_format,
 		mipmap_data = make([][]byte, header.MipMapCount, context.temp_allocator)
 	}
-	
+
 	for i in 0..<header.MipMapCount {
-	    level_size := get_mip_level_size(current_w, current_h, is_compressed, bytes_per_block)
-	    
-	    // Slice the specific mip level data
-	    mip_data := file_data[advance : advance + level_size]
-	    
-	    // Move cursor and halve dimensions for next level
-	    advance += level_size
-	    current_w = max(1, current_w >> 1)
-	    current_h = max(1, current_h >> 1)
+		level_size := get_mip_level_size(current_w, current_h, is_compressed, bytes_per_block)
+
+		// Slice the specific mip level data
+		mip_data := file_data[advance : advance + level_size]
+
+		// Move cursor and halve dimensions for next level
+		advance += level_size
+		current_w = max(1, current_w >> 1)
+		current_h = max(1, current_h >> 1)
 		dds_output.mipmap_data[i] = slice.clone(mip_data, context.temp_allocator)
 	}
-	
+
 	return dds_output
 }
 
 get_mip_level_size :: proc(width, height: u32, format_is_compressed: bool, bytes_per_block_or_pixel: u32) -> u32 {
-    w := max(1, width)
-    h := max(1, height)
-    
-    if format_is_compressed {
-        // Round up to the nearest 4-pixel block
-        bw := max(1, (w + 3) / 4)
-        bh := max(1, (h + 3) / 4)
-        return bw * bh * bytes_per_block_or_pixel // 8 or 16
-    } else {
-        return w * h * bytes_per_block_or_pixel // e.g., 4 for RGBA8
-    }
+	w := max(1, width)
+	h := max(1, height)
+
+	if format_is_compressed {
+		// Round up to the nearest 4-pixel block
+		bw := max(1, (w + 3) / 4)
+		bh := max(1, (h + 3) / 4)
+		return bw * bh * bytes_per_block_or_pixel // 8 or 16
+	} else {
+		return w * h * bytes_per_block_or_pixel // e.g., 4 for RGBA8
+	}
 }
 
 texture_cache_query :: proc(model_filepath, image_name: string, format: dxgi.FORMAT, image_data: Maybe([]byte)) -> (texture_out_path: string) {
-	
+
 	// test if this exists already
-	
+
 	// lprintln("image texture cache miss. creating texture with mipmaps")
 	alloc_err : runtime.Allocator_Error
-	
+
 	filepath_hash := hash_thing(model_filepath)
 	// image_name_hash := hash_thing(image_name)
-	
+
 	cache_dir : string
 	cache_dir, alloc_err = filepath.join({"cache", filepath_hash}, context.temp_allocator)
 	assert(alloc_err == .None)
-	
+
 	image_name_dss := strings.concatenate({filepath.stem(image_name), ".dds"}, context.temp_allocator)
 	texture_out_path, alloc_err = filepath.join({cache_dir, image_name_dss}, context.temp_allocator)
 	assert(alloc_err == os.ERROR_NONE)
-	
+
 	// checking if it exists already
 	if os.exists(texture_out_path) {
 		return texture_out_path
 	}
-	
+
 	// create dirs
 	dir_err := os.make_directory_all(cache_dir)
-	
+
 	assert(dir_err == os.ERROR_NONE)
-	
+
 	input_image_dir := filepath.dir(model_filepath, context.temp_allocator)
 	input_image_path, alloc_err_2 := filepath.join({input_image_dir, image_name}, context.temp_allocator)
-	
+
 	assert(alloc_err_2 == .None)
-	
+
 	// Writing data to a file if a data slice was sent (necessary for texconv)
 	if image_data_inner, ok := image_data.?; ok {
 		err := os.write_entire_file_from_bytes(input_image_path, image_data_inner)
 		assert(err == os.General_Error.None)
 	}
-	
+
 	state, _, _, err := os.process_exec(os.Process_Desc {
 		command = {
 			"./texconv.exe",
@@ -701,13 +701,13 @@ texture_cache_query :: proc(model_filepath, image_name: string, format: dxgi.FOR
 			input_image_path
 		}
 	}, context.temp_allocator)
-	
+
 	// lprintln(string(stdout))
 	// lprintln(string(stderr))
 	assert(state.exited && state.exit_code == 0 && err == os.General_Error.None)
-	
+
 	lprintfln("texture %v converted correctly", image_name)
-	
+
 	return texture_out_path
 }
 
@@ -850,18 +850,18 @@ scene_walk :: proc(scene: Scene, data: rawptr, thing_to_do: proc_walk) {
 
 load_white_texture :: proc() {
 	ct := g_dx_context
-	
+
 	w, h, channels : c.int
 	image_data := img.load("white.png", &w, &h, &channels, 4)
 	defer img.image_free(image_data)
 	assert(image_data != nil)
-	
+
 	img_data_mipmaps := make([][]byte, 1, context.temp_allocator)
 	img_data_mipmaps[0] = slice.clone(slice.from_ptr(image_data, cast(int)(w * h * channels)), context.temp_allocator)
-	
+
 	texture_res := create_texture_with_data(img_data_mipmaps[:], u64(w), u32(h), .R8G8B8A8_UNORM, 
 		&g_resources_longterm, "white")
-	
+
 	// creating srv on uber heap
 	ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, TEXTURE_WHITE_INDEX))
 }
@@ -887,7 +887,7 @@ get_node_world_matrix :: proc(node: Node, scene: Scene) -> dxm {
 
 		boosted_s := node_i.transform_s * 1
 		scale_mat := linalg.matrix4_scale_f32(boosted_s)
-		
+
 		rot_quat: quaternion128 = quaternion(
 			w = node_i.transform_r[3],
 			x = node_i.transform_r[0],
@@ -914,19 +914,19 @@ get_node_world_matrix :: proc(node: Node, scene: Scene) -> dxm {
 
 string_append :: proc(the_strs: ..string, allocator: mem.Allocator = context.allocator) -> string {
 	sb: strings.Builder
-	
+
 	// calc len
 	sb_cap : int
 	for str in the_strs {
 		sb_cap += len(str)
 	}
-	
+
 	strings.builder_init_len_cap(&sb, 0, sb_cap, allocator)
-	
+
 	for str in the_strs {
 		strings.write_string(&sb, str)
 	}
-	
+
 	return strings.to_string(sb)
 }
 
@@ -934,10 +934,10 @@ create_structured_buffer_with_data :: proc(
 	buffer_name: string,
 	pool_resource : ^DXResourcePool,
 	buffer_data : []byte
-	) -> (res: ^dx.IResource, fence_value: u64) {
-	
+) -> (res: ^dx.IResource, fence_value: u64) {
+
 	ct := &g_dx_context
-	
+
 	buffer_desc := dx.RESOURCE_DESC {
 		Width = u64(len(buffer_data)),
 		Height = 1,
@@ -961,18 +961,18 @@ create_structured_buffer_with_data :: proc(
 		riidResource = nil,
 		ppvResource = nil
 	)
-	
+
 	default_res := dxma.Allocation_GetResource(allocation)
 	// already in upload thread. just do the copy.
-	
+
 	// TODO: put data thing back to temp allocator (upload allocator), if the upload thread allocated it.
 	fence_value = dx_upload_trigger(&g_upload_service, default_res, buffer_data)
-	
+
 	append(pool_resource, cast(^dxgi.IUnknown)allocation)
-	
+
 	buffer_name_cstring := windows.utf8_to_wstring_alloc(buffer_name, context.temp_allocator)
 	default_res->SetName(buffer_name_cstring)
-	
+
 	return default_res, fence_value
 }
 

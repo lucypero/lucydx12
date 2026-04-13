@@ -19,7 +19,7 @@ import "core:fmt"
 import "base:runtime"
 import "core:math"
 import "core:slice"
-import dxma "libs/odin-d3d12ma"
+import dxma "../libs/odin-d3d12ma"
 import "core:sync"
 import "core:time"
 
@@ -83,38 +83,38 @@ dx_upload_init :: proc() {
 	check(ct.device->CreateCommandAllocator(.COPY, dx.ICommandAllocator_UUID, (^rawptr)(&g_upload_service.command_allocator_copy)))
 	append(&g_resources_longterm, g_upload_service.command_allocator_copy)
 	g_upload_service.command_allocator_copy->SetName("Upload command allocator")
-	
+
 
 	check(ct.device->CreateCommandList(
-			0,
-			.COPY,
-			g_upload_service.command_allocator_copy,
-			nil,
-			dx.ICommandList_UUID,
-			(^rawptr)(&g_upload_service.cmdlist_copy),
-		))
+		0,
+		.COPY,
+		g_upload_service.command_allocator_copy,
+		nil,
+		dx.ICommandList_UUID,
+		(^rawptr)(&g_upload_service.cmdlist_copy),
+	))
 	append(&g_resources_longterm, g_upload_service.cmdlist_copy)
 	g_upload_service.cmdlist_copy->SetName("Upload command list")
 
 	g_upload_service.cmdlist_copy->Close()
 
 	check(dxma.Allocator_CreateResource(
-			ct.dxma_allocator,
-			&{
-				HeapType = .UPLOAD,
-			},
-			&{
-				Dimension = .BUFFER,
-				Alignment = 0,
-				Width = UPLOAD_BUFFER_SIZE,
-				Height = 1,
-				DepthOrArraySize = 1,
-				MipLevels = 1,
-				Format = .UNKNOWN,
-				SampleDesc = {Count = 1},
-				Layout = .ROW_MAJOR
-			}, nil, nil, &g_upload_service.allocation, dx.IResource_UUID, nil
-		))
+		ct.dxma_allocator,
+		&{
+			HeapType = .UPLOAD,
+		},
+		&{
+			Dimension = .BUFFER,
+			Alignment = 0,
+			Width = UPLOAD_BUFFER_SIZE,
+			Height = 1,
+			DepthOrArraySize = 1,
+			MipLevels = 1,
+			Format = .UNKNOWN,
+			SampleDesc = {Count = 1},
+			Layout = .ROW_MAJOR
+		}, nil, nil, &g_upload_service.allocation, dx.IResource_UUID, nil
+	))
 	append(&g_resources_longterm, cast(^dx.IUnknown)g_upload_service.allocation)
 	g_upload_service.resource = dxma.Allocation_GetResource(g_upload_service.allocation)
 
@@ -142,7 +142,7 @@ dx_upload_trigger :: proc(up_service: ^DXUploadService, resource_dest : ^dx.IRes
 	up_service.cmdlist_copy->Close()
 	cmdlists := [?]^dx.IGraphicsCommandList{up_service.cmdlist_copy}
 	up_service.queue_copy->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
-	
+
 	up_service.fence_value += 1
 	up_service.queue_copy->Signal(up_service.fence, up_service.fence_value)
 	return up_service.fence_value
@@ -156,9 +156,9 @@ dx_upload_texture_trigger :: proc(up_service: ^DXUploadService, resource_dest : 
 	image_data: [][]byte, // slice of mipmap data
 	texture_desc : ^dx.RESOURCE_DESC,
 ) -> u64 {
-	
+
 	mip_levels := cast(u16)len(image_data)
-	
+
 	// getting data from texture that we'll use later
 	text_footprint := make([]dx.PLACED_SUBRESOURCE_FOOTPRINT, mip_levels, context.temp_allocator)
 	num_rows := make([]u32, mip_levels, context.temp_allocator)
@@ -171,12 +171,12 @@ dx_upload_texture_trigger :: proc(up_service: ^DXUploadService, resource_dest : 
 	if up_service.next_allocation_pt + text_bytes > cast(u64)len(up_service.allocation_dest) {
 		up_service.next_allocation_pt = 0
 	}
-	
+
 	up_service.cmdlist_copy->Reset(up_service.command_allocator_copy, nil)
 
 	// start copy
 	{
-		
+
 		texture_map_start_mp := up_service.allocation_dest[up_service.next_allocation_pt:]
 
 		// copying stuff here.. how do i 
@@ -197,7 +197,7 @@ dx_upload_texture_trigger :: proc(up_service: ^DXUploadService, resource_dest : 
 			Type = .PLACED_FOOTPRINT,
 			PlacedFootprint = text_footprint[0],
 		}
-		
+
 		copy_location_dst := dx.TEXTURE_COPY_LOCATION {
 			pResource = resource_dest,
 			Type = .SUBRESOURCE_INDEX,
@@ -216,7 +216,7 @@ dx_upload_texture_trigger :: proc(up_service: ^DXUploadService, resource_dest : 
 	up_service.cmdlist_copy->Close()
 	cmdlists := [?]^dx.IGraphicsCommandList{up_service.cmdlist_copy}
 	up_service.queue_copy->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
-	
+
 	up_service.fence_value += 1
 	up_service.queue_copy->Signal(up_service.fence, up_service.fence_value)
 	return up_service.fence_value
@@ -224,21 +224,21 @@ dx_upload_texture_trigger :: proc(up_service: ^DXUploadService, resource_dest : 
 
 @(private="package")
 upload_thread_start :: proc() {
-	
+
 	context.allocator = mem.tracking_allocator(&g_track)
-	
+
 	// make temp allocator for upload thread
 	upload_temp_arena := arena_new()
 	upload_temp_allocator := virtual.arena_allocator(&upload_temp_arena)
 	context.temp_allocator = upload_temp_allocator
-	
+
 	// TODO: do proper thread wake-up on condition
 	for {
 		// scanning for .Loading scenes
-		
+
 		found_scene: bool
 		the_scene : ^Scene
-		
+
 		for &scene in g_scenes {
 			if scene_status_load(&scene.status) == .Loading {
 				found_scene = true
@@ -246,20 +246,20 @@ upload_thread_start :: proc() {
 				break
 			}
 		}
-		
+
 		if !found_scene {
 			// sleep thread
 			thread.yield()
 		} else {
 			// loading first scene found that is scheduled for loading
-			
+
 			scene_from_gltf(the_scene)
-			
+
 			// Move scene to main thread by setting status as ready
 			scene_status_store(&the_scene.status, .Ready)
 			virtual.arena_free_all(&upload_temp_arena)
 		}
-		
+
 		if g_is_app_shutting_down {
 			break
 		}
