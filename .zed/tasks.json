@@ -1,58 +1,58 @@
 [
-  {
-    "label": "build debug",
-    "command": "odin build . -debug -out:lucydx12.exe -linker:radlink -vet-packages:main,sluggish_generator -vet-unused-variables -vet-shadowing -vet-using-stmt -vet-cast",
-    "use_new_terminal": false,
-    "allow_concurrent_runs": false,
-    "reveal": "always",
-    "hide": "never",
-    "shell": {
-    	"program": "cmd"
-    },
-    "show_summary": true,
-    "show_command": true,
-  },
-  {
-  	"label": "build sluggish generator",
-   "command": "odin build src/sluggish_generator -debug -build-mode:dynamic -linker:radlink -vet-packages:sluggish_generator -vet-unused-variables -vet-shadowing -vet-using-stmt -vet-cast",
-  },
-  {
-    "label": "build profile - debug",
-    "command": "odin build . -debug -out:lucydx12.exe -linker:radlink -vet-shadowing -define:PROFILE=true",
-    "use_new_terminal": false,
-    "allow_concurrent_runs": false,
-    "reveal": "always",
-    "hide": "never",
-    "shell": {
-    	"program": "cmd"
-    },
-    "show_summary": true,
-    "show_command": true,
-  },
-  {
-    "label": "build opt",
-    "command": "odin build . -o:speed -out:lucydx12.exe -linker:radlink -vet-shadowing",
-    "use_new_terminal": false,
-    "allow_concurrent_runs": false,
-    "reveal": "always",
-    "hide": "on_success",
-    "shell": {
-    	"program": "cmd"
-    },
-    "show_summary": true,
-    "show_command": true
-  },
-  {
-    "label": "run debug",
-    "command": "odin run . -debug -out:lucydx12.exe -linker:radlink -keep-executable -vet-packages:main,sluggish_generator -vet-unused-variables -vet-shadowing -vet-using-stmt -vet-cast",
-    "use_new_terminal": false,
-    "allow_concurrent_runs": false,
-    "reveal": "always",
-    "hide": "never",
-    "shell": {
-    	"program": "cmd"
-    },
-    "show_summary": true,
-    "show_command": true
-  },
+	{
+		"label": "build debug",
+		"command": "odin build src -debug -out:lucydx12.exe -linker:radlink -vet-packages:main,sluggish_generator -vet-unused-variables -vet-shadowing -vet-using-stmt -vet-cast",
+		"use_new_terminal": false,
+		"allow_concurrent_runs": false,
+		"reveal": "always",
+		"hide": "never",
+		"shell": {
+			"program": "cmd",
+		},
+		"show_summary": true,
+		"show_command": true,
+	},
+	{
+		"label": "build sluggish generator",
+		"command": "odin build src/sluggish_generator -debug -build-mode:dynamic -linker:radlink -vet-packages:sluggish_generator -vet-unused-variables -vet-shadowing -vet-using-stmt -vet-cast",
+	},
+	{
+		"label": "build profile - debug",
+		"command": "odin build src -debug -out:lucydx12.exe -linker:radlink -vet-shadowing -define:PROFILE=true",
+		"use_new_terminal": false,
+		"allow_concurrent_runs": false,
+		"reveal": "always",
+		"hide": "never",
+		"shell": {
+			"program": "cmd",
+		},
+		"show_summary": true,
+		"show_command": true,
+	},
+	{
+		"label": "build opt",
+		"command": "odin build src -o:speed -out:lucydx12.exe -linker:radlink -vet-shadowing",
+		"use_new_terminal": false,
+		"allow_concurrent_runs": false,
+		"reveal": "always",
+		"hide": "on_success",
+		"shell": {
+			"program": "cmd",
+		},
+		"show_summary": true,
+		"show_command": true,
+	},
+	{
+		"label": "run debug",
+		"command": "odin run src -debug -out:lucydx12.exe -linker:radlink -keep-executable -vet-packages:main,sluggish_generator -vet-unused-variables -vet-shadowing -vet-using-stmt -vet-cast",
+		"use_new_terminal": false,
+		"allow_concurrent_runs": false,
+		"reveal": "always",
+		"hide": "never",
+		"shell": {
+			"program": "cmd",
+		},
+		"show_summary": true,
+		"show_command": true,
+	},
 ]

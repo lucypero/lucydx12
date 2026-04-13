@@ -15,7 +15,7 @@ DescriptorHeapAllocator :: struct {
 }
 
 descriptor_heap_allocator_create :: proc(heap: ^dx.IDescriptorHeap,
-									 heap_type: dx.DESCRIPTOR_HEAP_TYPE) -> (ha: DescriptorHeapAllocator) {
+	heap_type: dx.DESCRIPTOR_HEAP_TYPE) -> (ha: DescriptorHeapAllocator) {
 
 	ha.heap = heap
 	ha.heap_type = heap_type
@@ -26,7 +26,7 @@ descriptor_heap_allocator_create :: proc(heap: ^dx.IDescriptorHeap,
 	ha.heap_handle_increment = g_dx_context.device->GetDescriptorHandleIncrementSize(ha.heap_type)
 
 	desc : dx.DESCRIPTOR_HEAP_DESC
-	
+
 	ha.heap->GetDesc(&desc)
 
 	for n:= desc.NumDescriptors; n > 0; n-=1 {
@@ -37,7 +37,7 @@ descriptor_heap_allocator_create :: proc(heap: ^dx.IDescriptorHeap,
 }
 
 descriptor_heap_allocator_alloc :: proc(ha: ^DescriptorHeapAllocator) -> 
-		(cpu_desc_handle: dx.CPU_DESCRIPTOR_HANDLE, gpu_desc_handle: dx.GPU_DESCRIPTOR_HANDLE) {
+(cpu_desc_handle: dx.CPU_DESCRIPTOR_HANDLE, gpu_desc_handle: dx.GPU_DESCRIPTOR_HANDLE) {
 
 	n := small_array.pop_back(&ha.free_indices)
 

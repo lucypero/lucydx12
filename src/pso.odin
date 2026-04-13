@@ -24,24 +24,24 @@ import "core:math/rand"
 import "core:sync"
 import dxc "vendor:directx/dxc"
 import "core:prof/spall"
-import dxma "libs/odin-d3d12ma"
+import dxma "../libs/odin-d3d12ma"
 import sa "core:container/small_array"
 
-import sg "src/sluggish_generator"
+import sg "sluggish_generator"
 
 // imgui
-import im "libs/odin-imgui"
+import im "../libs/odin-imgui"
 // imgui sdl2 implementation
-import "libs/odin-imgui/imgui_impl_sdl2"
+import "../libs/odin-imgui/imgui_impl_sdl2"
 // imgui dx12 implementation
-import "libs/odin-imgui/imgui_impl_dx12"
+import "../libs/odin-imgui/imgui_impl_dx12"
 
 PSO :: struct {
 	pipeline_state: ^dx.IPipelineState,
 	root_signature: ^dx.IRootSignature,
 	pso_creation_proc: pso_creation_signature,
 	shader_filename: string,
-	
+
 	/// For hot swapping
 	last_write_time: time.Time,
 	pso_swap: ^dx.IPipelineState,

@@ -12,7 +12,7 @@ import "core:math"
 import "core:math/linalg"
 import "base:runtime"
 import dxc "vendor:directx/dxc"
-import dxma "libs/odin-d3d12ma"
+import dxma "../libs/odin-d3d12ma"
 
 PROFILE :: #config(PROFILE, false)
 
@@ -121,18 +121,18 @@ Context :: struct {
 	// core stuff
 	device: ^dx.IDevice,
 	factory: ^dxgi.IFactory4,
-	
+
 	// Graphics core resources
-	
+
 	queue: ^dx.ICommandQueue,
 	command_allocator: ^dx.ICommandAllocator,
 	cmdlist: ^dx.IGraphicsCommandList,
-	
+
 	// PSOs
 	psos: [PSOName]PSO,
-	
+
 	// Other
-	
+
 	swapchain: ^dxgi.ISwapChain3,
 	dxc_compiler: ^dxc.ICompiler3,
 	constant_buffer: ConstantBufferUpload,
@@ -155,7 +155,7 @@ Context :: struct {
 	// depth buffer
 	depth_stencil_res: ^dx.IResource,
 	descriptor_heap_dsv: ^dx.IDescriptorHeap,
-	
+
 	// text state
 	text_state: TextState
 }
@@ -198,7 +198,7 @@ ConstantBufferData :: struct #align (256) {
 	view_pos: v3,
 	time: f32,
 	current_scene_materials_idx: u32,
-    current_scene_mesh_transforms_idx: u32,
+	current_scene_mesh_transforms_idx: u32,
 }
 
 // testing
@@ -212,27 +212,27 @@ Scene :: struct {
 	uv_sphere_mesh: Mesh,
 	meshes: []Mesh,
 	allocator: virtual.Arena,
-	
+
 	material_srv_index: uint,
 	model_matrices_srv_index: uint,
-	
+
 	// dx resources
 	sb_model_matrices: ^dx.IResource,
 	sb_materials: ^dx.IResource,
-	
+
 	vertex_buffer: ^dx.IResource,
 	index_buffer: ^dx.IResource,
 	vertex_buffer_view: dx.VERTEX_BUFFER_VIEW,
 	index_buffer_view: dx.INDEX_BUFFER_VIEW,
-	
+
 	// gizmos (put this somewhere else later)
 	// TODO
 	vb_gizmos_instance_data: VertexBuffer,
-	
+
 	resource_pool: DXResourcePool,
-	
+
 	fence_value: u64, // (set after it is ready) fence value to wait on for all scene resources to be uploaded to the GPU
-	
+
 	// NOTE: This is a very thread-sensitive field. check that all modifications follow the right constraints.
 	status: SceneStatus
 }

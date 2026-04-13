@@ -11,8 +11,8 @@ import "core:math"
 import "core:math/linalg"
 import "base:runtime"
 import dxc "vendor:directx/dxc"
-import dxma "libs/odin-d3d12ma"
-import sg "src/sluggish_generator"
+import dxma "../libs/odin-d3d12ma"
+import sg "sluggish_generator"
 
 TextVertexInput :: struct #packed {
 	// attrib 0
@@ -44,7 +44,7 @@ ParamStruct :: struct #align(256) {
 }
 
 populate_text_vertex_buffer :: proc() {
-	
+
 }
 
 // one quad. test
@@ -57,42 +57,42 @@ text_init :: proc() {
 	sluggish_out :: "fonts/sluggish/arial.sluggish"
 	sluggish_data, ok := sg.build_sluggish_lucy("fonts/ttf/arial.ttf", band_count = 16, allocator = context.allocator)
 	assert(ok)
-	
+
 	param_struct_buffer := create_constant_buffer_upload(size_of(ParamStruct), &g_resources_longterm, name = "text constants cbv")
-	
+
 	// creating textures
-	
-	
+
+
 	// curve texture
 	curve_texture_data := make([][]byte, 1)
 	curve_texture_data[0] = slice.to_bytes(sluggish_data.curves_data)
-	
+
 	TEX_WIDTH :: 4096
 	CURVE_TEXEL_SIZE :: 2 * 4
-	
+
 	total_texels := len(curve_texture_data[0]) / CURVE_TEXEL_SIZE
 	tex_height : u32 = u32((total_texels + TEX_WIDTH - 1) / TEX_WIDTH)
-	
+
 	curve_texture := create_texture_with_data_new(curve_texture_data, TEX_WIDTH, tex_height,
-	 	.R16G16B16A16_FLOAT, &g_resources_longterm, "curve texture for slug")
-	
+		.R16G16B16A16_FLOAT, &g_resources_longterm, "curve texture for slug")
+
 	// band texture - ????
 	// the Sluggish format is sooo BAD!!
 	// band_texture := create_texture_with_data_new()
-	
+
 	band_texture_data := make([][]byte, 1)
 	band_texture_data_inner := make([]byte, len(sluggish_data.bands_texture_band_offsets) * 2 + len(sluggish_data.bands_texture_curve_offsets) * 2)
 	copy(band_texture_data_inner, slice.to_bytes(sluggish_data.bands_texture_band_offsets))
 	copy(band_texture_data_inner[len(sluggish_data.bands_texture_band_offsets):], slice.to_bytes(sluggish_data.bands_texture_curve_offsets))
 	band_texture_data[0] = band_texture_data_inner
-	
+
 	BAND_TEXEL_SIZE :: 2 * 2
 	total_texels = len(band_texture_data_inner) / BAND_TEXEL_SIZE
 	tex_height = u32((total_texels + TEX_WIDTH - 1) / TEX_WIDTH)
-	
+
 	band_texture := create_texture_with_data_new(band_texture_data, TEX_WIDTH, tex_height,
-	 	.R16G16_UINT, &g_resources_longterm, "band texture for slug")
-	
+		.R16G16_UINT, &g_resources_longterm, "band texture for slug")
+
 	ct.text_state = TextState {
 		sluggish_data = sluggish_data,
 		vertex_buffer = create_vertex_buffer_upload(size_of(TextVertexInput), VERTEX_COUNT * size_of(TextVertexInput), &g_resources_longterm),
@@ -104,20 +104,20 @@ text_init :: proc() {
 
 pso_text_render :: proc() {
 	ct := &g_dx_context
-	
+
 	// Writing vertex data here
 	{
 		vertex_data_test := make([]TextVertexInput, VERTEX_COUNT, allocator = context.temp_allocator)
-		
+
 		sd := &ct.text_state.sluggish_data
 		a_glyph := &sd.codepoints[2]
-		
+
 		tx0 := a_glyph.tex_top_left.x
 		ty0 := a_glyph.tex_top_left.y
-		
+
 		tx1 := a_glyph.tex_bottom_right.x
 		ty1 := a_glyph.tex_bottom_right.y
-		
+
 		vertices := [4]TextVertexInput {
 			TextVertexInput { // top left
 				pos = {0, 0},
@@ -140,41 +140,41 @@ pso_text_render :: proc() {
 				tex = {tx1, ty0},
 			},
 		}
-		
+
 		// tex flags
-		
+
 		max_x: u32 = a_glyph.bandCount - 1
 		max_y: u32 = a_glyph.bandCount - 1
 		e_flag: u32 = 0
-		
+
 		// Shift max_y up by 16, and the E flag up by 28. Combine them.
 		tex_max_band_index_flags := (e_flag << 28) | (max_y << 16) | (max_x & 0xFF)
-		
+
 		// bnd
 		em_width  := f32(a_glyph.width)
 		em_height := f32(a_glyph.height)
-	
+
 		bnd_scale_x := f32(a_glyph.bandCount) / em_width
 		bnd_scale_y := -f32(a_glyph.bandCount) / em_height
-		
+
 		bnd_offset_x := f32(-a_glyph.tex_top_left.x) * bnd_scale_x
 		bnd_offset_y := f32(-a_glyph.tex_top_left.y) * bnd_scale_y
-		
+
 		bnd := [4]f32{bnd_scale_x, bnd_scale_y, bnd_offset_x, bnd_offset_y}
-		
+
 		for &vertex, i in vertex_data_test {
-			
+
 			vertex_v_data : TextVertexInput
-			
+
 			switch i {
-			// first triangle
+				// first triangle
 			case 0: // top left
 				vertex_v_data = vertices[0]
 			case 1: // top right
 				vertex_v_data = vertices[1]
 			case 2: // bottom left
 				vertex_v_data = vertices[2]
-			// second triangle
+				// second triangle
 			case 3: // top right
 				vertex_v_data = vertices[1]
 			case 4: // bottom right
@@ -182,7 +182,7 @@ pso_text_render :: proc() {
 			case 5: // bottom left
 				vertex_v_data = vertices[2]
 			}
-			
+
 			vertex = TextVertexInput {
 				pos = vertex_v_data.pos * 0.2 + {30, 500},
 				normal = vertex_v_data.normal,
@@ -194,37 +194,37 @@ pso_text_render :: proc() {
 				col = v4{1, 0, 0, 1}
 			}
 		}
-		
+
 		copy_to_buffer_already_mapped(ct.text_state.vertex_buffer.gpu_pointer, slice.to_bytes(vertex_data_test))
 	}
-	
+
 	// updating cbv
 	{
-		
+
 		get_text_view_projection :: proc(cam: Camera) -> (dxm, dxm) {
 			view := linalg.MATRIX4F32_IDENTITY
 			proj := linalg.matrix_ortho3d_f32(0, WINDOW_WIDTH, WINDOW_HEIGHT, 0, -10, 10, true)
 
 			return view, proj
 		}
-		
+
 		view, projection := get_text_view_projection(cur_cam)
-		
+
 		ps := ParamStruct {
 			slug_matrix = projection * view,
 			slug_viewport = {WINDOW_WIDTH, WINDOW_HEIGHT, 0, 0}
 		}
 		ps.slug_matrix = linalg.transpose(projection * view)
-		
+
 		copy_to_buffer_already_mapped_value(ct.text_state.param_struct_buffer.gpu_pointer, &ps)
 	}
-	
+
 	ct.cmdlist->SetPipelineState(ct.psos[.Text].pipeline_state)
 	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap)
 	ct.cmdlist->SetGraphicsRootSignature(ct.psos[.Text].root_signature)
-	
+
 	set_viewport_stuff()
-	
+
 	// Setting render targets. Clearing RTV.
 	{
 		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
@@ -233,10 +233,10 @@ pso_text_render :: proc() {
 
 		ct.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
 	}
-	
+
 	// draw call
 	ct.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
-	
+
 	// binding vertex buffer view and instance buffer view
 	vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW{ct.text_state.vertex_buffer.vbv}
 	ct.cmdlist->IASetVertexBuffers(0, len(vertex_buffers_views), &vertex_buffers_views[0])
@@ -245,9 +245,9 @@ pso_text_render :: proc() {
 
 
 pso_text_create_pipeline_state :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState {
-	
+
 	ct := &g_dx_context
-	
+
 	vertex_format := [?]dx.INPUT_ELEMENT_DESC {
 		{
 			SemanticName = "ATTRIB",
@@ -292,7 +292,7 @@ pso_text_create_pipeline_state :: proc(root_signature: ^dx.IRootSignature, vs, p
 			InputSlotClass = .PER_VERTEX_DATA,
 		},
 	}
-	
+
 	default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
 		BlendEnable = true,
 		LogicOpEnable = false,
@@ -305,7 +305,7 @@ pso_text_create_pipeline_state :: proc(root_signature: ^dx.IRootSignature, vs, p
 		LogicOp = .NOOP,
 		RenderTargetWriteMask = u8(dx.COLOR_WRITE_ENABLE_ALL),
 	}
-	
+
 	pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
 		pRootSignature = root_signature,
 		VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
@@ -345,6 +345,6 @@ pso_text_create_pipeline_state :: proc(root_signature: ^dx.IRootSignature, vs, p
 
 	ct.device->CreateGraphicsPipelineState(&pipeline_state_desc, dx.IPipelineState_UUID, (^rawptr)(&pso))
 	pso->SetName("PSO for text")
-	
+
 	return pso
 }
