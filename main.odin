@@ -58,11 +58,11 @@ g_exit_app: bool
 // Profiling stuff
 
 when PROFILE {
-	@(private="package")
-	g_spall_ctx: spall.Context
-	@(thread_local)
-	@(private="package")
-	g_spall_buffer: spall.Buffer
+@(private="package")
+g_spall_ctx: spall.Context
+@(thread_local)
+@(private="package")
+g_spall_buffer: spall.Buffer
 }
 
 // ----- //// GLOBAL STATE ------
@@ -149,21 +149,21 @@ main :: proc() {
 	}
 
 	when ODIN_DEBUG {
-		lprintln("Tracking Allocations...")
-		mem.tracking_allocator_init(&g_track, context.allocator)
-		context.allocator = mem.tracking_allocator(&g_track)
+	lprintln("Tracking Allocations...")
+	mem.tracking_allocator_init(&g_track, context.allocator)
+	context.allocator = mem.tracking_allocator(&g_track)
 
-		temp_track: mem.Tracking_Allocator
-		mem.tracking_allocator_init(&temp_track, context.temp_allocator)
-		context.temp_allocator = mem.tracking_allocator(&temp_track)
+	temp_track: mem.Tracking_Allocator
+	mem.tracking_allocator_init(&temp_track, context.temp_allocator)
+	context.temp_allocator = mem.tracking_allocator(&temp_track)
 
-		defer {
-			tracking_allocator_report("context.allocator", g_track, true)
-			// tracking_allocator_report("context.temp_allocator", temp_track, false)
-			ar := cast(^virtual.Arena)context.temp_allocator.data
-			arena_report("temp arena", ar^)
-			mem.tracking_allocator_destroy(&g_track)
-		}
+	defer {
+		tracking_allocator_report("context.allocator", g_track, true)
+		// tracking_allocator_report("context.temp_allocator", temp_track, false)
+		ar := cast(^virtual.Arena)context.temp_allocator.data
+		arena_report("temp arena", ar^)
+		mem.tracking_allocator_destroy(&g_track)
+	}
 	}
 
 	// /set up memory
@@ -187,20 +187,20 @@ main :: proc() {
 
 	// setting up profiling
 	when PROFILE {
-		SPALL_FILE :: "trace_test.spall"
-		g_spall_ctx = spall.context_create(SPALL_FILE)
-		defer {
-			lprintfln("Spall profiling data written to: " + SPALL_FILE)
-			spall.context_destroy(&g_spall_ctx)
-		}
+	SPALL_FILE :: "trace_test.spall"
+	g_spall_ctx = spall.context_create(SPALL_FILE)
+	defer {
+		lprintfln("Spall profiling data written to: " + SPALL_FILE)
+		spall.context_destroy(&g_spall_ctx)
+	}
 
-		buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
-		defer delete(buffer_backing)
+	buffer_backing := make([]u8, spall.BUFFER_DEFAULT_SIZE)
+	defer delete(buffer_backing)
 
-		g_spall_buffer = spall.buffer_create(buffer_backing, u32(sync.current_thread_id()))
-		defer spall.buffer_destroy(&g_spall_ctx, &g_spall_buffer)
+	g_spall_buffer = spall.buffer_create(buffer_backing, u32(sync.current_thread_id()))
+	defer spall.buffer_destroy(&g_spall_ctx, &g_spall_buffer)
 
-		spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, #procedure)
+	spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, #procedure)
 	}
 
 	// Init SDL and create window
@@ -258,18 +258,18 @@ main :: proc() {
 
 		when ODIN_DEBUG {
 
-			debug_device: ^dx.IDebugDevice2
-			ct.device->QueryInterface(dx.IDebugDevice2_UUID, (^rawptr)(&debug_device))
-			// Finally, release the device (it is not in any pool)
-			// The device will be freed after we release the debug device
-			ct.device->Release()
-			debug_device->ReportLiveDeviceObjects({.DETAIL, .IGNORE_INTERNAL})
-			debug_device->Release()
+		debug_device: ^dx.IDebugDevice2
+		ct.device->QueryInterface(dx.IDebugDevice2_UUID, (^rawptr)(&debug_device))
+		// Finally, release the device (it is not in any pool)
+		// The device will be freed after we release the debug device
+		ct.device->Release()
+		debug_device->ReportLiveDeviceObjects({.DETAIL, .IGNORE_INTERNAL})
+		debug_device->Release()
 
-			// DXGI report
-			dxgi_debug: ^dxgi.IDebug1
-			dxgi.DXGIGetDebugInterface1(0, dxgi.IDebug1_UUID, (^rawptr)(&dxgi_debug))
-			dxgi_debug->ReportLiveObjects(dxgi.DEBUG_ALL, {})
+		// DXGI report
+		dxgi_debug: ^dxgi.IDebug1
+		dxgi.DXGIGetDebugInterface1(0, dxgi.IDebug1_UUID, (^rawptr)(&dxgi_debug))
+		dxgi_debug->ReportLiveObjects(dxgi.DEBUG_ALL, {})
 		}
 	}
 }
@@ -286,7 +286,7 @@ init_dx :: proc() {
 		flags: dxgi.CREATE_FACTORY
 
 		when ODIN_DEBUG {
-			flags += {.DEBUG}
+		flags += {.DEBUG}
 		}
 
 		hr = dxgi.CreateDXGIFactory2(flags, dxgi.IFactory4_UUID, cast(^rawptr)&factory)
@@ -302,13 +302,13 @@ init_dx :: proc() {
 
 	// Debug layer
 	when ODIN_DEBUG {
-		debug_controller: ^dx.IDebug
-		// continue here
-		hr = dx.GetDebugInterface(dx.IDebug_UUID, (^rawptr)(&debug_controller))
-		check(hr, "failed getting debug interface")
+	debug_controller: ^dx.IDebug
+	// continue here
+	hr = dx.GetDebugInterface(dx.IDebug_UUID, (^rawptr)(&debug_controller))
+	check(hr, "failed getting debug interface")
 
-		debug_controller->EnableDebugLayer()
-		debug_controller->Release()
+	debug_controller->EnableDebugLayer()
+	debug_controller->Release()
 	}
 
 	for i: u32 = 0; factory->EnumAdapters1(i, &adapter) != error_not_found; i += 1 {
@@ -340,13 +340,13 @@ init_dx :: proc() {
 
 	// set up logging callback
 	when ODIN_DEBUG {
-		info_queue: ^dx.IInfoQueue1
-		ct.device->QueryInterface(dx.IInfoQueue1_UUID, (^rawptr)(&info_queue))
-		cb_cookie: u32
-		hr = info_queue->RegisterMessageCallback(dx_log_callback, {.IGNORE_FILTERS}, nil, &cb_cookie)
-		info_queue->SetMuteDebugOutput(true)
-		check(hr, "failed to register")
-		info_queue->Release()
+	info_queue: ^dx.IInfoQueue1
+	ct.device->QueryInterface(dx.IInfoQueue1_UUID, (^rawptr)(&info_queue))
+	cb_cookie: u32
+	hr = info_queue->RegisterMessageCallback(dx_log_callback, {.IGNORE_FILTERS}, nil, &cb_cookie)
+	info_queue->SetMuteDebugOutput(true)
+	check(hr, "failed to register")
+	info_queue->Release()
 	}
 
 	ct.dxc_compiler = dxc_init()
@@ -373,13 +373,13 @@ init_dx :: proc() {
 		append(&g_resources_longterm, ct.command_allocator)
 
 		check(ct.device->CreateCommandList(
-				0,
-				.DIRECT,
-				ct.command_allocator,
-				nil,
-				dx.ICommandList_UUID,
-				(^rawptr)(&ct.cmdlist),
-			))
+			0,
+			.DIRECT,
+			ct.command_allocator,
+			nil,
+			dx.ICommandList_UUID,
+			(^rawptr)(&ct.cmdlist),
+		))
 		append(&g_resources_longterm, ct.cmdlist)
 	}
 
@@ -496,7 +496,7 @@ init_dx_user :: proc() {
 			return
 		}
 	}
-	
+
 	text_init()
 }
 
@@ -1542,22 +1542,22 @@ pso_gbuffer_render :: proc() {
 		}
 
 		scene_walk(scene, nil, proc(node: Node, scene: Scene, data: rawptr) {
-				ct := &g_dx_context
+			ct := &g_dx_context
 
-				if node.mesh == -1 {
-					return
+			if node.mesh == -1 {
+				return
+			}
+
+			mesh_to_render := scene.meshes[node.mesh]
+
+			for prim in mesh_to_render.primitives {
+				dc := DrawConstants {
+					mesh_index = u32(g_mesh_drawn_count),
+					material_index = u32(prim.material_index),
 				}
-
-				mesh_to_render := scene.meshes[node.mesh]
-
-				for prim in mesh_to_render.primitives {
-					dc := DrawConstants {
-						mesh_index = u32(g_mesh_drawn_count),
-						material_index = u32(prim.material_index),
-					}
-					ct.cmdlist->SetGraphicsRoot32BitConstants(0, 2, &dc, 0)
-					ct.cmdlist->DrawIndexedInstanced(prim.index_count, 1, prim.index_offset, 0, 0)
-				}
+				ct.cmdlist->SetGraphicsRoot32BitConstants(0, 2, &dc, 0)
+				ct.cmdlist->DrawIndexedInstanced(prim.index_count, 1, prim.index_offset, 0, 0)
+			}
 		})
 	}
 
@@ -1944,7 +1944,7 @@ pso_gbuffer_create :: proc() {
 			dx.IRootSignature_UUID,
 			(^rawptr)(&root_signature),
 		)
-		
+
 		append(&g_resources_longterm, root_signature)
 		serialized_desc->Release()
 	}
@@ -1977,7 +1977,7 @@ pso_gbuffer_create :: proc() {
 // TODO: PSO Creation code could be reused
 pso_text_create :: proc() {
 	ct := &g_dx_context
-	
+
 	// creating root signature
 	// TODO: think about reusing ROOT SIGNATURES.
 	//  or reusing RS creation code at least.
@@ -2036,20 +2036,20 @@ pso_text_create :: proc() {
 			dx.IRootSignature_UUID,
 			(^rawptr)(&root_signature),
 		)
-		
+
 		append(&g_resources_longterm, root_signature)
 		serialized_desc->Release()
 	}
-	
+
 	// compiling shader
 	vs, ps, ok := compile_shader(ct.dxc_compiler, text_shader_filename)
 	if !ok {
 		lprintfln("could not compile shader!! check logs")
 		os.exit(1)
 	}
-	
+
 	pso := pso_text_create_pipeline_state(root_signature, vs, ps)
-	
+
 	pso_index := len(g_resources_longterm)
 	append(&g_resources_longterm, pso)
 
