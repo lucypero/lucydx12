@@ -208,7 +208,7 @@ pso_text_render :: proc() {
 			return view, proj
 		}
 
-		view, projection := get_text_view_projection(cur_cam)
+		view, projection := get_text_view_projection(g_cur_cam)
 
 		ps := ParamStruct {
 			slug_matrix = projection * view,

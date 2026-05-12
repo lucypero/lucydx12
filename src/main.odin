@@ -77,7 +77,7 @@ cb_update :: proc() {
 	// }
 
 	// sending constant buffer data
-	view, projection := get_view_projection(cur_cam)
+	view, projection := get_view_projection(g_cur_cam)
 
 	active_scene, scene_is_active := get_first_active_scene()
 
@@ -87,7 +87,7 @@ cb_update :: proc() {
 		inverse_view_proj = linalg.inverse(projection * view),
 		light_pos = g_light_pos,
 		light_int = g_light_int,
-		view_pos = cur_cam.pos,
+		view_pos = g_cur_cam.pos,
 		time = g_the_time_sec,
 		current_scene_materials_idx = scene_is_active ? cast(u32)active_scene.material_srv_index : 0,
 		current_scene_mesh_transforms_idx = scene_is_active ? cast(u32)active_scene.model_matrices_srv_index : 0,
@@ -100,7 +100,7 @@ cb_update :: proc() {
 
 // initializes app data in Context struct
 context_init :: proc(con: ^Context) {
-	cur_cam = camera_init()
+	g_cur_cam = camera_init()
 	g_light_pos = v3{0,2,0}
 	g_light_draw_gizmos = true
 	g_light_int = 1
@@ -718,8 +718,8 @@ do_imgui_ui :: proc() {
 	im.DragFloat3("light pos", &g_light_pos, 0.1, -5000, 5000)
 	im.DragFloat("light intensity", &g_light_int, 0.1, 0, 20)
 	im.Checkbox("draw light gizmos", &g_light_draw_gizmos)
-	im.DragFloat("cam speed", &cur_cam.speed, 0.0001, 0, 20)
-	im.DragFloat("cam cruise speed", &cur_cam.cruising_speed, 0.0001, 0, 20)
+	im.DragFloat("cam speed", &g_cur_cam.speed, 0.0001, 0, 20)
+	im.DragFloat("cam cruise speed", &g_cur_cam.cruising_speed, 0.0001, 0, 20)
 
 	// Drawing delta time
 	{
@@ -732,7 +732,7 @@ do_imgui_ui :: proc() {
 	// Drawing cam position
 	{
 		sb := strings.builder_make_len_cap(0, 30, context.temp_allocator)
-		fmt.sbprintfln(&sb, "cam position: %.2v", cur_cam.pos)
+		fmt.sbprintfln(&sb, "cam position: %.2v", g_cur_cam.pos)
 		dt_cstring := strings.to_cstring(&sb)
 		im.Text(dt_cstring)
 	}
