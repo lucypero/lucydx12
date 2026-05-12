@@ -8,8 +8,8 @@ import "core:math/linalg"
 // fps mode
 // static mode
 
-cur_cam : Camera
-cur_cam_mode : CameraMode
+g_cur_cam : Camera
+g_cur_cam_mode : CameraMode
 
 CameraMode :: enum {
 	Static,
@@ -29,7 +29,7 @@ camera_init :: proc() -> Camera {
 
 	// set this to true when u are in FPS mode
 
-	cur_cam_mode = .FPS
+	g_cur_cam_mode = .FPS
 	camera_toggle_mode()
 
 
@@ -41,11 +41,11 @@ camera_init :: proc() -> Camera {
 }
 
 camera_toggle_mode :: proc() {
-	if cur_cam_mode == .Static {
-		cur_cam_mode = .FPS
+	if g_cur_cam_mode == .Static {
+		g_cur_cam_mode = .FPS
 		sdl.SetRelativeMouseMode(true)
 	} else {
-		cur_cam_mode = .Static
+		g_cur_cam_mode = .Static
 		sdl.SetRelativeMouseMode(false)
 	}
 }
@@ -57,15 +57,15 @@ camera_static_tick :: proc(buttons: u32, keyboard: []u8) {
 	}
 
 	// cruise
-	cam_dir := cam_get_direction(cur_cam)
-	cur_cam.pos += cam_dir * - cur_cam.cruising_speed
+	cam_dir := cam_get_direction(g_cur_cam)
+	g_cur_cam.pos += cam_dir * - g_cur_cam.cruising_speed
 }
 
 camera_tick :: proc(keyboard: []u8) {
 	// todo call this one step up the call stack
 	dx, dy: i32
 	buttons : u32 = sdl.GetRelativeMouseState(&dx, &dy)
-	switch cur_cam_mode {
+	switch g_cur_cam_mode {
 	case .Static:
 		camera_static_tick(buttons, keyboard)
 	case .FPS:
@@ -77,18 +77,18 @@ camera_fps_tick :: proc(buttons: u32, dx, dy: i32, keyboard: []u8) {
 	// read input. rotate camera.
 	sens :: 0.005
 
-	cur_cam.yaw -= f32(dx) * sens
-	cur_cam.pitch += f32(dy) * sens
+	g_cur_cam.yaw -= f32(dx) * sens
+	g_cur_cam.pitch += f32(dy) * sens
 
 
 	pitch_clamp :: 0.24
-	cur_cam.pitch = math.clamp(cur_cam.pitch, math.TAU * -pitch_clamp, math.TAU * pitch_clamp)
+	g_cur_cam.pitch = math.clamp(g_cur_cam.pitch, math.TAU * -pitch_clamp, math.TAU * pitch_clamp)
 
 	// keyboard controls (moving the cam position)
 
-	cam_speed := cur_cam.speed
+	cam_speed := g_cur_cam.speed
 
-	cam_dir := cam_get_direction(cur_cam)
+	cam_dir := cam_get_direction(g_cur_cam)
 
 	// assuming world up is 0 1 0 
 	right := linalg.vector_cross3(v3{0,1,0}, cam_dir)
@@ -97,27 +97,27 @@ camera_fps_tick :: proc(buttons: u32, dx, dy: i32, keyboard: []u8) {
 
 	if keyboard[sdl.Scancode.W] == 1 {
 		// go forward
-		cur_cam.pos += cam_dir * -cam_speed
+		g_cur_cam.pos += cam_dir * -cam_speed
 	}
 
 	if keyboard[sdl.Scancode.S] == 1 {
-		cur_cam.pos += cam_dir * cam_speed
+		g_cur_cam.pos += cam_dir * cam_speed
 	}
 
 	if keyboard[sdl.Scancode.A] == 1 {
-		cur_cam.pos += right * cam_speed
+		g_cur_cam.pos += right * cam_speed
 	}
 
 	if keyboard[sdl.Scancode.D] == 1 {
-		cur_cam.pos += right * -cam_speed
+		g_cur_cam.pos += right * -cam_speed
 	}
 
 	if keyboard[sdl.Scancode.Q] == 1 {
-		cur_cam.pos += v3{0, 1, 0} * -cam_speed
+		g_cur_cam.pos += v3{0, 1, 0} * -cam_speed
 	}
 
 	if keyboard[sdl.Scancode.E] == 1 {
-		cur_cam.pos += v3{0, 1, 0} * cam_speed
+		g_cur_cam.pos += v3{0, 1, 0} * cam_speed
 	}
 
 	// lprintfln("%v", cam_dir)
