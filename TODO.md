@@ -1,9 +1,12 @@
 # text TODO
 
+reference: (u already compiled it.)
+https://tangled.org/dosha.dev/sokol-slug-odin
+
 - [x] put the param struct constant buffer in the uber heap. keep track of the index.
 - [x] give a name to the constant buffers
 - [x] fix index in shader of constant buffer
-- [x] update the constant buffer on _render()
+- [x] update the constant buffer on \_render()
 - [ ] upload the 2 texture data
 - [ ] fix index in shader of textures
 - test
@@ -14,16 +17,15 @@
 
 - (for gbuffer) runs root signature creation proc, once. before this
 - create_x_pso_initial (runs once at startup)
-	- compiles shader.
-	- creates PSO (this proc is used for hot swap later)
-	- hot swap init
-	- free shader references
-	
+  - compiles shader.
+  - creates PSO (this proc is used for hot swap later)
+  - hot swap init
+  - free shader references
+
 # Rendering sluggish
 
 - you already have sluggish data generated.
 - you need to put this on a structured buffer and let a shader render the font.
-
 
 # loading scene on upload thread - problems to solve:
 
@@ -32,8 +34,8 @@
 - a lot of atomic operations that are now in the code on `.status` are not necessary. re-evaluate this.
 
 - manage the uber heap better. make it more into a ring buffer. have a global tracker on where the last SRV is.
-	- for now, the counter keeps going up forever. make it wrap.
-	- it's also not thread safe probably.
+  - for now, the counter keeps going up forever. make it wrap.
+  - it's also not thread safe probably.
 
 # multi threading - profiling results
 
@@ -41,7 +43,7 @@ GPU upload thread / multi threading - Report:
 
 - i compared how long the gltf_to_scene proc takes on the main thread. before and after attempting CPU multi threading.
 - they both block the main thread for 88.8ms when loading sponza.
-- conclusion: I don't know how that's even possible. so far the multi threading has been a complete failure. 
+- conclusion: I don't know how that's even possible. so far the multi threading has been a complete failure.
 - what to do now: refactor the sync scheme (remove channels) and offload more tasks to the upload thread.
 
 - context: for now the upload thread simply does the memcpy() to GPU mapped memory and issues copy commands on the copy queue for a requested resource. It does not load data from files.
@@ -52,9 +54,8 @@ GPU upload thread / multi threading - Report:
 - refactor a lot of stuff. get rid of g_scene. make a list of scenes.
 - only destroy scenes when they are ready. at the end of a loop, check for scenes that were queued for destruction. only destroy them there.
 - isolate SRV's scene to scene. u are kinda reusing SRV's. might turn ugly. =
-	- find a way to reset the pointer on the SRV heap when u swap scenes (i am setting material and model matrix srvs on a fixed SRV slot on the heap.) (will not work when u render multiple scenes.)
-	
-	
+  - find a way to reset the pointer on the SRV heap when u swap scenes (i am setting material and model matrix srvs on a fixed SRV slot on the heap.) (will not work when u render multiple scenes.)
+
 # general todo
 
 - use enhanced barriers, even if u get no warnings, still transition resources.
@@ -65,16 +66,16 @@ GPU upload thread / multi threading - Report:
 
 u gotta reload:
 
-   - vertex_buffer
-   - vertex_buffer_view
-   - index_buffer
-   - index_buffer_view
-   - sb_model_matrices
-   - sb_materials
-   - meshes_to_render
-   - clear SRVs from the uber heap
-	 - descriptor_count
-		
+- vertex_buffer
+- vertex_buffer_view
+- index_buffer
+- index_buffer_view
+- sb_model_matrices
+- sb_materials
+- meshes_to_render
+- clear SRVs from the uber heap
+  - descriptor_count
+
 # other
 
 - is there something for odin vet to ignore a specific proc that is unused? (maybe export it?)
@@ -97,29 +98,28 @@ u gotta reload:
 - handle normal strength that comes from the gltf file.
 
 - gizmos rendering:
-	- put a sphere in some vertex buffer and use that.
-
+  - put a sphere in some vertex buffer and use that.
 
 - select scene to render at runtime
 
 - to verify for sure if the normal maps render well, we need:
-	- render multiple lights
-	- import lights from glb
+  - render multiple lights
+  - import lights from glb
 
 - handle transparency in textures (the flowers)
 
 - zed: go to file:line is broken in windows. report it.
 
 - pass indices into the descriptor heap in a constant buffer so u don't have to constantly,
-	modify the magic values
+  modify the magic values
 
 - decide on the setup of your g buffer for PBR rendering. see this:
-	- https://www.reddit.com/r/opengl/comments/z2kdgm/deferred_rendering_reducing_the_size_of_the/
-	- possible setup:
-	    Albedo (RGB8U).
-	    Emmisive (RGB8U).
-	    Depth and stencil (D24S8).
-	
+  - https://www.reddit.com/r/opengl/comments/z2kdgm/deferred_rendering_reducing_the_size_of_the/
+  - possible setup:
+    Albedo (RGB8U).
+    Emmisive (RGB8U).
+    Depth and stencil (D24S8).
+
 your idea is:
 
 base color (already done)
@@ -129,37 +129,34 @@ AO + Roughness + Metallic (RGB8U).
 Depth and stencil (already done)
 
 - use thread pool for loading textures
-	- main thread loads the files to memory
-	- worker threads do the png processing using stb image
-	- then as for dx.. that's unclear
+  - main thread loads the files to memory
+  - worker threads do the png processing using stb image
+  - then as for dx.. that's unclear
 
-- respond to the peep in the dx discord about the linalg package in odin and the perspective depth fix.
-	- "What depth values does it come up with?
-I'm using the linalg package too https://github.com/lodinukal/en/blob/master/app%2Fmain.odin#L261-L266 and it's working fine"
-	- check depth values in renderdoc
+- respond to the peep in the dx discord about the linalg package in odin and the perspective depth fix. - "What depth values does it come up with?
+  I'm using the linalg package too https://github.com/lodinukal/en/blob/master/app%2Fmain.odin#L261-L266 and it's working fine" - check depth values in renderdoc
 
 - the image or meshes are flipped horizontally. it's all inverted horizontally.
-	- curtains: left: green. right: red. lion = in front of you
+  - curtains: left: green. right: red. lion = in front of you
 
 - take memory management more seriously
-	- use the tracking allocator
-	- find out how to do memory checkpoints
+  - use the tracking allocator
+  - find out how to do memory checkpoints
 
 - copy code from here to filter out instrumentation markers
-	- https://github.com/joaocarvalhoopen/ota_profiller__Odin_Terminal_Auto_Profiller_Lib/blob/main/ota_profiller/otprofiller.odin
+  - https://github.com/joaocarvalhoopen/ota_profiller__Odin_Terminal_Auto_Profiller_Lib/blob/main/ota_profiller/otprofiller.odin
 
 - rebind `g t` to "go to type" (it's at `g y`)
 
 - TODO: find out how to abstract and/or share fences
-  
-- HotSwapState :: struct: 
-    // TODO: store more data here so u don't have to pass the data around in the hotswap methods
+- HotSwapState :: struct:
+  // TODO: store more data here so u don't have to pass the data around in the hotswap methods
 
 - set up some basic allocator stuff
-    - set up a tracking allocator for lasting allocations.
+  - set up a tracking allocator for lasting allocations.
 
 - check this out. p cool. about memory management.
-https://github.com/microsoft/DirectX-Graphics-Samples/tree/master/TechniqueDemos/D3D12MemoryManagement
+  https://github.com/microsoft/DirectX-Graphics-Samples/tree/master/TechniqueDemos/D3D12MemoryManagement
 
 # possible cool goals:
 
@@ -167,9 +164,7 @@ https://github.com/microsoft/DirectX-Graphics-Samples/tree/master/TechniqueDemos
 - [ ] blinn phong lighting (just need to add some stuff to the shader to accomplish this)
 - [x] deferred rendering (read it in book) (page 883)
 
-
 - some sort of scene structure so you can render multiple things
-
 
 # references
 
@@ -177,12 +172,12 @@ https://github.com/microsoft/DirectX-Graphics-Samples/tree/master/TechniqueDemos
 
 https://www.youtube.com/watch?v=foG5_BegCzU&list=PLD3tf_aBsga1A9B7UoDkM-yObxlLh9pku&index=27
 
-
 - [Scene Samples](https://www.intel.com/content/www/us/en/developer/topic-technology/graphics-research/samples.html)
 
 # devaniti on memory management system
 
 I'd use this strategy if you are still figuring out dx12:
+
 - Have a Fence per queue, with incrementing value. That way, by reading current value of that fence you can figure out how far did you GPU work progressed. For this example I'm assuming that you only have direct queue, but everything described here is scalable for multiple queues.
 - When recording command lists, you keep track of which value was last signaled to a fence, and which value will be signaled next. Let's call that value that will be signaled next a "safe value".
 - When writing commands to a command list and using a resource in the process, you can store that "safe value" for that resource. You update that value each time you use a resource.
@@ -194,7 +189,6 @@ The logic behind that "safe value" is: That "safe value" is only going to be sig
 me: "I'd use this strategy if you are still figuring out dx12"
 also me: Proceeds to explain kinda complicated scheme that is actually often used in real projects
 😂
-
 
 # crash logs
 
@@ -241,7 +235,6 @@ odin crashes
 ⏵ Task `build debug` finished with non-zero error code: -1073741819
 ⏵ Command: cmd /C "odin build . -debug -out:lucydx12.exe -linker:radlink -show-debug-messages"
 ```
-
 
 ## log 2
 
