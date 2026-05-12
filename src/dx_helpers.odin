@@ -1,5 +1,6 @@
 package main
 
+import "core:time"
 import "core:c"
 import img "vendor:stb/image"
 import "core:math/linalg"
@@ -27,6 +28,234 @@ transition_resource_from_copy_to_read :: proc(res: ^dx.IResource, cmd_list: ^dx.
 	transition_resource(res, cmd_list, {.COPY_DEST}, dx.RESOURCE_STATE_GENERIC_READ)
 }
 */
+
+BlendState :: enum {
+	Normal,
+	Off
+}
+
+CullMode :: enum {
+	Back,
+	Front,
+	None
+}
+
+RootSignatureChoice :: enum {
+	Standard,
+	Custom1
+}
+
+PSOParameters :: struct {
+	vertex_input: []dx.INPUT_ELEMENT_DESC,
+	blend_state: BlendState,
+	cull_mode: CullMode,
+	enable_depth: bool,
+	root_signature: RootSignatureChoice
+}
+
+PSO :: struct {
+	pipeline_state: ^dx.IPipelineState,
+	root_signature: ^dx.IRootSignature,
+	pso_creation_proc: pso_creation_signature, // deprecated
+	shader_filename: string,
+
+	// index in the queue array to free the resource
+	// i use this to swap the pointer when the pso gets hot swapped
+	parameters: PSOParameters,
+	pso_index: int,
+	pso_name: string, // for debugging on renderdoc / debug layers
+
+	/// For hot swapping
+	last_write_time: time.Time,
+	pso_swap: ^dx.IPipelineState,
+}
+
+create_pso :: proc(shader_filename: string, parameters: PSOParameters, pso_name: string = "") -> PSO {
+	ct := &g_dx_context
+	vs, ps, ok := compile_shader(ct.dxc_compiler, ui_shader_filename)
+	assert(ok, "could not compile shader!! check logs")
+
+	defer {
+		vs->Release()
+		ps->Release()
+	}
+
+	// create root signature here
+	// TODO: reuse standard ROOT SIGNATURE
+	root_signature := create_standard_root_signature()
+
+	// Creating the actual PSO
+	pso_dx: ^dx.IPipelineState
+	{
+		default_blend_state : dx.RENDER_TARGET_BLEND_DESC
+		switch parameters.blend_state {
+		case .Normal:
+			default_blend_state = dx.RENDER_TARGET_BLEND_DESC {
+				BlendEnable = true,
+				LogicOpEnable = false,
+				SrcBlend = .ONE,
+				DestBlend = .ZERO,
+				BlendOp = .ADD,
+				SrcBlendAlpha = .ONE,
+				DestBlendAlpha = .ZERO,
+				BlendOpAlpha = .ADD,
+				LogicOp = .NOOP,
+				RenderTargetWriteMask = u8(dx.COLOR_WRITE_ENABLE_ALL),
+			}
+		case .Off:
+			default_blend_state = dx.RENDER_TARGET_BLEND_DESC {
+				BlendEnable = false,
+				LogicOpEnable = false,
+				SrcBlend = .ONE,
+				DestBlend = .ZERO,
+				BlendOp = .ADD,
+				SrcBlendAlpha = .ONE,
+				DestBlendAlpha = .ZERO,
+				BlendOpAlpha = .ADD,
+				LogicOp = .NOOP,
+				RenderTargetWriteMask = u8(dx.COLOR_WRITE_ENABLE_ALL),
+			}
+		}
+
+		pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
+			pRootSignature = root_signature,
+			VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
+			PS = {pShaderBytecode = ps->GetBufferPointer(), BytecodeLength = ps->GetBufferSize()},
+			StreamOutput = {},
+			BlendState = {
+				AlphaToCoverageEnable = false,
+				IndependentBlendEnable = false,
+				RenderTarget = {0 = default_blend_state, 1 ..< 7 = {}},
+			},
+			SampleMask = 0xFFFFFFFF,
+			RasterizerState = {
+				FillMode = .WIREFRAME,
+				CullMode = .BACK,
+				FrontCounterClockwise = false,
+				DepthBias = 0,
+				DepthBiasClamp = 0,
+				SlopeScaledDepthBias = 0,
+				DepthClipEnable = true,
+				MultisampleEnable = false,
+				AntialiasedLineEnable = false,
+				ForcedSampleCount = 0,
+				ConservativeRaster = .OFF,
+			},
+			DSVFormat = .D32_FLOAT,
+			InputLayout = {pInputElementDescs = &parameters.vertex_input[0], NumElements = u32(len(parameters.vertex_input))},
+			PrimitiveTopologyType = .TRIANGLE,
+			NumRenderTargets = 1,
+			RTVFormats = {0 = .R8G8B8A8_UNORM, 1 ..< 7 = .UNKNOWN},
+			SampleDesc = {Count = 1, Quality = 0},
+		}
+
+		switch parameters.cull_mode {
+		case .Front:
+			pipeline_state_desc.RasterizerState.CullMode = .FRONT
+		case .Back:
+			pipeline_state_desc.RasterizerState.CullMode = .BACK
+		case .None:
+			pipeline_state_desc.RasterizerState.CullMode = .NONE
+		}
+
+		if parameters.enable_depth {
+			pipeline_state_desc.DepthStencilState = {
+				DepthEnable = true, StencilEnable = false, DepthWriteMask = .ALL, DepthFunc = .LESS
+			}
+		} else {
+			pipeline_state_desc.DepthStencilState = {
+				DepthEnable = false, StencilEnable = false
+			}
+		}
+
+		hr := g_dx_context.device->CreateGraphicsPipelineState(&pipeline_state_desc, dx.IPipelineState_UUID, (^rawptr)(&pso_dx))
+		check(hr, "Pipeline creation failed")
+		if pso_name != "" {
+			pso_name_wide := windows.utf8_to_wstring_alloc(pso_name, allocator = context.temp_allocator)
+			pso_dx->SetName(pso_name_wide)
+		}
+	}
+
+	pso_index := len(g_resources_longterm)
+	append(&g_resources_longterm, pso_dx)
+
+	pso := PSO {
+		pipeline_state = pso_dx,
+		root_signature = root_signature,
+		shader_filename = shader_filename,
+		parameters = parameters,
+		pso_index = pso_index,
+		pso_name = pso_name
+	}
+
+	pso_hotswap_init(&pso)
+	return pso
+}
+
+create_standard_root_signature :: proc() -> ^dx.IRootSignature {
+	c := &g_dx_context
+
+	root_parameters_len :: 1
+
+	root_parameters: [root_parameters_len]dx.ROOT_PARAMETER
+
+	// our test constant buffer
+	root_parameters[0] = {
+		ParameterType = .CBV,
+		Descriptor = {ShaderRegister = 0, RegisterSpace = 0},
+		ShaderVisibility = .ALL, // vertex, pixel, or both (all)
+	}
+
+	// our static sampler
+
+	// We'll define a static sampler description
+	sampler_desc := dx.STATIC_SAMPLER_DESC {
+		Filter = .MIN_MAG_MIP_LINEAR, // Tri-linear filtering
+		AddressU = .CLAMP, // Repeat the texture in the U direction
+		AddressV = .CLAMP, // Repeat the texture in the V direction
+		AddressW = .WRAP, // Repeat the texture in the W direction
+		MipLODBias = 0.0,
+		MaxAnisotropy = 0,
+		ComparisonFunc = .NEVER,
+		BorderColor = .OPAQUE_BLACK,
+		MinLOD = 0.0,
+		MaxLOD = dx.FLOAT32_MAX,
+		ShaderRegister = 0, // This corresponds to the s0 register in the shader
+		RegisterSpace = 0,
+		ShaderVisibility = .PIXEL,
+	}
+
+	desc := dx.VERSIONED_ROOT_SIGNATURE_DESC {
+		Version = ._1_0,
+		Desc_1_0 = {
+			NumParameters = root_parameters_len,
+			pParameters = &root_parameters[0],
+			NumStaticSamplers = 1,
+			pStaticSamplers = &sampler_desc,
+		},
+	}
+
+	// desc.Desc_1_0.Flags = {.ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT}
+
+	// BINDLESS MODE: ACTIVATED!!!!!
+	desc.Desc_1_0.Flags = {.CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED, .ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT}
+
+	serialized_desc: ^dx.IBlob
+	hr := dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
+	check(hr, "Failed to serialize root signature")
+	rs : ^dx.IRootSignature
+	hr = c.device->CreateRootSignature(
+		0,
+		serialized_desc->GetBufferPointer(),
+		serialized_desc->GetBufferSize(),
+		dx.IRootSignature_UUID,
+		(^rawptr)(&rs),
+	)
+	check(hr, "Failed creating root signature")
+	append(&g_resources_longterm, rs)
+	serialized_desc->Release()
+	return rs
+}
 
 transition_resource :: proc(res: ^dx.IResource, cmd_list: ^dx.IGraphicsCommandList, state_before, state_after: dx.RESOURCE_STATES, subresource: u32 = 0) {
 	barrier : dx.RESOURCE_BARRIER = {
