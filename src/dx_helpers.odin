@@ -678,7 +678,7 @@ texture_cache_query :: proc(model_filepath, image_name: string, format: dxgi.FOR
 
 	assert(dir_err == os.ERROR_NONE)
 
-	input_image_dir := filepath.dir(model_filepath, context.temp_allocator)
+	input_image_dir := filepath.dir(model_filepath)
 	input_image_path, alloc_err_2 := filepath.join({input_image_dir, image_name}, context.temp_allocator)
 
 	assert(alloc_err_2 == .None)

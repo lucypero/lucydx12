@@ -2,7 +2,7 @@
 //  outputs the final image.
 
 #pragma pack_matrix(column_major)
-#include "shader_common.hlsl"
+#include "src/shaders/shader_common.hlsl"
 
 SamplerState mySampler : register(s0);
 

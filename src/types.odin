@@ -28,10 +28,10 @@ dxm :: matrix[4, 4]f32
 
 DXResourcePool :: [dynamic]^dx.IUnknown
 
-gbuffer_shader_filename :: "shader.hlsl"
-lighting_shader_filename :: "lighting.hlsl"
-ui_shader_filename :: "ui.hlsl"
-text_shader_filename :: "text.hlsl"
+gbuffer_shader_filename :: "src/shaders/shader.hlsl"
+lighting_shader_filename :: "src/shaders/lighting.hlsl"
+ui_shader_filename :: "src/shaders/ui.hlsl"
+text_shader_filename :: "src/shaders/text.hlsl"
 
 // window dimensions
 WINDOW_WIDTH :: 2000

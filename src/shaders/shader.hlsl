@@ -1,7 +1,7 @@
 // this is the first pass that populates all the g-buffers.
 
 #pragma pack_matrix(column_major)
-#include "shader_common.hlsl"
+#include "src/shaders/shader_common.hlsl"
 
 struct VSInput {
 	float3 position : POSITION;

@@ -27,15 +27,6 @@ import "core:prof/spall"
 import dxma "../libs/odin-d3d12ma"
 import sa "core:container/small_array"
 
-import sg "sluggish_generator"
-
-// imgui
-import im "../libs/odin-imgui"
-// imgui sdl2 implementation
-import "../libs/odin-imgui/imgui_impl_sdl2"
-// imgui dx12 implementation
-import "../libs/odin-imgui/imgui_impl_dx12"
-
 PSO :: struct {
 	pipeline_state: ^dx.IPipelineState,
 	root_signature: ^dx.IRootSignature,
@@ -55,6 +46,7 @@ PSO :: struct {
 PSOName :: enum {
 	GBuffer_Pass,
 	Lighting_Pass,
+	Shadowmap,
 	Gizmos,
 	Text
 }

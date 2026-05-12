@@ -35,7 +35,7 @@
 // bnd = (band scale x, band scale y, band offset x, band offset y).
 // col = vertex color (red, green, blue, alpha).
 
-#include "shader_common.hlsl"
+#include "src/shaders/shader_common.hlsl"
 
 struct VertexStruct
 {
