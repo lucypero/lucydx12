@@ -459,7 +459,66 @@ init_dx_user :: proc() {
 
 	pso_gbuffer_create()
 	pso_lighting_create()
-	pso_gizmos_create()
+
+	ct.psos[.Gizmos] = create_pso(ui_shader_filename, PSOParameters {
+		vertex_input = []dx.INPUT_ELEMENT_DESC {
+			{
+				SemanticName = "POSITION",
+				Format = .R32G32B32_FLOAT,
+				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+				InputSlotClass = .PER_VERTEX_DATA,
+			},
+			// per-instance data
+			{
+				SemanticName = "WORLDMATRIX",
+				SemanticIndex = 0,
+				Format = .R32G32B32A32_FLOAT,
+				InputSlot = 1,
+				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+				InputSlotClass = .PER_INSTANCE_DATA,
+				InstanceDataStepRate = 1,
+			},
+			{
+				SemanticName = "WORLDMATRIX",
+				SemanticIndex = 1,
+				Format = .R32G32B32A32_FLOAT,
+				InputSlot = 1,
+				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+				InputSlotClass = .PER_INSTANCE_DATA,
+				InstanceDataStepRate = 1,
+			},
+			{
+				SemanticName = "WORLDMATRIX",
+				SemanticIndex = 2,
+				Format = .R32G32B32A32_FLOAT,
+				InputSlot = 1,
+				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+				InputSlotClass = .PER_INSTANCE_DATA,
+				InstanceDataStepRate = 1,
+			},
+			{
+				SemanticName = "WORLDMATRIX",
+				SemanticIndex = 3,
+				Format = .R32G32B32A32_FLOAT,
+				InputSlot = 1,
+				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+				InputSlotClass = .PER_INSTANCE_DATA,
+				InstanceDataStepRate = 1,
+			},
+			{
+				SemanticName = "COLOR",
+				SemanticIndex = 0,
+				Format = .R32G32B32A32_FLOAT,
+				InputSlot = 1,
+				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+				InputSlotClass = .PER_INSTANCE_DATA,
+				InstanceDataStepRate = 1,
+			},
+		},
+
+		blend_state = .Off,
+		enable_depth = true
+	}, pso_name = "Gizmos PSO")
 	pso_text_create()
 
 	// hr = ct.command_allocator->Reset()
@@ -1184,197 +1243,6 @@ pso_lighting_create_pipeline_state :: proc(root_signature: ^dx.IRootSignature, v
 	return pso
 }
 
-pso_gizmos_create_pipeline_state :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState {
-
-	// create pso
-
-	vertex_format := [?]dx.INPUT_ELEMENT_DESC {
-		{
-			SemanticName = "POSITION",
-			Format = .R32G32B32_FLOAT,
-			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-			InputSlotClass = .PER_VERTEX_DATA,
-		},
-		// per-instance data
-		{
-			SemanticName = "WORLDMATRIX",
-			SemanticIndex = 0,
-			Format = .R32G32B32A32_FLOAT,
-			InputSlot = 1,
-			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-			InputSlotClass = .PER_INSTANCE_DATA,
-			InstanceDataStepRate = 1,
-		},
-		{
-			SemanticName = "WORLDMATRIX",
-			SemanticIndex = 1,
-			Format = .R32G32B32A32_FLOAT,
-			InputSlot = 1,
-			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-			InputSlotClass = .PER_INSTANCE_DATA,
-			InstanceDataStepRate = 1,
-		},
-		{
-			SemanticName = "WORLDMATRIX",
-			SemanticIndex = 2,
-			Format = .R32G32B32A32_FLOAT,
-			InputSlot = 1,
-			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-			InputSlotClass = .PER_INSTANCE_DATA,
-			InstanceDataStepRate = 1,
-		},
-		{
-			SemanticName = "WORLDMATRIX",
-			SemanticIndex = 3,
-			Format = .R32G32B32A32_FLOAT,
-			InputSlot = 1,
-			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-			InputSlotClass = .PER_INSTANCE_DATA,
-			InstanceDataStepRate = 1,
-		},
-		{
-			SemanticName = "COLOR",
-			SemanticIndex = 0,
-			Format = .R32G32B32A32_FLOAT,
-			InputSlot = 1,
-			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-			InputSlotClass = .PER_INSTANCE_DATA,
-			InstanceDataStepRate = 1,
-		},
-	}
-
-	default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
-		BlendEnable = false,
-		LogicOpEnable = false,
-		SrcBlend = .ONE,
-		DestBlend = .ZERO,
-		BlendOp = .ADD,
-		SrcBlendAlpha = .ONE,
-		DestBlendAlpha = .ZERO,
-		BlendOpAlpha = .ADD,
-		LogicOp = .NOOP,
-		RenderTargetWriteMask = u8(dx.COLOR_WRITE_ENABLE_ALL),
-	}
-
-	pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
-		pRootSignature = root_signature,
-		VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
-		PS = {pShaderBytecode = ps->GetBufferPointer(), BytecodeLength = ps->GetBufferSize()},
-		StreamOutput = {},
-		BlendState = {
-			AlphaToCoverageEnable = false,
-			IndependentBlendEnable = false,
-			RenderTarget = {0 = default_blend_state, 1 ..< 7 = {}},
-		},
-		SampleMask = 0xFFFFFFFF,
-		RasterizerState = {
-			FillMode = .WIREFRAME,
-			CullMode = .BACK,
-			FrontCounterClockwise = false,
-			DepthBias = 0,
-			DepthBiasClamp = 0,
-			SlopeScaledDepthBias = 0,
-			DepthClipEnable = true,
-			MultisampleEnable = false,
-			AntialiasedLineEnable = false,
-			ForcedSampleCount = 0,
-			ConservativeRaster = .OFF,
-		},
-		// enabling depth testing
-		DepthStencilState = {DepthEnable = true, StencilEnable = false, DepthWriteMask = .ALL, DepthFunc = .LESS},
-		DSVFormat = .D32_FLOAT,
-		// no input layout. we don't need a vertex buffer.
-		InputLayout = {pInputElementDescs = &vertex_format[0], NumElements = u32(len(vertex_format))},
-		PrimitiveTopologyType = .TRIANGLE,
-		NumRenderTargets = 1,
-		RTVFormats = {0 = .R8G8B8A8_UNORM, 1 ..< 7 = .UNKNOWN},
-		SampleDesc = {Count = 1, Quality = 0},
-	}
-
-	pso: ^dx.IPipelineState
-
-	hr := g_dx_context.device->CreateGraphicsPipelineState(&pipeline_state_desc, dx.IPipelineState_UUID, (^rawptr)(&pso))
-	check(hr, "Pipeline creation failed")
-	pso->SetName("PSO for UI things (light gizmos, etc)")
-
-	return pso
-}
-
-pso_gizmos_create :: proc() {
-
-	ct := &g_dx_context
-
-	// compiling shader here
-
-	vs, ps, ok := compile_shader(ct.dxc_compiler, ui_shader_filename)
-
-	if !ok {
-		lprintfln("could not compile shader!! check logs")
-		os.exit(1)
-	}
-
-	defer {
-		vs->Release()
-		ps->Release()
-	}
-
-	// create root signature here
-	root_parameters_len :: 1
-
-	root_parameters: [root_parameters_len]dx.ROOT_PARAMETER
-
-	// Root constant: the index to the right model matrix of the draw call.
-	// first number: model matrix of the draw call
-	// second number: material index
-	root_parameters[0] = {
-		ParameterType = ._32BIT_CONSTANTS,
-		Constants = {ShaderRegister = 1, RegisterSpace = 0, Num32BitValues = 2},
-		ShaderVisibility = .ALL
-	}
-
-	desc := dx.VERSIONED_ROOT_SIGNATURE_DESC {
-		Version = ._1_0,
-		Desc_1_0 = {
-			NumParameters = root_parameters_len,
-			pParameters = &root_parameters[0],
-			NumStaticSamplers = 0,
-			pStaticSamplers = {},
-		},
-	}
-
-	root_signature : ^dx.IRootSignature
-
-	desc.Desc_1_0.Flags = {.ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT, .CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED}
-	serialized_desc: ^dx.IBlob
-	hr := dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
-	check(hr, "Failed to serialize root signature")
-	hr = ct.device->CreateRootSignature(
-		0,
-		serialized_desc->GetBufferPointer(),
-		serialized_desc->GetBufferSize(),
-		dx.IRootSignature_UUID,
-		(^rawptr)(&root_signature),
-	)
-	check(hr, "Failed creating root signature")
-	append(&g_resources_longterm, root_signature)
-	serialized_desc->Release()
-
-	pso := pso_gizmos_create_pipeline_state(root_signature, vs, ps)
-
-	pso_index := len(g_resources_longterm)
-	append(&g_resources_longterm, pso)
-
-	ct.psos[.Gizmos] = PSO {
-		pipeline_state = pso,
-		root_signature = root_signature,
-		pso_creation_proc = pso_gizmos_create_pipeline_state,
-		shader_filename = ui_shader_filename,
-		pso_index = pso_index
-	}
-
-	pso_hotswap_init(&ct.psos[.Gizmos])
-}
-
 pso_lighting_create :: proc() {
 
 	c := &g_dx_context
@@ -1453,7 +1321,10 @@ create_lighting_root_signature :: proc() -> ^dx.IRootSignature{
 	}
 
 	// desc.Desc_1_0.Flags = {.ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT}
+
+	// BINDLESS MODE: ACTIVATED!!!!!
 	desc.Desc_1_0.Flags = {.CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED}
+
 	serialized_desc: ^dx.IBlob
 	hr := dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
 	check(hr, "Failed to serialize root signature")

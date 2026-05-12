@@ -27,20 +27,6 @@ import "core:prof/spall"
 import dxma "../libs/odin-d3d12ma"
 import sa "core:container/small_array"
 
-PSO :: struct {
-	pipeline_state: ^dx.IPipelineState,
-	root_signature: ^dx.IRootSignature,
-	pso_creation_proc: pso_creation_signature,
-	shader_filename: string,
-
-	/// For hot swapping
-	last_write_time: time.Time,
-	pso_swap: ^dx.IPipelineState,
-
-	// index in the queue array to free the resource
-	// i use this to swap the pointer when the pso gets hot swapped
-	pso_index: int,
-}
 
 // All our PSO's
 PSOName :: enum {

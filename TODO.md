@@ -1,3 +1,10 @@
+# pso helpers TODO
+
+- [ ] use odin RTTI to generate vertex input layouts
+- [ ] adapt all psos to the new helper
+- [ ] just create 1 standard root signature
+- [ ] fix hot reloading: stop using the function pointer.
+
 # text TODO
 
 reference: (u already compiled it.)
