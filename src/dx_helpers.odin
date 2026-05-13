@@ -70,6 +70,44 @@ PSO :: struct {
 	pso_swap: ^dx.IPipelineState,
 }
 
+VertexInputA :: struct {
+	asd : v3 `POSITION`,
+	dsa : v4 `COLOR`,
+	lala: dxm `MATRIX`,
+}
+
+reflection :: proc() {
+	fmt.println("\n# reflection")
+
+	id := typeid_of(VertexInputA)
+	names := reflect.struct_field_names(id)
+	types := reflect.struct_field_types(id)
+	tags  := reflect.struct_field_tags(id)
+
+	assert(len(names) == len(types) && len(names) == len(tags))
+
+	for type in types {
+
+		lprintfln("is struct %v", type.variant)
+		#partial switch v in type.variant {
+		case reflect.Type_Info_Array:
+			lprintfln("array. is element float: %v, or int: %v, elem size: %v, arr size %v",
+				reflect.is_float(v.elem), reflect.is_integer(v.elem), v.elem_size, v.count)
+		case reflect.Type_Info_Matrix:
+			lprintfln("matrix %v, is elem float? %v", v, reflect.is_float(v.elem))
+		case:
+			// not implemented
+
+		}
+	}
+
+	for tag, i in tags {
+		if val, ok := reflect.struct_tag_lookup(tag, "json"); ok {
+			fmt.printf("json: %s -> %s\n", names[i], val)
+		}
+	}
+}
+
 create_pso :: proc(shader_filename: string, parameters: PSOParameters, pso_name: string = "") -> PSO {
 	ct := &g_dx_context
 	vs, ps, ok := compile_shader(ct.dxc_compiler, ui_shader_filename)
