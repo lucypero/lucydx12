@@ -457,6 +457,8 @@ init_dx_user :: proc() {
 	simply have one compute root signature. These root signatures are independent of each other.
 	*/
 
+	reflection()
+
 	pso_gbuffer_create()
 	pso_lighting_create()
 
