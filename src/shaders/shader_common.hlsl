@@ -29,6 +29,11 @@ struct AllSrvsIndices {
 	int band_texture_idx;
 };
 
+struct DrawConstants {
+	uint mesh_index;
+	uint material_index;
+};
+
 AllSrvsIndices get_srvs_from_heap() {
 	AllSrvsIndices idxs;
 	

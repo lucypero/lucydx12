@@ -58,6 +58,7 @@ PSOParameters :: struct {
 	cull_mode: CullMode,
 	enable_depth: bool,
 	root_signature: RootSignatureChoice,
+	front_counter_clockwise: bool,
 	rtv_count: int,
 	rtv_formats: [8]dxgi.FORMAT,
 }
@@ -83,37 +84,6 @@ VertexInputA :: struct {
 	asd : v3 `POSITION`,
 	dsa : v4 `COLOR`,
 	lala: dxm `MATRIX`,
-}
-
-reflection :: proc(id: typeid) {
-	fmt.println("\n# reflection")
-
-	names := reflect.struct_field_names(id)
-	types := reflect.struct_field_types(id)
-	tags  := reflect.struct_field_tags(id)
-
-	assert(len(names) == len(types) && len(names) == len(tags))
-
-	for type in types {
-
-		lprintfln("is struct %v", type.variant)
-		#partial switch v in type.variant {
-		case reflect.Type_Info_Array:
-			lprintfln("array. is element float: %v, or int: %v, elem size: %v, arr size %v",
-				reflect.is_float(v.elem), reflect.is_integer(v.elem), v.elem_size, v.count)
-		case reflect.Type_Info_Matrix:
-			lprintfln("matrix %v, is elem float? %v", v, reflect.is_float(v.elem))
-		case:
-			// not implemented
-
-		}
-	}
-
-	for tag, i in tags {
-		if val, ok := reflect.struct_tag_lookup(tag, "json"); ok {
-			fmt.printf("json: %s -> %s\n", names[i], val)
-		}
-	}
 }
 
 add_to_input_element_desc :: proc(buffer_type: typeid, is_instance: bool, result: ^[dynamic]dx.INPUT_ELEMENT_DESC) {
@@ -279,7 +249,7 @@ create_pso :: proc(shader_filename: string, parameters: PSOParameters, pso_name:
 			RasterizerState = {
 				FillMode = parameters.fill_mode == .Solid ? .SOLID : .WIREFRAME,
 				CullMode = .BACK,
-				FrontCounterClockwise = false,
+				FrontCounterClockwise = cast(dx.BOOL)parameters.front_counter_clockwise,
 				DepthBias = 0,
 				DepthBiasClamp = 0,
 				SlopeScaledDepthBias = 0,
@@ -368,17 +338,17 @@ create_standard_root_signature :: proc() -> ^dx.IRootSignature {
 
 	// We'll define a static sampler description
 	sampler_desc := dx.STATIC_SAMPLER_DESC {
-		Filter = .MIN_MAG_MIP_LINEAR, // Tri-linear filtering
-		AddressU = .CLAMP, // Repeat the texture in the U direction
-		AddressV = .CLAMP, // Repeat the texture in the V direction
-		AddressW = .WRAP, // Repeat the texture in the W direction
+		Filter = .ANISOTROPIC,
+		AddressU = .WRAP,
+		AddressV = .WRAP,
+		AddressW = .WRAP,
 		MipLODBias = 0.0,
-		MaxAnisotropy = 0,
+		MaxAnisotropy = 16,
 		ComparisonFunc = .NEVER,
 		BorderColor = .OPAQUE_BLACK,
 		MinLOD = 0.0,
 		MaxLOD = dx.FLOAT32_MAX,
-		ShaderRegister = 0, // This corresponds to the s0 register in the shader
+		ShaderRegister = 0,
 		RegisterSpace = 0,
 		ShaderVisibility = .PIXEL,
 	}

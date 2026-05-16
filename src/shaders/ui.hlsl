@@ -18,11 +18,6 @@ struct PSInput {
 	float4 color: COLOR;
 };
 
-struct DrawConstants {
-	uint mesh_index;
-	uint material_index;
-};
-
 struct MeshTransform
 {
 	float4x4 model; 
