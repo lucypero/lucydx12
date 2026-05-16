@@ -34,6 +34,11 @@ BlendState :: enum {
 	Off
 }
 
+FillMode :: enum {
+	Solid,
+	Wireframe
+}
+
 CullMode :: enum {
 	Back,
 	Front,
@@ -48,6 +53,7 @@ RootSignatureChoice :: enum {
 PSOParameters :: struct {
 	vertex_input: typeid,
 	instance_vertex_input: typeid,
+	fill_mode: FillMode,
 	blend_state: BlendState,
 	cull_mode: CullMode,
 	enable_depth: bool,
@@ -119,7 +125,7 @@ add_to_input_element_desc :: proc(buffer_type: typeid, is_instance: bool, result
 
 		elem_format : dxgi.FORMAT
 
-		tags_c, err := strings.clone_to_cstring(string(tags[i]))
+		tags_c, err := strings.clone_to_cstring(string(tags[i]), context.temp_allocator)
 		assert(err == .None)
 
 		#partial switch v in type.variant {
@@ -192,7 +198,7 @@ get_dx_vertex_input :: proc(input_layout_vertex, input_layout_instance: typeid) 
 
 create_pso :: proc(shader_filename: string, parameters: PSOParameters, pso_name: string = "") -> PSO {
 	ct := &g_dx_context
-	vs, ps, ok := compile_shader(ct.dxc_compiler, ui_shader_filename)
+	vs, ps, ok := compile_shader(ct.dxc_compiler, shader_filename)
 	assert(ok, "could not compile shader!! check logs")
 
 	defer {
@@ -251,7 +257,7 @@ create_pso :: proc(shader_filename: string, parameters: PSOParameters, pso_name:
 			},
 			SampleMask = 0xFFFFFFFF,
 			RasterizerState = {
-				FillMode = .WIREFRAME,
+				FillMode = parameters.fill_mode == .Solid ? .SOLID : .WIREFRAME,
 				CullMode = .BACK,
 				FrontCounterClockwise = false,
 				DepthBias = 0,
@@ -264,11 +270,15 @@ create_pso :: proc(shader_filename: string, parameters: PSOParameters, pso_name:
 				ConservativeRaster = .OFF,
 			},
 			DSVFormat = .D32_FLOAT,
-			InputLayout = {pInputElementDescs = &vertex_input_dx[0], NumElements = u32(len(vertex_input_dx))},
+			InputLayout = {pInputElementDescs = nil, NumElements = 0},
 			PrimitiveTopologyType = .TRIANGLE,
 			NumRenderTargets = 1,
 			RTVFormats = {0 = .R8G8B8A8_UNORM, 1 ..< 7 = .UNKNOWN},
 			SampleDesc = {Count = 1, Quality = 0},
+		}
+
+		if len(vertex_input_dx) > 0 {
+			pipeline_state_desc.InputLayout = {pInputElementDescs = &vertex_input_dx[0], NumElements = u32(len(vertex_input_dx))}
 		}
 
 		switch parameters.cull_mode {
