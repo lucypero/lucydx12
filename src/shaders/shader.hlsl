@@ -29,11 +29,6 @@ struct MeshTransform
 
 SamplerState mySampler : register(s0);
 
-struct DrawConstants {
-	uint mesh_index;
-	uint material_index;
-};
-
 ConstantBuffer<DrawConstants> draw_constants : register(b1);
 
 struct PSInput {

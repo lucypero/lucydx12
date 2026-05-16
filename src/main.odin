@@ -462,7 +462,7 @@ init_dx_user :: proc() {
 	// pso_gbuffer_create()
 
 	gbuffer_rtv_formats := [8]dxgi.FORMAT {
-		0 ..< 7 = .UNKNOWN,
+		0 ..= 7 = .UNKNOWN,
 	}
 
 	for g_buffer, i in g_dx_context.gbuffer.gbuffers {
@@ -476,7 +476,8 @@ init_dx_user :: proc() {
 		enable_depth = true,
 		rtv_count = GBUFFER_COUNT,
 		rtv_formats = gbuffer_rtv_formats,
-		cull_mode = .None,
+		// true because we flipped positions and normals in gltf to convert between coord systems.
+		front_counter_clockwise = true,
 	}, pso_name = "geometry pass PSO")
 
 	ct.psos[.Lighting_Pass] = create_pso(lighting_shader_filename, PSOParameters {
@@ -485,7 +486,7 @@ init_dx_user :: proc() {
 		blend_state = .Off,
 		enable_depth = false,
 		rtv_count = 1,
-		rtv_formats = {0 = .R8G8B8A8_UNORM, 1 ..<7 = .UNKNOWN},
+		rtv_formats = {0 = .R8G8B8A8_UNORM, 1 ..=7 = .UNKNOWN},
 	}, pso_name = "lighting pass PSO")
 
 	ct.psos[.Gizmos] = create_pso(ui_shader_filename, PSOParameters {
@@ -495,8 +496,9 @@ init_dx_user :: proc() {
 		enable_depth = true,
 		fill_mode = .Wireframe,
 		rtv_count = 1,
-		rtv_formats = {0 = .R8G8B8A8_UNORM, 1 ..<7 = .UNKNOWN},
+		rtv_formats = {0 = .R8G8B8A8_UNORM, 1 ..=7 = .UNKNOWN},
 	}, pso_name = "Gizmos PSO")
+
 
 	// hr = ct.command_allocator->Reset(
 	// hr = ct.cmdlist->Reset(ct.command_allocator, nil)
@@ -1465,196 +1467,4 @@ get_first_active_scene :: proc() -> (scene: ^Scene, ok: bool) {
 	}
 
 	return nil, false
-}
-
-pso_gbuffer_create_pipeline_state :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState {
-
-	c := &g_dx_context
-
-	vertex_format := [?]dx.INPUT_ELEMENT_DESC {
-		{
-			SemanticName = "POSITION",
-			Format = .R32G32B32_FLOAT,
-			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-			InputSlotClass = .PER_VERTEX_DATA,
-		},
-		{
-			SemanticName = "NORMAL",
-			Format = .R32G32B32_FLOAT,
-			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-			InputSlotClass = .PER_VERTEX_DATA,
-		},
-		{
-			SemanticName = "TANGENT",
-			Format = .R32G32B32A32_FLOAT,
-			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-			InputSlotClass = .PER_VERTEX_DATA,
-		},
-		{
-			SemanticName = "TEXCOORD",
-			Format = .R32G32_FLOAT,
-			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-			InputSlotClass = .PER_VERTEX_DATA,
-		},
-		{
-			SemanticName = "TEXCOORD",
-			SemanticIndex = 1,
-			Format = .R32G32_FLOAT,
-			AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-			InputSlotClass = .PER_VERTEX_DATA,
-		},
-	}
-
-	default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
-		BlendEnable = false,
-		LogicOpEnable = false,
-		SrcBlend = .ONE,
-		DestBlend = .ZERO,
-		BlendOp = .ADD,
-		SrcBlendAlpha = .ONE,
-		DestBlendAlpha = .ZERO,
-		BlendOpAlpha = .ADD,
-		LogicOp = .NOOP,
-		RenderTargetWriteMask = u8(dx.COLOR_WRITE_ENABLE_ALL),
-	}
-
-	rtv_formats := [8]dxgi.FORMAT {
-		0 ..< 7 = .UNKNOWN,
-	}
-
-	for g_buffer, i in g_dx_context.gbuffer.gbuffers {
-		rtv_formats[i] = g_buffer.format
-	}
-
-	pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
-		pRootSignature = root_signature,
-		VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
-		PS = {pShaderBytecode = ps->GetBufferPointer(), BytecodeLength = ps->GetBufferSize()},
-		StreamOutput = {},
-		BlendState = {
-			AlphaToCoverageEnable = false,
-			IndependentBlendEnable = false,
-			RenderTarget = {0 ..< GBUFFER_COUNT = default_blend_state},
-		},
-		SampleMask = 0xFFFFFFFF,
-		RasterizerState = {
-			FillMode = .SOLID,
-			CullMode = .BACK,
-			// true because we flipped positions and normals in gltf to convert between coord systems.
-			FrontCounterClockwise = true, 
-			DepthBias = 0,
-			DepthBiasClamp = 0,
-			SlopeScaledDepthBias = 0,
-			DepthClipEnable = true,
-			MultisampleEnable = false,
-			AntialiasedLineEnable = false,
-			ForcedSampleCount = 0,
-			ConservativeRaster = .OFF,
-		},
-		// enabling depth testing
-		DepthStencilState = {DepthEnable = true, StencilEnable = false, DepthWriteMask = .ALL, DepthFunc = .LESS},
-		InputLayout = {pInputElementDescs = &vertex_format[0], NumElements = u32(len(vertex_format))},
-		PrimitiveTopologyType = .TRIANGLE,
-		NumRenderTargets = GBUFFER_COUNT,
-		RTVFormats = rtv_formats,
-		DSVFormat = .D32_FLOAT,
-		SampleDesc = {Count = 1, Quality = 0},
-	}
-
-	pso: ^dx.IPipelineState
-
-	hr := c.device->CreateGraphicsPipelineState(&pipeline_state_desc, dx.IPipelineState_UUID, (^rawptr)(&pso))
-	check(hr, "Pipeline creation failed")
-	pso->SetName("PSO for gbuffer pass")
-
-	return pso
-}
-
-pso_gbuffer_create :: proc() {
-
-	c := &g_dx_context
-
-	// Create gbuffer root signature
-	root_signature : ^dx.IRootSignature
-	{
-		root_parameters_len :: 1
-
-		root_parameters: [root_parameters_len]dx.ROOT_PARAMETER
-
-		// Root constant: the index to the right model matrix of the draw call.
-		// first number: model matrix of the draw call
-		// second number: material index
-		root_parameters[0] = {
-			ParameterType = ._32BIT_CONSTANTS,
-			Constants = {ShaderRegister = 1, RegisterSpace = 0, Num32BitValues = 2},
-			ShaderVisibility = .ALL
-		}
-
-		// our static sampler
-
-		// We'll define a static sampler description
-		sampler_desc := dx.STATIC_SAMPLER_DESC {
-			Filter = .ANISOTROPIC,
-			AddressU = .WRAP,
-			AddressV = .WRAP,
-			AddressW = .WRAP,
-			MipLODBias = 0.0,
-			MaxAnisotropy = 16,
-			ComparisonFunc = .NEVER,
-			BorderColor = .OPAQUE_BLACK,
-			MinLOD = 0.0,
-			MaxLOD = dx.FLOAT32_MAX,
-			ShaderRegister = 0,
-			RegisterSpace = 0,
-			ShaderVisibility = .PIXEL,
-		}
-
-		desc := dx.VERSIONED_ROOT_SIGNATURE_DESC {
-			Version = ._1_0,
-			Desc_1_0 = {
-				NumParameters = root_parameters_len,
-				pParameters = &root_parameters[0],
-				NumStaticSamplers = 1,
-				pStaticSamplers = &sampler_desc,
-			},
-		}
-
-		desc.Desc_1_0.Flags = {.ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT, .CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED}
-		serialized_desc: ^dx.IBlob
-		dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
-		g_dx_context.device->CreateRootSignature(
-			0,
-			serialized_desc->GetBufferPointer(),
-			serialized_desc->GetBufferSize(),
-			dx.IRootSignature_UUID,
-			(^rawptr)(&root_signature),
-		)
-
-		append(&g_resources_longterm, root_signature)
-		serialized_desc->Release()
-	}
-
-	vs, ps, ok := compile_shader(c.dxc_compiler, gbuffer_shader_filename)
-	if !ok {
-		lprintfln("could not compile shader!! check logs")
-		os.exit(1)
-	}
-
-	pso := pso_gbuffer_create_pipeline_state(root_signature, vs, ps)
-
-	pso_index := len(g_resources_longterm)
-	append(&g_resources_longterm, pso)
-
-	vs->Release()
-	ps->Release()
-
-	c.psos[.GBuffer_Pass] = PSO {
-		pipeline_state = pso,
-		root_signature = root_signature,
-		pso_creation_proc = pso_gbuffer_create_pipeline_state,
-		shader_filename = gbuffer_shader_filename,
-		pso_index = pso_index
-	}
-
-	pso_hotswap_init(&c.psos[.GBuffer_Pass])
 }
