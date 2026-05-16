@@ -114,6 +114,7 @@ Context :: struct {
 	// sdl stuff
 	window: ^sdl.Window,
 
+
 	// imgui stuff
 	imgui_descriptor_heap: ^dx.IDescriptorHeap,
 	imgui_allocator: DescriptorHeapAllocator,
@@ -127,6 +128,9 @@ Context :: struct {
 	queue: ^dx.ICommandQueue,
 	command_allocator: ^dx.ICommandAllocator,
 	cmdlist: ^dx.IGraphicsCommandList,
+
+	// root signatures
+	root_signatures: [RootSignatureChoice]^dx.IRootSignature,
 
 	// PSOs
 	psos: [PSOName]PSO,

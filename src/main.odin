@@ -439,25 +439,85 @@ init_dx :: proc() {
 	}
 }
 
+create_root_signatures :: proc() {
+
+	ct := &g_dx_context
+	hr : dx.HRESULT
+
+	root_parameters_len :: 2
+
+	root_parameters: [root_parameters_len]dx.ROOT_PARAMETER
+
+	root_parameters[0] = {
+		ParameterType = .CBV,
+		Descriptor = {ShaderRegister = 0, RegisterSpace = 0},
+		ShaderVisibility = .ALL, // vertex, pixel, or both (all)
+	}
+
+	root_parameters[1] = {
+		ParameterType = ._32BIT_CONSTANTS,
+		Constants = {ShaderRegister = 1, RegisterSpace = 0, Num32BitValues = 2},
+		ShaderVisibility = .ALL
+	}
+
+	sampler_desc := dx.STATIC_SAMPLER_DESC {
+		Filter = .ANISOTROPIC,
+		AddressU = .WRAP,
+		AddressV = .WRAP,
+		AddressW = .WRAP,
+		MipLODBias = 0.0,
+		MaxAnisotropy = 16,
+		ComparisonFunc = .NEVER,
+		BorderColor = .OPAQUE_BLACK,
+		MinLOD = 0.0,
+		MaxLOD = dx.FLOAT32_MAX,
+		ShaderRegister = 0,
+		RegisterSpace = 0,
+		ShaderVisibility = .PIXEL,
+	}
+
+	desc := dx.VERSIONED_ROOT_SIGNATURE_DESC {
+		Version = ._1_0,
+		Desc_1_0 = {
+			NumParameters = root_parameters_len,
+			pParameters = &root_parameters[0],
+			NumStaticSamplers = 1,
+			pStaticSamplers = &sampler_desc,
+		},
+	}
+
+	// BINDLESS MODE: ACTIVATED!!!!!
+	desc.Desc_1_0.Flags = {.CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED, .ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT}
+
+	serialized_desc: ^dx.IBlob
+	hr = dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
+	check(hr, "Failed to serialize root signature")
+	hr = ct.device->CreateRootSignature(
+		0,
+		serialized_desc->GetBufferPointer(),
+		serialized_desc->GetBufferSize(),
+		dx.IRootSignature_UUID,
+		(^rawptr)(&ct.root_signatures[.Standard]),
+	)
+	check(hr, "Failed creating root signature")
+	append(&g_resources_longterm, ct.root_signatures[.Standard])
+	serialized_desc->Release()
+
+	// creating other root signatrues here when needed
+}
+
 init_dx_user :: proc() {
 	ct := &g_dx_context
 	hr : dx.HRESULT
+
+	// Creating all root signatures
+	create_root_signatures()
 
 	// Creating G-Buffer textures and RTV's
 	ct.gbuffer = create_gbuffer()
 
 	// constant buffer
 	ct.constant_buffer = create_constant_buffer_upload(size_of(ConstantBufferData), &g_resources_longterm, name = "general constants cbv")
-
-	/* 
-	From https://docs.microsoft.com/en-us/windows/win32/direct3d12/root-signatures-overview:
-
-	A root signature is configured by the app and links command lists to the resources the shaders require.
-	The graphics command list has both a graphics and compute root signature. A compute command list will
-	simply have one compute root signature. These root signatures are independent of each other.
-	*/
-
-	// reflection(ConstantBufferData)
 
 	// pso_gbuffer_create()
 
