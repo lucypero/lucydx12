@@ -190,7 +190,9 @@ create_pso :: proc(shader_filename: string, parameters: PSOParameters, pso_name:
 
 	// create root signature here
 	// TODO: reuse standard ROOT SIGNATURE
-	root_signature := create_standard_root_signature()
+	root_signature := ct.root_signatures[.Standard]
+
+	assert(parameters.root_signature == .Standard, "custom root signatures are not supported")
 
 	// Creating the actual PSO
 	pso_dx: ^dx.IPipelineState
@@ -312,77 +314,6 @@ create_pso :: proc(shader_filename: string, parameters: PSOParameters, pso_name:
 
 	pso_hotswap_init(&pso)
 	return pso
-}
-
-create_standard_root_signature :: proc() -> ^dx.IRootSignature {
-	c := &g_dx_context
-
-	root_parameters_len :: 2
-
-	root_parameters: [root_parameters_len]dx.ROOT_PARAMETER
-
-	// our test constant buffer
-	root_parameters[0] = {
-		ParameterType = .CBV,
-		Descriptor = {ShaderRegister = 0, RegisterSpace = 0},
-		ShaderVisibility = .ALL, // vertex, pixel, or both (all)
-	}
-
-	root_parameters[1] = {
-		ParameterType = ._32BIT_CONSTANTS,
-		Constants = {ShaderRegister = 1, RegisterSpace = 0, Num32BitValues = 2},
-		ShaderVisibility = .ALL
-	}
-
-	// our static sampler
-
-	// We'll define a static sampler description
-	sampler_desc := dx.STATIC_SAMPLER_DESC {
-		Filter = .ANISOTROPIC,
-		AddressU = .WRAP,
-		AddressV = .WRAP,
-		AddressW = .WRAP,
-		MipLODBias = 0.0,
-		MaxAnisotropy = 16,
-		ComparisonFunc = .NEVER,
-		BorderColor = .OPAQUE_BLACK,
-		MinLOD = 0.0,
-		MaxLOD = dx.FLOAT32_MAX,
-		ShaderRegister = 0,
-		RegisterSpace = 0,
-		ShaderVisibility = .PIXEL,
-	}
-
-	desc := dx.VERSIONED_ROOT_SIGNATURE_DESC {
-		Version = ._1_0,
-		Desc_1_0 = {
-			NumParameters = root_parameters_len,
-			pParameters = &root_parameters[0],
-			NumStaticSamplers = 1,
-			pStaticSamplers = &sampler_desc,
-		},
-	}
-
-	// desc.Desc_1_0.Flags = {.ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT}
-
-	// BINDLESS MODE: ACTIVATED!!!!!
-	desc.Desc_1_0.Flags = {.CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED, .ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT}
-
-	serialized_desc: ^dx.IBlob
-	hr := dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
-	check(hr, "Failed to serialize root signature")
-	rs : ^dx.IRootSignature
-	hr = c.device->CreateRootSignature(
-		0,
-		serialized_desc->GetBufferPointer(),
-		serialized_desc->GetBufferSize(),
-		dx.IRootSignature_UUID,
-		(^rawptr)(&rs),
-	)
-	check(hr, "Failed creating root signature")
-	append(&g_resources_longterm, rs)
-	serialized_desc->Release()
-	return rs
 }
 
 transition_resource :: proc(res: ^dx.IResource, cmd_list: ^dx.IGraphicsCommandList, state_before, state_after: dx.RESOURCE_STATES, subresource: u32 = 0) {
@@ -607,7 +538,6 @@ create_texture_with_data :: proc(
 
 	return res
 }
-
 
 // creates texture on default heap
 // schedules an upload of data
