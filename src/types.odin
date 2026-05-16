@@ -106,8 +106,6 @@ GBuffer :: struct {
 	rtv_heap: ^dx.IDescriptorHeap,
 }
 
-pso_creation_signature :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState
-
 MAX_GIZMOS :: 20
 
 Context :: struct {

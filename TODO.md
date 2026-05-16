@@ -3,20 +3,7 @@
 - [x] use odin RTTI to generate vertex input layouts
 - [x] adapt all psos to the new helper
 - [x] just create 1 standard root signature. u are making identical root signatures
-- [ ] fix hot reloading: stop using the function pointer.
-
-# text TODO
-
-reference: (u already compiled it.)
-https://tangled.org/dosha.dev/sokol-slug-odin
-
-- [x] put the param struct constant buffer in the uber heap. keep track of the index.
-- [x] give a name to the constant buffers
-- [x] fix index in shader of constant buffer
-- [x] update the constant buffer on \_render()
-- [ ] upload the 2 texture data
-- [ ] fix index in shader of textures
-- test
+- [x] fix hot reloading: stop using the function pointer.
 
 # pipeline refactor
 
@@ -180,6 +167,8 @@ Depth and stencil (already done)
 https://www.youtube.com/watch?v=foG5_BegCzU&list=PLD3tf_aBsga1A9B7UoDkM-yObxlLh9pku&index=27
 
 - [Scene Samples](https://www.intel.com/content/www/us/en/developer/topic-technology/graphics-research/samples.html)
+
+- text slug odin reference: https://tangled.org/dosha.dev/sokol-slug-odin
 
 # devaniti on memory management system
 
