@@ -57,11 +57,11 @@ MODEL_FILEPATH_SUZANNE :: GLTF_SAMPLES_DIR + "/Suzanne/glTF/Suzanne.gltf"
 MODEL_FILEPATH_FLIGHTHELMET :: GLTF_SAMPLES_DIR + "/FlightHelmet/glTF/FlightHelmet.gltf"
 
 VertexData :: struct {
-	pos: v3,
-	normal: v3,
-	tangent: v4,
-	uv: v2,
-	uv_2: v2,
+	pos: v3 `POSITION`,
+	normal: v3 `NORMAL`,
+	tangent: v4 `TANGENT`,
+	uv: v2 `TEXCOORD`,
+	uv_2: v2 `TEXCOORD_SECOND_UV`,
 }
 
 Texture :: struct {
