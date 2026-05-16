@@ -57,7 +57,9 @@ PSOParameters :: struct {
 	blend_state: BlendState,
 	cull_mode: CullMode,
 	enable_depth: bool,
-	root_signature: RootSignatureChoice
+	root_signature: RootSignatureChoice,
+	rtv_count: int,
+	rtv_formats: [8]dxgi.FORMAT,
 }
 
 PSO :: struct {
@@ -255,6 +257,14 @@ create_pso :: proc(shader_filename: string, parameters: PSOParameters, pso_name:
 
 		vertex_input_dx := get_dx_vertex_input(parameters.vertex_input, parameters.instance_vertex_input)
 
+		rtv_formats := [8]dxgi.FORMAT {
+			0 ..< 7 = .UNKNOWN,
+		}
+
+		for rtv_format, i in parameters.rtv_formats {
+			rtv_formats[i] = rtv_format
+		}
+
 		pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
 			pRootSignature = root_signature,
 			VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
@@ -282,8 +292,8 @@ create_pso :: proc(shader_filename: string, parameters: PSOParameters, pso_name:
 			DSVFormat = .D32_FLOAT,
 			InputLayout = {pInputElementDescs = nil, NumElements = 0},
 			PrimitiveTopologyType = .TRIANGLE,
-			NumRenderTargets = 1,
-			RTVFormats = {0 = .R8G8B8A8_UNORM, 1 ..< 7 = .UNKNOWN},
+			NumRenderTargets = u32(parameters.rtv_count),
+			RTVFormats = rtv_formats,
 			SampleDesc = {Count = 1, Quality = 0},
 		}
 
@@ -337,7 +347,7 @@ create_pso :: proc(shader_filename: string, parameters: PSOParameters, pso_name:
 create_standard_root_signature :: proc() -> ^dx.IRootSignature {
 	c := &g_dx_context
 
-	root_parameters_len :: 1
+	root_parameters_len :: 2
 
 	root_parameters: [root_parameters_len]dx.ROOT_PARAMETER
 
@@ -346,6 +356,12 @@ create_standard_root_signature :: proc() -> ^dx.IRootSignature {
 		ParameterType = .CBV,
 		Descriptor = {ShaderRegister = 0, RegisterSpace = 0},
 		ShaderVisibility = .ALL, // vertex, pixel, or both (all)
+	}
+
+	root_parameters[1] = {
+		ParameterType = ._32BIT_CONSTANTS,
+		Constants = {ShaderRegister = 1, RegisterSpace = 0, Num32BitValues = 2},
+		ShaderVisibility = .ALL
 	}
 
 	// our static sampler

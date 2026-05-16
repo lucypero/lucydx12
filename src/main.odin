@@ -461,18 +461,31 @@ init_dx_user :: proc() {
 
 	// pso_gbuffer_create()
 
-	ct.psos[.Gizmos] = create_pso(gbuffer_shader_filename, PSOParameters {
+	gbuffer_rtv_formats := [8]dxgi.FORMAT {
+		0 ..< 7 = .UNKNOWN,
+	}
+
+	for g_buffer, i in g_dx_context.gbuffer.gbuffers {
+		gbuffer_rtv_formats[i] = g_buffer.format
+	}
+
+	ct.psos[.GBuffer_Pass] = create_pso(gbuffer_shader_filename, PSOParameters {
 		vertex_input = VertexData,
 		instance_vertex_input = struct{},
 		blend_state = .Off,
-		enable_depth = false,
-	}, pso_name = "lighting pass PSO")
+		enable_depth = true,
+		rtv_count = GBUFFER_COUNT,
+		rtv_formats = gbuffer_rtv_formats,
+		cull_mode = .None,
+	}, pso_name = "geometry pass PSO")
 
 	ct.psos[.Lighting_Pass] = create_pso(lighting_shader_filename, PSOParameters {
 		vertex_input = struct{},
 		instance_vertex_input = struct{},
 		blend_state = .Off,
 		enable_depth = false,
+		rtv_count = 1,
+		rtv_formats = {0 = .R8G8B8A8_UNORM, 1 ..<7 = .UNKNOWN},
 	}, pso_name = "lighting pass PSO")
 
 	ct.psos[.Gizmos] = create_pso(ui_shader_filename, PSOParameters {
@@ -481,6 +494,8 @@ init_dx_user :: proc() {
 		blend_state = .Off,
 		enable_depth = true,
 		fill_mode = .Wireframe,
+		rtv_count = 1,
+		rtv_formats = {0 = .R8G8B8A8_UNORM, 1 ..<7 = .UNKNOWN},
 	}, pso_name = "Gizmos PSO")
 
 	// hr = ct.command_allocator->Reset(
@@ -1225,7 +1240,7 @@ pso_gbuffer_render :: proc() {
 					mesh_index = u32(g_mesh_drawn_count),
 					material_index = u32(prim.material_index),
 				}
-				ct.cmdlist->SetGraphicsRoot32BitConstants(0, 2, &dc, 0)
+				ct.cmdlist->SetGraphicsRoot32BitConstants(1, 2, &dc, 0)
 				ct.cmdlist->DrawIndexedInstanced(prim.index_count, 1, prim.index_offset, 0, 0)
 			}
 		})
