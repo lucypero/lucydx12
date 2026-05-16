@@ -27,6 +27,11 @@ import "core:prof/spall"
 import dxma "../libs/odin-d3d12ma"
 import sa "core:container/small_array"
 
+// vertex buffer
+Gizmos_Vertex_IA :: struct {
+	pos: v3 `POSITION`,
+}
+
 
 // All our PSO's
 PSOName :: enum {

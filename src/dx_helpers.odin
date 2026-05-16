@@ -46,7 +46,8 @@ RootSignatureChoice :: enum {
 }
 
 PSOParameters :: struct {
-	vertex_input: []dx.INPUT_ELEMENT_DESC,
+	vertex_input: typeid,
+	instance_vertex_input: typeid,
 	blend_state: BlendState,
 	cull_mode: CullMode,
 	enable_depth: bool,
@@ -76,10 +77,9 @@ VertexInputA :: struct {
 	lala: dxm `MATRIX`,
 }
 
-reflection :: proc() {
+reflection :: proc(id: typeid) {
 	fmt.println("\n# reflection")
 
-	id := typeid_of(VertexInputA)
 	names := reflect.struct_field_names(id)
 	types := reflect.struct_field_types(id)
 	tags  := reflect.struct_field_tags(id)
@@ -107,6 +107,88 @@ reflection :: proc() {
 		}
 	}
 }
+
+add_to_input_element_desc :: proc(buffer_type: typeid, is_instance: bool, result: ^[dynamic]dx.INPUT_ELEMENT_DESC) {
+	names := reflect.struct_field_names(buffer_type)
+	types := reflect.struct_field_types(buffer_type)
+	tags  := reflect.struct_field_tags(buffer_type)
+
+	assert(len(names) == len(types) && len(names) == len(tags))
+
+	for type, i in types {
+
+		elem_format : dxgi.FORMAT
+
+		tags_c, err := strings.clone_to_cstring(string(tags[i]))
+		assert(err == .None)
+
+		#partial switch v in type.variant {
+		case reflect.Type_Info_Array:
+			// assume float
+
+			switch v.count {
+			case 3:
+				switch v.elem_size {
+				case 4:
+					elem_format = .R32G32B32_FLOAT
+				case:
+					panic("format not supported")
+				}
+			case 4:
+				switch v.elem_size {
+				case 4:
+					elem_format = .R32G32B32A32_FLOAT
+				case 2:
+					elem_format = .R16G16B16A16_FLOAT
+				case:
+					panic("format not supported")
+				}
+			case:
+				panic("count not supported")
+			}
+
+			if !reflect.is_float(v.elem) {
+				// convert from FLOAT type to another type.
+				panic("format not supported")
+			} 		
+
+			append(result, dx.INPUT_ELEMENT_DESC{
+				SemanticName = tags_c,
+				Format = elem_format,
+				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+				InputSlotClass = is_instance ? .PER_INSTANCE_DATA : .PER_VERTEX_DATA,
+				InputSlot = is_instance ? 1 : 0,
+				InstanceDataStepRate = is_instance ? 1 : 0,
+			})
+		case reflect.Type_Info_Matrix:
+			assert(v.row_count == 4 && v.column_count == 4, "matrix not supported")
+
+			elem_format = .R32G32B32A32_FLOAT
+
+			for j in 0..=3 {
+				append(result, dx.INPUT_ELEMENT_DESC{
+					SemanticName = tags_c,
+					SemanticIndex = u32(j),
+					Format = elem_format,
+					AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
+					InputSlotClass = is_instance ? .PER_INSTANCE_DATA : .PER_VERTEX_DATA,
+					InputSlot = is_instance ? 1 : 0,
+					InstanceDataStepRate = is_instance ? 1 : 0,
+				})
+			}
+		}
+	}
+}
+
+get_dx_vertex_input :: proc(input_layout_vertex, input_layout_instance: typeid) -> []dx.INPUT_ELEMENT_DESC {
+	res := make_dynamic_array_len_cap([dynamic]dx.INPUT_ELEMENT_DESC, 0, 0, context.temp_allocator)
+
+	add_to_input_element_desc(input_layout_vertex, false, &res)
+	add_to_input_element_desc(input_layout_instance, true, &res)
+
+	return res[:]
+}
+
 
 create_pso :: proc(shader_filename: string, parameters: PSOParameters, pso_name: string = "") -> PSO {
 	ct := &g_dx_context
@@ -155,6 +237,8 @@ create_pso :: proc(shader_filename: string, parameters: PSOParameters, pso_name:
 			}
 		}
 
+		vertex_input_dx := get_dx_vertex_input(parameters.vertex_input, parameters.instance_vertex_input)
+
 		pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
 			pRootSignature = root_signature,
 			VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
@@ -180,7 +264,7 @@ create_pso :: proc(shader_filename: string, parameters: PSOParameters, pso_name:
 				ConservativeRaster = .OFF,
 			},
 			DSVFormat = .D32_FLOAT,
-			InputLayout = {pInputElementDescs = &parameters.vertex_input[0], NumElements = u32(len(parameters.vertex_input))},
+			InputLayout = {pInputElementDescs = &vertex_input_dx[0], NumElements = u32(len(vertex_input_dx))},
 			PrimitiveTopologyType = .TRIANGLE,
 			NumRenderTargets = 1,
 			RTVFormats = {0 = .R8G8B8A8_UNORM, 1 ..< 7 = .UNKNOWN},

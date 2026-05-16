@@ -249,6 +249,6 @@ Node :: struct {
 
 // struct that holds instance data, for an instance rendering example
 InstanceData :: struct #align (256) {
-	world_mat: dxm,
-	color: v4,
+	world_mat: dxm `WORLDMATRIX`,
+	color: v4 `COLOR`
 }
