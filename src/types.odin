@@ -155,9 +155,6 @@ Context :: struct {
 	// depth buffer
 	depth_stencil_res: ^dx.IResource,
 	descriptor_heap_dsv: ^dx.IDescriptorHeap,
-
-	// text state
-	text_state: TextState
 }
 
 ModelMatrixData :: struct {

@@ -460,17 +460,24 @@ init_dx_user :: proc() {
 	// reflection(ConstantBufferData)
 
 	pso_gbuffer_create()
-	pso_lighting_create()
+	// pso_lighting_create()
+
+	ct.psos[.Lighting_Pass] = create_pso(lighting_shader_filename, PSOParameters {
+		instance_vertex_input = struct{},
+		vertex_input = struct{},
+		blend_state = .Off,
+		enable_depth = false,
+	}, pso_name = "lighting pass PSO")
 
 	ct.psos[.Gizmos] = create_pso(ui_shader_filename, PSOParameters {
 		vertex_input = Gizmos_Vertex_IA,
 		instance_vertex_input = InstanceData,
 		blend_state = .Off,
-		enable_depth = true
+		enable_depth = true,
+		fill_mode = .Wireframe,
 	}, pso_name = "Gizmos PSO")
-	pso_text_create()
 
-	// hr = ct.command_allocator->Reset()
+	// hr = ct.command_allocator->Reset(
 	// hr = ct.cmdlist->Reset(ct.command_allocator, nil)
 	create_depth_buffer()
 
@@ -504,8 +511,6 @@ init_dx_user :: proc() {
 			return
 		}
 	}
-
-	text_init()
 }
 
 do_main_loop :: proc() {
@@ -734,7 +739,6 @@ render :: proc() {
 	pso_gbuffer_render()
 	pso_lighting_render()
 	if g_light_draw_gizmos do pso_gizmos_render()
-	pso_text_render()
 
 	render_imgui()
 
@@ -1130,166 +1134,6 @@ create_gbuffer :: proc() -> GBuffer {
 		},
 		rtv_heap = gb_rtv_dh
 	}
-}
-
-pso_lighting_create_pipeline_state :: proc(root_signature: ^dx.IRootSignature, vs, ps: ^dxc.IBlob) -> ^dx.IPipelineState {
-
-	c := &g_dx_context
-
-	default_blend_state := dx.RENDER_TARGET_BLEND_DESC {
-		BlendEnable = false,
-		LogicOpEnable = false,
-		SrcBlend = .ONE,
-		DestBlend = .ZERO,
-		BlendOp = .ADD,
-		SrcBlendAlpha = .ONE,
-		DestBlendAlpha = .ZERO,
-		BlendOpAlpha = .ADD,
-		LogicOp = .NOOP,
-		RenderTargetWriteMask = u8(dx.COLOR_WRITE_ENABLE_ALL),
-	}
-
-	pipeline_state_desc := dx.GRAPHICS_PIPELINE_STATE_DESC {
-		pRootSignature = root_signature,
-		VS = {pShaderBytecode = vs->GetBufferPointer(), BytecodeLength = vs->GetBufferSize()},
-		PS = {pShaderBytecode = ps->GetBufferPointer(), BytecodeLength = ps->GetBufferSize()},
-		StreamOutput = {},
-		BlendState = {
-			AlphaToCoverageEnable = false,
-			IndependentBlendEnable = false,
-			RenderTarget = {0 = default_blend_state, 1 ..< 7 = {}},
-		},
-		SampleMask = 0xFFFFFFFF,
-		RasterizerState = {
-			FillMode = .SOLID,
-			CullMode = .BACK,
-			FrontCounterClockwise = false,
-			DepthBias = 0,
-			DepthBiasClamp = 0,
-			SlopeScaledDepthBias = 0,
-			DepthClipEnable = true,
-			MultisampleEnable = false,
-			AntialiasedLineEnable = false,
-			ForcedSampleCount = 0,
-			ConservativeRaster = .OFF,
-		},
-		// enabling depth testing
-		DepthStencilState = {DepthEnable = false, StencilEnable = false},
-		// no input layout. we don't need a vertex buffer.
-		InputLayout = {pInputElementDescs = nil, NumElements = 0},
-		PrimitiveTopologyType = .TRIANGLE,
-		NumRenderTargets = 1,
-		RTVFormats = {0 = .R8G8B8A8_UNORM, 1 ..< 7 = .UNKNOWN},
-		SampleDesc = {Count = 1, Quality = 0},
-	}
-
-	pso: ^dx.IPipelineState
-
-	hr := c.device->CreateGraphicsPipelineState(&pipeline_state_desc, dx.IPipelineState_UUID, (^rawptr)(&pso))
-	check(hr, "Pipeline creation failed")
-	pso->SetName("PSO for lighting pass")
-
-	return pso
-}
-
-pso_lighting_create :: proc() {
-
-	c := &g_dx_context
-
-	vs, ps, ok := compile_shader(c.dxc_compiler, lighting_shader_filename)
-
-	if !ok {
-		lprintfln("could not compile shader!! check logs")
-		os.exit(1)
-	}
-
-	// create root signature
-	rs := create_lighting_root_signature()
-
-	pso := pso_lighting_create_pipeline_state(rs, vs, ps)
-
-	pso_index := len(g_resources_longterm)
-	append(&g_resources_longterm, pso)
-
-	vs->Release()
-	ps->Release()
-
-	c.psos[.Lighting_Pass] = PSO {
-		pipeline_state = pso,
-		root_signature = rs,
-		pso_creation_proc = pso_lighting_create_pipeline_state,
-		shader_filename = lighting_shader_filename,
-		pso_index = pso_index
-	}
-
-	pso_hotswap_init(&c.psos[.Lighting_Pass])
-}
-
-create_lighting_root_signature :: proc() -> ^dx.IRootSignature{
-
-	c := &g_dx_context
-
-	root_parameters_len :: 1
-
-	root_parameters: [root_parameters_len]dx.ROOT_PARAMETER
-
-	// our test constant buffer
-	root_parameters[0] = {
-		ParameterType = .CBV,
-		Descriptor = {ShaderRegister = 0, RegisterSpace = 0},
-		ShaderVisibility = .ALL, // vertex, pixel, or both (all)
-	}
-
-	// our static sampler
-
-	// We'll define a static sampler description
-	sampler_desc := dx.STATIC_SAMPLER_DESC {
-		Filter = .MIN_MAG_MIP_LINEAR, // Tri-linear filtering
-		AddressU = .CLAMP, // Repeat the texture in the U direction
-		AddressV = .CLAMP, // Repeat the texture in the V direction
-		AddressW = .WRAP, // Repeat the texture in the W direction
-		MipLODBias = 0.0,
-		MaxAnisotropy = 0,
-		ComparisonFunc = .NEVER,
-		BorderColor = .OPAQUE_BLACK,
-		MinLOD = 0.0,
-		MaxLOD = dx.FLOAT32_MAX,
-		ShaderRegister = 0, // This corresponds to the s0 register in the shader
-		RegisterSpace = 0,
-		ShaderVisibility = .PIXEL,
-	}
-
-	desc := dx.VERSIONED_ROOT_SIGNATURE_DESC {
-		Version = ._1_0,
-		Desc_1_0 = {
-			NumParameters = root_parameters_len,
-			pParameters = &root_parameters[0],
-			NumStaticSamplers = 1,
-			pStaticSamplers = &sampler_desc,
-		},
-	}
-
-	// desc.Desc_1_0.Flags = {.ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT}
-
-	// BINDLESS MODE: ACTIVATED!!!!!
-	desc.Desc_1_0.Flags = {.CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED}
-
-	serialized_desc: ^dx.IBlob
-	hr := dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
-	check(hr, "Failed to serialize root signature")
-	rs : ^dx.IRootSignature
-	hr = c.device->CreateRootSignature(
-		0,
-		serialized_desc->GetBufferPointer(),
-		serialized_desc->GetBufferSize(),
-		dx.IRootSignature_UUID,
-		(^rawptr)(&rs),
-	)
-	check(hr, "Failed creating root signature")
-	append(&g_resources_longterm, rs)
-	serialized_desc->Release()
-
-	return rs
 }
 
 pso_gbuffer_render :: proc() {
@@ -1792,97 +1636,4 @@ pso_gbuffer_create :: proc() {
 	}
 
 	pso_hotswap_init(&c.psos[.GBuffer_Pass])
-}
-
-// TODO: PSO Creation code could be reused
-pso_text_create :: proc() {
-	ct := &g_dx_context
-
-	// creating root signature
-	// TODO: think about reusing ROOT SIGNATURES.
-	//  or reusing RS creation code at least.
-	//  I think my root signatures are all the same or very similar.
-	root_signature : ^dx.IRootSignature
-	{
-		root_parameters_len :: 1
-
-		root_parameters: [root_parameters_len]dx.ROOT_PARAMETER
-
-		// Root constant: the index to the right model matrix of the draw call.
-		// first number: model matrix of the draw call
-		// second number: material index
-		root_parameters[0] = {
-			ParameterType = ._32BIT_CONSTANTS,
-			Constants = {ShaderRegister = 1, RegisterSpace = 0, Num32BitValues = 2},
-			ShaderVisibility = .ALL
-		}
-
-		// our static sampler
-
-		// We'll define a static sampler description
-		sampler_desc := dx.STATIC_SAMPLER_DESC {
-			Filter = .ANISOTROPIC,
-			AddressU = .WRAP,
-			AddressV = .WRAP,
-			AddressW = .WRAP,
-			MipLODBias = 0.0,
-			MaxAnisotropy = 16,
-			ComparisonFunc = .NEVER,
-			BorderColor = .OPAQUE_BLACK,
-			MinLOD = 0.0,
-			MaxLOD = dx.FLOAT32_MAX,
-			ShaderRegister = 0,
-			RegisterSpace = 0,
-			ShaderVisibility = .PIXEL,
-		}
-
-		desc := dx.VERSIONED_ROOT_SIGNATURE_DESC {
-			Version = ._1_0,
-			Desc_1_0 = {
-				NumParameters = root_parameters_len,
-				pParameters = &root_parameters[0],
-				NumStaticSamplers = 1,
-				pStaticSamplers = &sampler_desc,
-			},
-		}
-
-		desc.Desc_1_0.Flags = {.ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT, .CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED}
-		serialized_desc: ^dx.IBlob
-		dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
-		ct.device->CreateRootSignature(
-			0,
-			serialized_desc->GetBufferPointer(),
-			serialized_desc->GetBufferSize(),
-			dx.IRootSignature_UUID,
-			(^rawptr)(&root_signature),
-		)
-
-		append(&g_resources_longterm, root_signature)
-		serialized_desc->Release()
-	}
-
-	// compiling shader
-	vs, ps, ok := compile_shader(ct.dxc_compiler, text_shader_filename)
-	if !ok {
-		lprintfln("could not compile shader!! check logs")
-		os.exit(1)
-	}
-
-	pso := pso_text_create_pipeline_state(root_signature, vs, ps)
-
-	pso_index := len(g_resources_longterm)
-	append(&g_resources_longterm, pso)
-
-	vs->Release()
-	ps->Release()
-
-	ct.psos[.Text] = PSO {
-		pipeline_state = pso,
-		root_signature = root_signature,
-		pso_creation_proc = pso_text_create_pipeline_state,
-		shader_filename = text_shader_filename,
-		pso_index = pso_index
-	}
-
-	pso_hotswap_init(&ct.psos[.Text])
 }
