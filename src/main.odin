@@ -457,67 +457,14 @@ init_dx_user :: proc() {
 	simply have one compute root signature. These root signatures are independent of each other.
 	*/
 
-	reflection()
+	// reflection(ConstantBufferData)
 
 	pso_gbuffer_create()
 	pso_lighting_create()
 
 	ct.psos[.Gizmos] = create_pso(ui_shader_filename, PSOParameters {
-		vertex_input = []dx.INPUT_ELEMENT_DESC {
-			{
-				SemanticName = "POSITION",
-				Format = .R32G32B32_FLOAT,
-				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-				InputSlotClass = .PER_VERTEX_DATA,
-			},
-			// per-instance data
-			{
-				SemanticName = "WORLDMATRIX",
-				SemanticIndex = 0,
-				Format = .R32G32B32A32_FLOAT,
-				InputSlot = 1,
-				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-				InputSlotClass = .PER_INSTANCE_DATA,
-				InstanceDataStepRate = 1,
-			},
-			{
-				SemanticName = "WORLDMATRIX",
-				SemanticIndex = 1,
-				Format = .R32G32B32A32_FLOAT,
-				InputSlot = 1,
-				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-				InputSlotClass = .PER_INSTANCE_DATA,
-				InstanceDataStepRate = 1,
-			},
-			{
-				SemanticName = "WORLDMATRIX",
-				SemanticIndex = 2,
-				Format = .R32G32B32A32_FLOAT,
-				InputSlot = 1,
-				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-				InputSlotClass = .PER_INSTANCE_DATA,
-				InstanceDataStepRate = 1,
-			},
-			{
-				SemanticName = "WORLDMATRIX",
-				SemanticIndex = 3,
-				Format = .R32G32B32A32_FLOAT,
-				InputSlot = 1,
-				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-				InputSlotClass = .PER_INSTANCE_DATA,
-				InstanceDataStepRate = 1,
-			},
-			{
-				SemanticName = "COLOR",
-				SemanticIndex = 0,
-				Format = .R32G32B32A32_FLOAT,
-				InputSlot = 1,
-				AlignedByteOffset = dx.APPEND_ALIGNED_ELEMENT,
-				InputSlotClass = .PER_INSTANCE_DATA,
-				InstanceDataStepRate = 1,
-			},
-		},
-
+		vertex_input = Gizmos_Vertex_IA,
+		instance_vertex_input = InstanceData,
 		blend_state = .Off,
 		enable_depth = true
 	}, pso_name = "Gizmos PSO")
