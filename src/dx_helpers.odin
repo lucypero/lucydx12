@@ -133,6 +133,16 @@ add_to_input_element_desc :: proc(buffer_type: typeid, is_instance: bool, result
 			// assume float
 
 			switch v.count {
+
+			case 2:
+				switch v.elem_size {
+				case 4:
+					elem_format = .R32G32_FLOAT
+				case 2:
+					elem_format = .R16G16_FLOAT
+				case:
+					panic("format not supported")
+				}
 			case 3:
 				switch v.elem_size {
 				case 4:

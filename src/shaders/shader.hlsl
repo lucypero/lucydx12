@@ -7,8 +7,8 @@ struct VSInput {
 	float3 position : POSITION;
 	float3 normal : NORMAL;
 	float4 tangent : TANGENT;
-	float2 uvs : TEXCOORD0;
-	float2 uvs_2 : TEXCOORD1;
+	float2 uvs : TEXCOORD;
+	float2 uvs_2 : TEXCOORD_SECOND_UV;
 };
 
 struct TextureUV {

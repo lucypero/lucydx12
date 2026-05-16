@@ -459,12 +459,18 @@ init_dx_user :: proc() {
 
 	// reflection(ConstantBufferData)
 
-	pso_gbuffer_create()
-	// pso_lighting_create()
+	// pso_gbuffer_create()
+
+	ct.psos[.Gizmos] = create_pso(gbuffer_shader_filename, PSOParameters {
+		vertex_input = VertexData,
+		instance_vertex_input = struct{},
+		blend_state = .Off,
+		enable_depth = false,
+	}, pso_name = "lighting pass PSO")
 
 	ct.psos[.Lighting_Pass] = create_pso(lighting_shader_filename, PSOParameters {
-		instance_vertex_input = struct{},
 		vertex_input = struct{},
+		instance_vertex_input = struct{},
 		blend_state = .Off,
 		enable_depth = false,
 	}, pso_name = "lighting pass PSO")
