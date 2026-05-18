@@ -1,11 +1,9 @@
 package main
 
 import "core:thread"
-import "core:sync/chan"
 import "core:mem/virtual"
 import "core:debug/trace"
 import "core:reflect"
-import img "vendor:stb/image"
 import "core:fmt"
 import "core:mem"
 import "core:slice"
@@ -25,8 +23,6 @@ import "core:sync"
 import dxc "vendor:directx/dxc"
 import "core:prof/spall"
 import dxma "../libs/odin-d3d12ma"
-import sa "core:container/small_array"
-
 
 // imgui
 import im "../libs/odin-imgui"
