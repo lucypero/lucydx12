@@ -1,3 +1,8 @@
+# shadow tooling todo
+
+- keep working on your create_texture proc and Texture struct
+- make a giant DSV heap where all dsv's go. just like your srv heap
+
 # pso helpers TODO
 
 - [x] use odin RTTI to generate vertex input layouts

@@ -81,9 +81,12 @@ VertexData :: struct {
 	uv_2: v2 `TEXCOORD_SECOND_UV`,
 }
 
+
+// indexes are -1 if the view was not created
 Texture :: struct {
 	buffer: ^dx.IResource,
-	srv_index: uint,
+	srv_index: int,
+	dsv_index: int,
 }
 
 // Data associated with a vertex buffer
@@ -129,10 +132,13 @@ Context :: struct {
 	// sdl stuff
 	window: ^sdl.Window,
 
-
 	// imgui stuff
 	imgui_descriptor_heap: ^dx.IDescriptorHeap,
 	imgui_allocator: DescriptorHeapAllocator,
+
+	// descriptor heap for ALL our resources
+	cbv_srv_uav_heap: UberDescriptorHeap,
+	dsv_heap: UberDescriptorHeap,
 
 	// core stuff
 	device: ^dx.IDevice,
@@ -167,9 +173,6 @@ Context :: struct {
 	fence_value: u64,
 	fence_event: windows.HANDLE,
 
-	// descriptor heap for ALL our resources
-	cbv_srv_uav_heap: ^dx.IDescriptorHeap,
-	descriptor_count : uint, // count for how many descriptors are in the srv heap
 
 	// depth buffer
 	depth_stencil_res: ^dx.IResource,
@@ -637,18 +640,10 @@ init_dx :: proc() {
 
 	dx_upload_init()
 
-	// Creating SRV heap used for all resources
+	// Creating all uber descriptor heaps. So far, SRV and DSV uber heaps.
 	{
-		desc := dx.DESCRIPTOR_HEAP_DESC {
-			NumDescriptors = 1000000,
-			Type = .CBV_SRV_UAV,
-			Flags = {.SHADER_VISIBLE},
-		}
-
-		hr = ct.device->CreateDescriptorHeap(&desc, dx.IDescriptorHeap_UUID, (^rawptr)(&ct.cbv_srv_uav_heap))
-		check(hr, "Failed creating descriptor heap")
-		ct.cbv_srv_uav_heap->SetName("lucy's uber CBV_SRV_UAV descriptor heap")
-		append(&g_resources_longterm, ct.cbv_srv_uav_heap)
+		ct.cbv_srv_uav_heap = uber_heap_create(.CBV_SRV_UAV, &g_resources_longterm)
+		ct.dsv_heap = uber_heap_create(.DSV, &g_resources_longterm)
 	}
 
 	// Create the swapchain, it's the thing that contains render targets that we draw into.
@@ -771,7 +766,14 @@ init_dx_user :: proc() {
 	// constant buffer
 	ct.constant_buffer = create_constant_buffer_upload(size_of(ConstantBufferData), &g_resources_longterm, name = "general constants cbv")
 
-	// pso_gbuffer_create()
+	// shadowmap setup
+	{
+
+		// creating shadowmap texture (DSV and then SRV)
+		createte
+
+	}
+
 
 	gbuffer_rtv_formats := [8]dxgi.FORMAT {
 		0 ..= 7 = .UNKNOWN,
@@ -1187,20 +1189,6 @@ create_depth_buffer :: proc() {
 	ct.depth_stencil_res->SetName("depth stencil texture")
 
 	// depth stencil view descriptor heap
-
-	// creating descriptor heap
-	heap_desc := dx.DESCRIPTOR_HEAP_DESC {
-		NumDescriptors = 1,
-		Type = .DSV,
-		Flags = {},
-	}
-
-	hr = ct.device->CreateDescriptorHeap(&heap_desc, dx.IDescriptorHeap_UUID, (^rawptr)(&ct.descriptor_heap_dsv))
-
-	ct.descriptor_heap_dsv->SetName("lucy's DSV (depth-stencil-view) descriptor heap")
-
-	check(hr, "could not create descriptor heap for DSV")
-	append(&g_resources_longterm, ct.descriptor_heap_dsv)
 
 	// creating depth stencil view
 

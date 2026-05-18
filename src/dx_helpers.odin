@@ -29,6 +29,46 @@ transition_resource_from_copy_to_read :: proc(res: ^dx.IResource, cmd_list: ^dx.
 }
 */
 
+uber_heap_create :: proc(type: dx.DESCRIPTOR_HEAP_TYPE, pool: ^DXResourcePool) -> UberDescriptorHeap {
+
+	ct := &g_dx_context
+
+	num_descriptors :: 1000000
+	heap : ^dx.IDescriptorHeap
+	desc : dx.DESCRIPTOR_HEAP_DESC
+
+	#partial switch type {
+	case .CBV_SRV_UAV:
+		desc = dx.DESCRIPTOR_HEAP_DESC {
+			NumDescriptors = 1000000,
+			Type = .CBV_SRV_UAV,
+			Flags = {.SHADER_VISIBLE},
+		}
+	case .DSV:
+		desc = dx.DESCRIPTOR_HEAP_DESC {
+			NumDescriptors = 1000000,
+			Type = .DSV,
+			Flags = {},
+		}
+	case: 
+		panic("heap type not supported")
+	}
+
+	hr := ct.device->CreateDescriptorHeap(&desc, dx.IDescriptorHeap_UUID, (^rawptr)(&ct.cbv_srv_uav_heap))
+	check(hr, "Failed creating descriptor heap")
+	append(pool, heap)
+
+	return UberDescriptorHeap {
+		heap = heap,
+		next_descriptor_index = 0
+	}
+}
+
+UberDescriptorHeap :: struct {
+	heap: ^dx.IDescriptorHeap,
+	next_descriptor_index: int,
+}
+
 BlendState :: enum {
 	Normal,
 	Off
@@ -420,20 +460,28 @@ create_texture_with_data :: proc(
 	return res
 }
 
+TextureViewFlag :: enum {
+	DSV,
+	RTV,
+	SRV
+}
+
+TextureViewFlags :: bit_set[TextureViewFlag]
+
 // creates texture on default heap
 // schedules an upload of data
-create_texture_with_data_new :: proc(
-	image_data: [][]byte, // slice of mipmap data
+create_texture_new :: proc(
+	image_data: Maybe([][]byte), // slice of mipmap data. nil for texture initialized with no data
 	width: u64,
 	height: u32,
 	format: dxgi.FORMAT,
 	pool_textures : ^DXResourcePool,
-	texture_name := ""
+	view_flags: TextureViewFlags = {},
+	mip_levels: u16 = 1,
+	texture_name : string = ""
 ) -> Texture {
 
 	ct := &g_dx_context
-
-	mip_levels := cast(u16)len(image_data)
 
 	texture_desc := dx.RESOURCE_DESC {
 		Width = (u64)(width),
@@ -465,11 +513,14 @@ create_texture_with_data_new :: proc(
 		res->SetName(texture_name_cstring)
 	}
 
-	dx_upload_texture_trigger(&g_upload_service, res, image_data, &texture_desc)
+	if image_data_inner, ok := image_data.?; ok {
+		dx_upload_texture_trigger(&g_upload_service, res, image_data_inner, &texture_desc)
+	}
 
 	return Texture {
 		buffer = res,
-		srv_index = create_srv_on_uber_heap(res, debug_index = true, debug_name = texture_name)
+		srv_index = .SRV in view_flags ? cast(int)create_srv_on_uber_heap(res, debug_index = true, debug_name = texture_name) : -1,
+		dsv_index = .DSV in view_flags ? cast(int)create_dsv(res) : -1,
 	}
 }
 
@@ -1306,7 +1357,6 @@ pso_hotswap_watch :: proc(pso: ^PSO) {
 	}
 
 	if reload {
-		lprintln("Recompiling shader...")
 		// handle releasing resources
 		vs, ps, ok := compile_shader(g_dx_context.dxc_compiler, pso.shader_filename)
 		if !ok {
@@ -1316,6 +1366,7 @@ pso_hotswap_watch :: proc(pso: ^PSO) {
 			pso.pso_swap = create_pso_dx(pso.shader_filename, pso.parameters, pso.root_signature, vs, ps, pso.pso_name)
 			vs->Release()
 			ps->Release()
+			lprintfln("Shader reloaded successfully: %v", pso.shader_filename)
 		}
 	}
 }
