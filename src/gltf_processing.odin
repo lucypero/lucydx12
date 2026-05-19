@@ -97,7 +97,7 @@ scene_from_gltf :: proc(scene: ^Scene) {
 			},
 		}
 
-		scene.model_matrices_srv_index = create_srv_on_uber_heap(scene.sb_model_matrices, &srv_desc)
+		scene.model_matrices_srv_index = create_srv(scene.sb_model_matrices, &srv_desc)
 	}
 
 	// gizmos stuff
@@ -382,7 +382,7 @@ gltf_load_nodes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 }
 
 @(require_results)
-load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: string, res_pool : ^DXResourcePool) -> (srv_index: uint) {
+load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: string, res_pool : ^DXResourcePool) -> (srv_index: int) {
 
 	TEMP_GUARD()
 
@@ -404,7 +404,7 @@ load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: s
 	texture_res := create_texture_with_data(dds_file.mipmap_data, u64(dds_file.width), dds_file.height, dds_file.format, 
 		res_pool, string(image.name))
 
-	return create_srv_on_uber_heap(texture_res)
+	return create_srv(texture_res)
 }
 
 gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string, scene: ^Scene) {
@@ -490,5 +490,5 @@ gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string
 		},
 	}
 
-	scene.material_srv_index = create_srv_on_uber_heap(scene.sb_materials, &srv_desc, true, "materials srv")
+	scene.material_srv_index = create_srv(scene.sb_materials, &srv_desc, true, "materials srv")
 }
