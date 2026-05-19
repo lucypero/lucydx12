@@ -82,13 +82,6 @@ VertexData :: struct {
 }
 
 
-// indexes are -1 if the view was not created
-Texture :: struct {
-	buffer: ^dx.IResource,
-	srv_index: int,
-	dsv_index: int,
-}
-
 // Data associated with a vertex buffer
 // this could be an instance buffer too. it's the same to dx12.
 VertexBuffer :: struct {
@@ -104,7 +97,7 @@ ConstantBufferUpload :: struct {
 	buffer: ^dx.IResource,
 	gpu_pointer: rawptr, // only valid if it's on upload heap
 	buffer_size: u32,
-	srv_index: uint // index as constant buffer view in the uber heap
+	srv_index: int // index as constant buffer view in the uber heap
 }
 
 GBufferUnit :: struct {
@@ -164,7 +157,7 @@ Context :: struct {
 	dxma_allocator: ^dxma.Allocator,
 	// descriptor heap for the render target view
 	swapchain_rtv_descriptor_heap: ^dx.IDescriptorHeap,
-	frame_index: u32,
+	frame_index: int,
 	targets: [NUM_RENDERTARGETS]^dx.IResource, // render targets
 	gbuffer: GBuffer,
 
@@ -173,10 +166,7 @@ Context :: struct {
 	fence_value: u64,
 	fence_event: windows.HANDLE,
 
-
-	// depth buffer
-	depth_stencil_res: ^dx.IResource,
-	descriptor_heap_dsv: ^dx.IDescriptorHeap,
+	depth_texture: Texture,
 }
 
 ModelMatrixData :: struct {
@@ -232,8 +222,8 @@ Scene :: struct {
 	meshes: []Mesh,
 	allocator: virtual.Arena,
 
-	material_srv_index: uint,
-	model_matrices_srv_index: uint,
+	material_srv_index: int,
+	model_matrices_srv_index: int,
 
 	// dx resources
 	sb_model_matrices: ^dx.IResource,
@@ -650,7 +640,7 @@ init_dx :: proc() {
 	//  It has 2 render targets (NUM_RENDERTARGETS), giving us double buffering.
 	ct.swapchain = create_swapchain(ct.factory, ct.queue, ct.window)
 
-	ct.frame_index = ct.swapchain->GetCurrentBackBufferIndex()
+	ct.frame_index = cast(int)ct.swapchain->GetCurrentBackBufferIndex()
 
 	// Create swapchain rtv heap
 	{
@@ -770,7 +760,7 @@ init_dx_user :: proc() {
 	{
 
 		// creating shadowmap texture (DSV and then SRV)
-		createte
+		// createte
 
 	}
 
@@ -1118,7 +1108,7 @@ render :: proc() {
 			windows.WaitForSingleObject(g_dx_context.fence_event, windows.INFINITE)
 		}
 
-		ct.frame_index = ct.swapchain->GetCurrentBackBufferIndex()
+		ct.frame_index = cast(int)ct.swapchain->GetCurrentBackBufferIndex()
 		check(ct.command_allocator->Reset())
 
 		// swap PSO here if needed (hot reload of shaders)
@@ -1153,56 +1143,10 @@ create_depth_buffer :: proc() {
 
 	ct := &g_dx_context
 
-	depth_stencil_desc := dx.RESOURCE_DESC {
-		Dimension = .TEXTURE2D,
-		Width = u64(WINDOW_WIDTH),
-		Height = u32(WINDOW_HEIGHT),
-		DepthOrArraySize = 1,
-		MipLevels = 1,
-		Format = .D32_FLOAT,
-		SampleDesc = {Count = 1},
-		Layout = .UNKNOWN,
-		Flags = {.ALLOW_DEPTH_STENCIL},
-	}
-
-	// define a clear value for the depth buffer
 	opt_clear := dx.CLEAR_VALUE {
 		Format = .D32_FLOAT,
 		DepthStencil = {Depth = 1.0, Stencil = 0},
 	}
-
-	// default heap
-	allocation : ^dxma.Allocation
-	hr := dxma.Allocator_CreateResource(
-		pSelf = ct.dxma_allocator,
-		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
-		pResourceDesc = &depth_stencil_desc,
-		InitialResourceState = {.DEPTH_WRITE},
-		pOptimizedClearValue = &opt_clear,
-		ppAllocation = &allocation,
-		riidResource = nil,
-		ppvResource = nil
-	)
-	check(hr, "failed creating depth resource")
-	ct.depth_stencil_res = dxma.Allocation_GetResource(allocation)
-	append(&g_resources_longterm, cast(^dxgi.IUnknown)allocation)
-	ct.depth_stencil_res->SetName("depth stencil texture")
-
-	// depth stencil view descriptor heap
-
-	// creating depth stencil view
-
-	descriptor_handle: dx.CPU_DESCRIPTOR_HANDLE
-	ct.descriptor_heap_dsv->GetCPUDescriptorHandleForHeapStart(&descriptor_handle)
-
-	dsv_desc := dx.DEPTH_STENCIL_VIEW_DESC {
-		ViewDimension = .TEXTURE2D,
-		Format = .D32_FLOAT,
-	}
-
-	ct.device->CreateDepthStencilView(ct.depth_stencil_res, &dsv_desc, descriptor_handle)
-
-	// Creating SRV for sampling depth in the lighting pass
 
 	srv_desc := dx.SHADER_RESOURCE_VIEW_DESC {
 		Format = .R32_FLOAT,
@@ -1214,8 +1158,11 @@ create_depth_buffer :: proc() {
 		}
 	}
 
-	create_srv_on_uber_heap(ct.depth_stencil_res, &srv_desc, true, "Depth SRV")
-	transition_resource(ct.depth_stencil_res, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
+	ct.depth_texture = texture_create(nil,
+		u64(WINDOW_WIDTH), u32(WINDOW_HEIGHT), .D32_FLOAT, &g_resources_longterm,
+		{.DSV, .SRV}, opt_clear_value = &opt_clear, srv_desc = &srv_desc)
+
+	// transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
 }
 
 imgui_init :: proc() {
@@ -1413,7 +1360,7 @@ create_gbuffer_unit :: proc(format: dxgi.FORMAT,
 	rtv_descriptor_handle_1: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_heap_heap_start
 	rtv_descriptor_handle_1.ptr += uint(rtv_descriptor_size) * gbuffer_index
 	ct.device->CreateRenderTargetView(gb_res, nil, rtv_descriptor_handle_1)
-	create_srv_on_uber_heap(gb_res, nil, true, debug_name)
+	create_srv(gb_res, nil, true, debug_name)
 
 	return GBufferUnit {
 		res = gb_res,
@@ -1464,10 +1411,10 @@ pso_gbuffer_render :: proc() {
 	ct := &g_dx_context
 
 	ct.cmdlist->SetPipelineState(ct.psos[.GBuffer_Pass].pipeline_state)
-	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap)
+	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap.heap)
 	ct.cmdlist->SetGraphicsRootSignature(ct.psos[.GBuffer_Pass].root_signature)
 
-	transition_resource(ct.depth_stencil_res, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
+	transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
 
 	set_viewport_stuff()
 
@@ -1481,7 +1428,7 @@ pso_gbuffer_render :: proc() {
 			g_dx_context.gbuffer.gbuffers[.Normal].rtv,
 			g_dx_context.gbuffer.gbuffers[.AO_Rough_Metal].rtv,
 		}
-		dsv_handle := get_descriptor_heap_cpu_address(g_dx_context.descriptor_heap_dsv, 0)
+		dsv_handle := texture_get_dsv_cpu_address(ct.depth_texture)
 
 		// setting depth buffer
 		ct.cmdlist->OMSetRenderTargets(GBUFFER_COUNT, &rtv_handles[0], false, &dsv_handle)
@@ -1607,11 +1554,11 @@ pso_lighting_render :: proc() {
 		ct.cmdlist->ResourceBarrier(1, &to_render_target_barrier)
 	}
 
-	transition_resource(ct.depth_stencil_res, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
+	transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
 
 	// descriptor heap is directly accessed in the shader.
 	//  so we don't need to set a descriptor table or set texture slots.
-	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap)
+	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap.heap)
 	ct.cmdlist->SetGraphicsRootSignature(ct.psos[.Lighting_Pass].root_signature)
 
 	set_viewport_stuff()
@@ -1619,7 +1566,7 @@ pso_lighting_render :: proc() {
 	// Setting render targets. Clearing RTV.
 	{
 		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
-			get_descriptor_heap_cpu_address(ct.swapchain_rtv_descriptor_heap, cast(uint)ct.frame_index),
+			get_descriptor_heap_cpu_address(ct.swapchain_rtv_descriptor_heap, ct.frame_index),
 		}
 
 		ct.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
@@ -1659,23 +1606,23 @@ pso_gizmos_render :: proc () {
 	ct.cmdlist->SetPipelineState(ct.psos[.Gizmos].pipeline_state)
 
 	// setting descriptor heap for our cbv srv uav's
-	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap)
+	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap.heap)
 
 	// This state is reset everytime the cmd list is reset, so we need to rebind it
 	ct.cmdlist->SetGraphicsRootSignature(ct.psos[.Gizmos].root_signature)
 
 	// setting rtv and dsv
 
-	transition_resource(ct.depth_stencil_res, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
+	transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
 	defer {
-		transition_resource(ct.depth_stencil_res, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
+		transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
 	}
 
 	rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
-		get_descriptor_heap_cpu_address(ct.swapchain_rtv_descriptor_heap, cast(uint)ct.frame_index),
+		get_descriptor_heap_cpu_address(ct.swapchain_rtv_descriptor_heap, ct.frame_index),
 	}
 
-	dsv_handle := get_descriptor_heap_cpu_address(g_dx_context.descriptor_heap_dsv, 0)
+	dsv_handle := texture_get_dsv_cpu_address(ct.depth_texture)
 
 	ct.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, &dsv_handle)
 

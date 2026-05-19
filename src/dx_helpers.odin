@@ -29,6 +29,11 @@ transition_resource_from_copy_to_read :: proc(res: ^dx.IResource, cmd_list: ^dx.
 }
 */
 
+UberDescriptorHeap :: struct {
+	heap: ^dx.IDescriptorHeap,
+	next_descriptor_index: int,
+}
+
 uber_heap_create :: proc(type: dx.DESCRIPTOR_HEAP_TYPE, pool: ^DXResourcePool) -> UberDescriptorHeap {
 
 	ct := &g_dx_context
@@ -54,7 +59,7 @@ uber_heap_create :: proc(type: dx.DESCRIPTOR_HEAP_TYPE, pool: ^DXResourcePool) -
 		panic("heap type not supported")
 	}
 
-	hr := ct.device->CreateDescriptorHeap(&desc, dx.IDescriptorHeap_UUID, (^rawptr)(&ct.cbv_srv_uav_heap))
+	hr := ct.device->CreateDescriptorHeap(&desc, dx.IDescriptorHeap_UUID, (^rawptr)(&heap))
 	check(hr, "Failed creating descriptor heap")
 	append(pool, heap)
 
@@ -64,9 +69,19 @@ uber_heap_create :: proc(type: dx.DESCRIPTOR_HEAP_TYPE, pool: ^DXResourcePool) -
 	}
 }
 
-UberDescriptorHeap :: struct {
-	heap: ^dx.IDescriptorHeap,
-	next_descriptor_index: int,
+uber_heap_count :: proc(heap: ^UberDescriptorHeap, debug_index: bool, debug_name: string = "") {
+	if debug_index do lprintfln("creating view on uber heap: name: %v, index: %v", debug_name, heap.next_descriptor_index)
+	heap.next_descriptor_index += 1
+}
+
+// gets next cpu address to create the next view
+uber_heap_get_next_cpu_addr :: proc(uber_heap: UberDescriptorHeap) -> dx.CPU_DESCRIPTOR_HANDLE {
+	return get_descriptor_heap_cpu_address(uber_heap.heap, uber_heap.next_descriptor_index)
+}
+
+// returns cpu descriptor handle of resource at offset `index`
+uber_heap_get_cpu_addr :: proc(uber_heap: UberDescriptorHeap, index: int) -> dx.CPU_DESCRIPTOR_HANDLE {
+	return get_descriptor_heap_cpu_address(uber_heap.heap, index)
 }
 
 BlendState :: enum {
@@ -460,6 +475,21 @@ create_texture_with_data :: proc(
 	return res
 }
 
+// indexes are -1 if the view was not created
+Texture :: struct {
+	buffer: ^dx.IResource,
+	srv_index: int,
+	dsv_index: int,
+}
+
+texture_get_srv_cpu_address :: proc(tex: Texture) -> dx.CPU_DESCRIPTOR_HANDLE {
+	return uber_heap_get_cpu_addr(g_dx_context.cbv_srv_uav_heap, tex.srv_index)
+}
+
+texture_get_dsv_cpu_address :: proc(tex: Texture) -> dx.CPU_DESCRIPTOR_HANDLE {
+	return uber_heap_get_cpu_addr(g_dx_context.dsv_heap, tex.dsv_index)
+}
+
 TextureViewFlag :: enum {
 	DSV,
 	RTV,
@@ -470,7 +500,7 @@ TextureViewFlags :: bit_set[TextureViewFlag]
 
 // creates texture on default heap
 // schedules an upload of data
-create_texture_new :: proc(
+texture_create :: proc(
 	image_data: Maybe([][]byte), // slice of mipmap data. nil for texture initialized with no data
 	width: u64,
 	height: u32,
@@ -478,7 +508,9 @@ create_texture_new :: proc(
 	pool_textures : ^DXResourcePool,
 	view_flags: TextureViewFlags = {},
 	mip_levels: u16 = 1,
-	texture_name : string = ""
+	texture_name : string = "",
+	opt_clear_value: ^dx.CLEAR_VALUE = nil,
+	srv_desc: ^dx.SHADER_RESOURCE_VIEW_DESC = nil
 ) -> Texture {
 
 	ct := &g_dx_context
@@ -492,6 +524,7 @@ create_texture_new :: proc(
 		DepthOrArraySize = 1,
 		MipLevels = mip_levels,
 		SampleDesc = {Count = 1},
+		Flags = {.ALLOW_DEPTH_STENCIL}
 	}
 
 	allocation : ^dxma.Allocation
@@ -500,7 +533,7 @@ create_texture_new :: proc(
 		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
 		pResourceDesc = &texture_desc,
 		InitialResourceState = dx.RESOURCE_STATE_COMMON, // upload queue promotes the resource implicitly, so we set it here as common
-		pOptimizedClearValue = nil,
+		pOptimizedClearValue = opt_clear_value,
 		ppAllocation = &allocation,
 		riidResource = nil,
 		ppvResource = nil
@@ -519,8 +552,8 @@ create_texture_new :: proc(
 
 	return Texture {
 		buffer = res,
-		srv_index = .SRV in view_flags ? cast(int)create_srv_on_uber_heap(res, debug_index = true, debug_name = texture_name) : -1,
-		dsv_index = .DSV in view_flags ? cast(int)create_dsv(res) : -1,
+		srv_index = .SRV in view_flags ? create_srv(res, srv_desc, debug_index = true, debug_name = texture_name) : -1,
+		dsv_index = .DSV in view_flags ? create_dsv(res) : -1,
 	}
 }
 
@@ -541,28 +574,37 @@ copy_to_buffer_already_mapped_value :: proc(gpu_data: rawptr, data: ^$T){
 }
 
 // creates a SRV for the resource on the uber SRV heap
-create_srv_on_uber_heap :: proc(res : ^dx.IResource, srv_desc : ^dx.SHADER_RESOURCE_VIEW_DESC = nil,
+// use this after creeating the uber heap
+create_srv :: proc(res : ^dx.IResource, srv_desc : ^dx.SHADER_RESOURCE_VIEW_DESC = nil,
 	debug_index: bool = false, debug_name: string = "",
-) -> (srv_index: uint){
+) -> (srv_index: int){
 	ct := &g_dx_context
-	ct.device->CreateShaderResourceView(res, srv_desc, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, ct.descriptor_count))
-	uber_heap_count(debug_index, debug_name)
-	return ct.descriptor_count - 1
+	ct.device->CreateShaderResourceView(res, srv_desc, uber_heap_get_next_cpu_addr(ct.cbv_srv_uav_heap))
+	uber_heap_count(&ct.cbv_srv_uav_heap, debug_index, debug_name)
+	return ct.cbv_srv_uav_heap.next_descriptor_index - 1
 }
 
-create_cbv_on_uber_heap :: proc(
-	cbv_desc : ^dx.CONSTANT_BUFFER_VIEW_DESC, debug_index: bool = false, debug_name: string = "") -> (srv_index: uint) {
+create_cbv :: proc(
+	cbv_desc : ^dx.CONSTANT_BUFFER_VIEW_DESC, debug_index: bool = false, debug_name: string = "") -> (srv_index: int) {
 	ct := &g_dx_context
-	ct.device->CreateConstantBufferView(cbv_desc, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, ct.descriptor_count))
-	uber_heap_count(debug_index, debug_name)
-	return ct.descriptor_count - 1
+	ct.device->CreateConstantBufferView(cbv_desc, uber_heap_get_next_cpu_addr(ct.cbv_srv_uav_heap))
+	uber_heap_count(&ct.cbv_srv_uav_heap, debug_index, debug_name)
+	return ct.cbv_srv_uav_heap.next_descriptor_index - 1
 }
 
-uber_heap_count :: proc(debug_index: bool, debug_name: string) {
+create_dsv :: proc(res: ^dx.IResource) -> (dsv_index: int) {
+
 	ct := &g_dx_context
-	if debug_index do lprintfln("creating view on uber heap: name: %v, index: %v", debug_name, ct.descriptor_count)
-	ct.descriptor_count += 1
+	dsv_desc := dx.DEPTH_STENCIL_VIEW_DESC {
+		ViewDimension = .TEXTURE2D,
+		Format = .D32_FLOAT,
+	}
+
+	ct.device->CreateDepthStencilView(res, &dsv_desc, uber_heap_get_next_cpu_addr(ct.dsv_heap))
+	uber_heap_count(&ct.dsv_heap, false)
+	return ct.dsv_heap.next_descriptor_index - 1
 }
+
 
 close_and_execute_cmdlist :: proc() {
 	ct := &g_dx_context
@@ -673,7 +715,7 @@ create_constant_buffer_upload :: proc(size_in_bytes: u32, pool: ^DXResourcePool,
 	}
 
 	// creating our constant buffer
-	srv_index := create_cbv_on_uber_heap(&dx.CONSTANT_BUFFER_VIEW_DESC{
+	srv_index := create_cbv(&dx.CONSTANT_BUFFER_VIEW_DESC{
 		BufferLocation = vb->GetGPUVirtualAddress(),
 		SizeInBytes = size_in_bytes
 	}, true, debug_name = name)
@@ -987,7 +1029,7 @@ lprintfln :: proc(fmt_s: string, args: ..any) {
 
 get_descriptor_heap_cpu_address :: proc(
 	heap: ^dx.IDescriptorHeap,
-	offset: uint = 0,
+	offset: int = 0,
 ) -> (
 	cpu_descriptor_handle: dx.CPU_DESCRIPTOR_HANDLE,
 ) {
@@ -995,7 +1037,7 @@ get_descriptor_heap_cpu_address :: proc(
 	desc: dx.DESCRIPTOR_HEAP_DESC
 	heap->GetDesc(&desc)
 	increment := g_dx_context.device->GetDescriptorHandleIncrementSize(desc.Type)
-	cpu_descriptor_handle.ptr += uint(offset * cast(uint)increment)
+	cpu_descriptor_handle.ptr += uint(cast(uint)offset * cast(uint)increment)
 	return
 }
 
@@ -1082,7 +1124,8 @@ load_white_texture :: proc() {
 		&g_resources_longterm, "white")
 
 	// creating srv on uber heap
-	ct.device->CreateShaderResourceView(texture_res, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap, TEXTURE_WHITE_INDEX))
+	cpu_addr := get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap.heap, TEXTURE_WHITE_INDEX)
+	ct.device->CreateShaderResourceView(texture_res, nil, cpu_addr)
 }
 
 // TODO: implement global tracking here

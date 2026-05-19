@@ -2,6 +2,7 @@
 
 - keep working on your create_texture proc and Texture struct
 - make a giant DSV heap where all dsv's go. just like your srv heap
+- finish uber heap proc helpers. and use them for all the existing things. (srv uber heap)
 
 # pso helpers TODO
 
