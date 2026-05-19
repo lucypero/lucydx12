@@ -1,5 +1,6 @@
 package main
 
+import "core:flags"
 import "core:thread"
 import "core:mem/virtual"
 import "core:debug/trace"
@@ -1160,9 +1161,7 @@ create_depth_buffer :: proc() {
 
 	ct.depth_texture = texture_create(nil,
 		u64(WINDOW_WIDTH), u32(WINDOW_HEIGHT), .D32_FLOAT, &g_resources_longterm,
-		{.DSV, .SRV}, opt_clear_value = &opt_clear, srv_desc = &srv_desc)
-
-	// transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
+		{.DSV, .SRV}, opt_clear_value = &opt_clear, srv_desc = &srv_desc, res_flags = {.ALLOW_DEPTH_STENCIL})
 }
 
 imgui_init :: proc() {
@@ -1344,26 +1343,23 @@ create_gbuffer_unit :: proc(format: dxgi.FORMAT,
 	gbuffer_index: uint) -> GBufferUnit {
 	ct := &g_dx_context
 
-	// albedo color 
-	gb_res := create_texture(
-		u64(WINDOW_WIDTH),
-		u32(WINDOW_HEIGHT),
-		format,
-		{.ALLOW_RENDER_TARGET},
-		initial_state = {.PIXEL_SHADER_RESOURCE},
-		pool = &g_resources_longterm,
-	)
+	opt_clear_value := dx.CLEAR_VALUE {
+		Format = format,
+		Color = {0,0,0,1}
+	}
 
-	gb_name := windows.utf8_to_wstring_alloc(debug_name, allocator = context.temp_allocator)
-	gb_res->SetName(gb_name)
+	texture := texture_create(nil, u64(WINDOW_WIDTH), u32(WINDOW_HEIGHT),
+		format, &g_resources_longterm, {.SRV}, texture_name = debug_name, 
+		res_flags = {.ALLOW_RENDER_TARGET}, opt_clear_value = &opt_clear_value)
+
+	// TODO: replace this with RTV inside texture struct, and helpers
 
 	rtv_descriptor_handle_1: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_heap_heap_start
 	rtv_descriptor_handle_1.ptr += uint(rtv_descriptor_size) * gbuffer_index
-	ct.device->CreateRenderTargetView(gb_res, nil, rtv_descriptor_handle_1)
-	create_srv(gb_res, nil, true, debug_name)
+	ct.device->CreateRenderTargetView(texture.buffer, nil, rtv_descriptor_handle_1)
 
 	return GBufferUnit {
-		res = gb_res,
+		res = texture.buffer,
 		rtv = rtv_descriptor_handle_1,
 		format = format
 	}
