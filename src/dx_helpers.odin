@@ -55,6 +55,12 @@ uber_heap_create :: proc(type: dx.DESCRIPTOR_HEAP_TYPE, pool: ^DXResourcePool) -
 			Type = .DSV,
 			Flags = {},
 		}
+	case .RTV:
+		desc = dx.DESCRIPTOR_HEAP_DESC {
+			NumDescriptors = 1000000,
+			Type = .RTV,
+			Flags = {},
+		}
 	case: 
 		panic("heap type not supported")
 	}
@@ -374,8 +380,10 @@ DDSFile :: struct {
 // indexes are -1 if the view was not created
 Texture :: struct {
 	buffer: ^dx.IResource,
+	format: dxgi.FORMAT,
 	srv_index: int,
 	dsv_index: int,
+	rtv_index: int,
 }
 
 texture_get_srv_cpu_address :: proc(tex: Texture) -> dx.CPU_DESCRIPTOR_HANDLE {
@@ -384,6 +392,10 @@ texture_get_srv_cpu_address :: proc(tex: Texture) -> dx.CPU_DESCRIPTOR_HANDLE {
 
 texture_get_dsv_cpu_address :: proc(tex: Texture) -> dx.CPU_DESCRIPTOR_HANDLE {
 	return uber_heap_get_cpu_addr(g_dx_context.dsv_heap, tex.dsv_index)
+}
+
+texture_get_rtv_cpu_address :: proc(tex: Texture) -> dx.CPU_DESCRIPTOR_HANDLE {
+	return uber_heap_get_cpu_addr(g_dx_context.rtv_heap, tex.rtv_index)
 }
 
 TextureViewFlag :: enum {
@@ -449,8 +461,10 @@ texture_create :: proc(
 
 	return Texture {
 		buffer = res,
+		format = format,
 		srv_index = .SRV in view_flags ? create_srv(res, srv_desc, debug_index = true, debug_name = texture_name) : -1,
 		dsv_index = .DSV in view_flags ? create_dsv(res) : -1,
+		rtv_index = .RTV in view_flags ? create_rtv(res) : -1,
 	}
 }
 
@@ -502,6 +516,12 @@ create_dsv :: proc(res: ^dx.IResource) -> (dsv_index: int) {
 	return ct.dsv_heap.next_descriptor_index - 1
 }
 
+create_rtv :: proc(res: ^dx.IResource) -> (rtv_index: int) {
+	ct := &g_dx_context
+	ct.device->CreateRenderTargetView(res, nil, uber_heap_get_next_cpu_addr(ct.rtv_heap))
+	uber_heap_count(&ct.rtv_heap, false)
+	return ct.rtv_heap.next_descriptor_index - 1
+}
 
 close_and_execute_cmdlist :: proc() {
 	ct := &g_dx_context

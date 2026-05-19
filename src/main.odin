@@ -116,8 +116,7 @@ GBufferUnitName :: enum {
 }
 
 GBuffer :: struct {
-	gbuffers: [GBufferUnitName]GBufferUnit,
-	rtv_heap: ^dx.IDescriptorHeap,
+	gbuffers: [GBufferUnitName]Texture,
 }
 
 MAX_GIZMOS :: 20
@@ -133,6 +132,7 @@ Context :: struct {
 	// descriptor heap for ALL our resources
 	cbv_srv_uav_heap: UberDescriptorHeap,
 	dsv_heap: UberDescriptorHeap,
+	rtv_heap: UberDescriptorHeap,
 
 	// core stuff
 	device: ^dx.IDevice,
@@ -635,6 +635,7 @@ init_dx :: proc() {
 	{
 		ct.cbv_srv_uav_heap = uber_heap_create(.CBV_SRV_UAV, &g_resources_longterm)
 		ct.dsv_heap = uber_heap_create(.DSV, &g_resources_longterm)
+		ct.rtv_heap = uber_heap_create(.RTV, &g_resources_longterm)
 	}
 
 	// Create the swapchain, it's the thing that contains render targets that we draw into.
@@ -1336,69 +1337,24 @@ get_world_mat_quat :: proc(pos, scale: v3, rot_quat: quaternion128) -> dxm {
 }
 */
 
-create_gbuffer_unit :: proc(format: dxgi.FORMAT, 
-	debug_name: string,
-	rtv_descriptor_heap_heap_start: dx.CPU_DESCRIPTOR_HANDLE,
-	rtv_descriptor_size: u32,
-	gbuffer_index: uint) -> GBufferUnit {
-	ct := &g_dx_context
-
+create_gbuffer_unit :: proc(format: dxgi.FORMAT, debug_name: string) -> Texture {
 	opt_clear_value := dx.CLEAR_VALUE {
 		Format = format,
 		Color = {0,0,0,1}
 	}
 
-	texture := texture_create(nil, u64(WINDOW_WIDTH), u32(WINDOW_HEIGHT),
-		format, &g_resources_longterm, {.SRV}, texture_name = debug_name, 
+	return texture_create(nil, u64(WINDOW_WIDTH), u32(WINDOW_HEIGHT),
+		format, &g_resources_longterm, {.SRV, .RTV}, texture_name = debug_name, 
 		res_flags = {.ALLOW_RENDER_TARGET}, opt_clear_value = &opt_clear_value)
-
-	// TODO: replace this with RTV inside texture struct, and helpers
-
-	rtv_descriptor_handle_1: dx.CPU_DESCRIPTOR_HANDLE = rtv_descriptor_heap_heap_start
-	rtv_descriptor_handle_1.ptr += uint(rtv_descriptor_size) * gbuffer_index
-	ct.device->CreateRenderTargetView(texture.buffer, nil, rtv_descriptor_handle_1)
-
-	return GBufferUnit {
-		res = texture.buffer,
-		rtv = rtv_descriptor_handle_1,
-		format = format
-	}
 }
 
 create_gbuffer :: proc() -> GBuffer {
-	ct := &g_dx_context
-
-	// creating rtv heap and srv heaps
-	gb_rtv_dh: ^dx.IDescriptorHeap
-
-	desc := dx.DESCRIPTOR_HEAP_DESC {
-		NumDescriptors = GBUFFER_COUNT,
-		Type = .RTV,
-		Flags = {},
-	}
-
-	hr := ct.device->CreateDescriptorHeap(&desc, dx.IDescriptorHeap_UUID, (^rawptr)(&gb_rtv_dh))
-	check(hr, "Failed creating descriptor heap")
-	append(&g_resources_longterm, gb_rtv_dh)
-	gb_rtv_dh->SetName("lucy's g-buffer RTV descriptor heap")
-
-	rtv_descriptor_size: u32 = ct.device->GetDescriptorHandleIncrementSize(.RTV)
-	rtv_descriptor_handle_heap_start: dx.CPU_DESCRIPTOR_HANDLE
-	gb_rtv_dh->GetCPUDescriptorHandleForHeapStart(&rtv_descriptor_handle_heap_start)
-
-	// create texture resource and RTV's
-
-	// TODO: look into creating a heap and resources separately.
-
-	// refactor those blocks above with a function
-
 	return GBuffer {
-		gbuffers = [GBufferUnitName]GBufferUnit {
-			.Albedo = create_gbuffer_unit(.R8G8B8A8_UNORM, "gbuffer - ALBEDO", rtv_descriptor_handle_heap_start, rtv_descriptor_size, 0),
-			.Normal = create_gbuffer_unit(.R10G10B10A2_UNORM, "gbuffer - NORMALS", rtv_descriptor_handle_heap_start, rtv_descriptor_size, 1),
-			.AO_Rough_Metal = create_gbuffer_unit(.R8G8B8A8_UNORM, "gbuffer - AO ROUGH METAL", rtv_descriptor_handle_heap_start, rtv_descriptor_size, 2),
-		},
-		rtv_heap = gb_rtv_dh
+		gbuffers = [GBufferUnitName]Texture {
+			.Albedo = create_gbuffer_unit(.R8G8B8A8_UNORM, "gbuffer - ALBEDO"),
+			.Normal = create_gbuffer_unit(.R10G10B10A2_UNORM, "gbuffer - NORMALS"),
+			.AO_Rough_Metal = create_gbuffer_unit(.R8G8B8A8_UNORM, "gbuffer - AO ROUGH METAL")
+		}
 	}
 }
 
@@ -1420,9 +1376,9 @@ pso_gbuffer_render :: proc() {
 	// Setting render targets. Clearing DSV and RTV.
 	{
 		rtv_handles := [GBUFFER_COUNT]dx.CPU_DESCRIPTOR_HANDLE {
-			g_dx_context.gbuffer.gbuffers[.Albedo].rtv,
-			g_dx_context.gbuffer.gbuffers[.Normal].rtv,
-			g_dx_context.gbuffer.gbuffers[.AO_Rough_Metal].rtv,
+			texture_get_rtv_cpu_address(g_dx_context.gbuffer.gbuffers[.Albedo]),
+			texture_get_rtv_cpu_address(g_dx_context.gbuffer.gbuffers[.Normal]),
+			texture_get_rtv_cpu_address(g_dx_context.gbuffer.gbuffers[.AO_Rough_Metal]),
 		}
 		dsv_handle := texture_get_dsv_cpu_address(ct.depth_texture)
 
@@ -1513,13 +1469,13 @@ transition_gbuffers :: proc(to_render_target: bool) {
 
 	// populating all res barriers with each gbuffer
 	res_barriers[.Albedo] = res_barriers[.Albedo]
-	res_barriers[.Albedo].Transition.pResource = ct.gbuffer.gbuffers[.Albedo].res
+	res_barriers[.Albedo].Transition.pResource = ct.gbuffer.gbuffers[.Albedo].buffer
 
 	res_barriers[.Normal] = res_barriers[.Albedo]
-	res_barriers[.Normal].Transition.pResource = ct.gbuffer.gbuffers[.Normal].res
+	res_barriers[.Normal].Transition.pResource = ct.gbuffer.gbuffers[.Normal].buffer
 
 	res_barriers[.AO_Rough_Metal] = res_barriers[.Albedo]
-	res_barriers[.AO_Rough_Metal].Transition.pResource = ct.gbuffer.gbuffers[.AO_Rough_Metal].res
+	res_barriers[.AO_Rough_Metal].Transition.pResource = ct.gbuffer.gbuffers[.AO_Rough_Metal].buffer
 
 	ct.cmdlist->ResourceBarrier(GBUFFER_COUNT, &res_barriers[cast(GBufferUnitName)0])
 }
