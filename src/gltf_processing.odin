@@ -401,10 +401,10 @@ load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: s
 	texture_final_path := texture_cache_query(model_filepath, image_name, format, image_data)
 	dds_file := parse_dds_file(texture_final_path)
 
-	texture_res := create_texture_with_data(dds_file.mipmap_data, u64(dds_file.width), dds_file.height, dds_file.format, 
-		res_pool, string(image.name))
+	texture := texture_create(dds_file.mipmap_data, u64(dds_file.width), dds_file.height,
+		dds_file.format, res_pool, {.SRV}, len(dds_file.mipmap_data), texture_name = string(image.name))
 
-	return create_srv(texture_res)
+	return texture.srv_index
 }
 
 gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string, scene: ^Scene) {

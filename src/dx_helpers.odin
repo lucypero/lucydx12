@@ -70,7 +70,7 @@ uber_heap_create :: proc(type: dx.DESCRIPTOR_HEAP_TYPE, pool: ^DXResourcePool) -
 }
 
 uber_heap_count :: proc(heap: ^UberDescriptorHeap, debug_index: bool, debug_name: string = "") {
-	if debug_index do lprintfln("creating view on uber heap: name: %v, index: %v", debug_name, heap.next_descriptor_index)
+	// if debug_index do lprintfln("creating view on uber heap: name: %v, index: %v", debug_name, heap.next_descriptor_index)
 	heap.next_descriptor_index += 1
 }
 
@@ -269,58 +269,6 @@ transition_resource :: proc(res: ^dx.IResource, cmd_list: ^dx.IGraphicsCommandLi
 }
 
 
-// helper function that creates a texture resource in its own implicit heap
-// TODO: look into creating heap separately
-create_texture :: proc(width: u64, height: u32, format: dxgi.FORMAT, resource_flags:dx.RESOURCE_FLAGS, 
-	initial_state: dx.RESOURCE_STATES,
-	opt_clear_value: dx.CLEAR_VALUE = {},
-	set_clear_value_to_zero : bool = true,
-	pool : ^DXResourcePool
-) ->
-(res: ^dx.IResource){
-
-	ct := &g_dx_context
-
-	opt_clear_value := opt_clear_value
-
-	if set_clear_value_to_zero {
-		opt_clear_value = dx.CLEAR_VALUE {
-			Format = format,
-			Color = {0,0,0,1}
-		}
-	}
-
-	texture_desc := dx.RESOURCE_DESC {
-		Width = width,
-		Height = height,
-		Dimension = .TEXTURE2D,
-		Layout = .UNKNOWN,
-		Format = format,
-		DepthOrArraySize = 1,
-		MipLevels = 1,
-		SampleDesc = {Count = 1},
-		Flags = resource_flags,
-	}
-
-	allocation : ^dxma.Allocation
-	dxma.Allocator_CreateResource(
-		ct.dxma_allocator,
-		&dxma.ALLOCATION_DESC{HeapType = .DEFAULT},
-		&texture_desc,
-		initial_state,
-		&opt_clear_value,
-		&allocation,
-		nil,
-		nil
-	)
-
-	res = dxma.Allocation_GetResource(allocation)
-
-	append(pool, cast(^dxgi.IUnknown)allocation)
-
-	return res
-}
-
 include_handler : ^dxc.IIncludeHandler
 
 dxc_init :: proc() -> ^dxc.ICompiler3 {
@@ -423,58 +371,6 @@ DDSFile :: struct {
 	mipmap_data: [][]byte,
 }
 
-
-// creates texture on default heap
-// schedules an upload of data
-// deprecated. use new create texture procs that return a Texture struct
-create_texture_with_data :: proc(
-	image_data: [][]byte, // slice of mipmap data
-	width: u64,
-	height: u32,
-	format: dxgi.FORMAT,
-	pool_textures : ^DXResourcePool,
-	texture_name := ""
-) -> (res: ^dx.IResource) {
-
-	ct := &g_dx_context
-
-	mip_levels := cast(u16)len(image_data)
-
-	texture_desc := dx.RESOURCE_DESC {
-		Width = (u64)(width),
-		Height = (u32)(height),
-		Dimension = .TEXTURE2D,
-		Layout = .UNKNOWN,
-		Format = format,
-		DepthOrArraySize = 1,
-		MipLevels = mip_levels,
-		SampleDesc = {Count = 1},
-	}
-
-	allocation : ^dxma.Allocation
-	dxma.Allocator_CreateResource(
-		pSelf = ct.dxma_allocator,
-		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
-		pResourceDesc = &texture_desc,
-		InitialResourceState = dx.RESOURCE_STATE_COMMON, // upload queue promotes the resource implicitly, so we set it here as common
-		pOptimizedClearValue = nil,
-		ppAllocation = &allocation,
-		riidResource = nil,
-		ppvResource = nil
-	)
-	res = dxma.Allocation_GetResource(allocation)
-	append(pool_textures, cast(^dxgi.IUnknown)allocation)
-
-	if len(texture_name) > 0 {
-		texture_name_cstring := windows.utf8_to_wstring_alloc(texture_name, allocator = context.temp_allocator)
-		res->SetName(texture_name_cstring)
-	}
-
-	dx_upload_texture_trigger(&g_upload_service, res, image_data, &texture_desc)
-
-	return res
-}
-
 // indexes are -1 if the view was not created
 Texture :: struct {
 	buffer: ^dx.IResource,
@@ -507,10 +403,11 @@ texture_create :: proc(
 	format: dxgi.FORMAT,
 	pool_textures : ^DXResourcePool,
 	view_flags: TextureViewFlags = {},
-	mip_levels: u16 = 1,
+	mip_levels: int = 1,
 	texture_name : string = "",
 	opt_clear_value: ^dx.CLEAR_VALUE = nil,
-	srv_desc: ^dx.SHADER_RESOURCE_VIEW_DESC = nil
+	srv_desc: ^dx.SHADER_RESOURCE_VIEW_DESC = nil,
+	res_flags: dx.RESOURCE_FLAGS = {},
 ) -> Texture {
 
 	ct := &g_dx_context
@@ -522,9 +419,9 @@ texture_create :: proc(
 		Layout = .UNKNOWN,
 		Format = format,
 		DepthOrArraySize = 1,
-		MipLevels = mip_levels,
+		MipLevels = cast(u16)mip_levels,
 		SampleDesc = {Count = 1},
-		Flags = {.ALLOW_DEPTH_STENCIL}
+		Flags = res_flags
 	}
 
 	allocation : ^dxma.Allocation
@@ -1120,12 +1017,12 @@ load_white_texture :: proc() {
 	img_data_mipmaps := make([][]byte, 1, context.temp_allocator)
 	img_data_mipmaps[0] = slice.clone(slice.from_ptr(image_data, cast(int)(w * h * channels)), context.temp_allocator)
 
-	texture_res := create_texture_with_data(img_data_mipmaps[:], u64(w), u32(h), .R8G8B8A8_UNORM, 
-		&g_resources_longterm, "white")
+	texture := texture_create(img_data_mipmaps[:], u64(w), u32(h), .R8G8B8A8_UNORM, 
+		&g_resources_longterm, {}, texture_name = "white")
 
 	// creating srv on uber heap
 	cpu_addr := get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap.heap, TEXTURE_WHITE_INDEX)
-	ct.device->CreateShaderResourceView(texture_res, nil, cpu_addr)
+	ct.device->CreateShaderResourceView(texture.buffer, nil, cpu_addr)
 }
 
 // TODO: implement global tracking here
