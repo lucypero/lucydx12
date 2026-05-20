@@ -82,7 +82,6 @@ VertexData :: struct {
 	uv_2: v2 `TEXCOORD_SECOND_UV`,
 }
 
-
 // Data associated with a vertex buffer
 // this could be an instance buffer too. it's the same to dx12.
 VertexBuffer :: struct {
@@ -122,52 +121,45 @@ GBuffer :: struct {
 MAX_GIZMOS :: 20
 
 Context :: struct {
-	// sdl stuff
+	/// SDL stuff
 	window: ^sdl.Window,
 
-	// imgui stuff
+	/// imgui stuff
 	imgui_descriptor_heap: ^dx.IDescriptorHeap,
 	imgui_allocator: DescriptorHeapAllocator,
 
-	// descriptor heap for ALL our resources
-	cbv_srv_uav_heap: UberDescriptorHeap,
-	dsv_heap: UberDescriptorHeap,
-	rtv_heap: UberDescriptorHeap,
-
-	// core stuff
-	device: ^dx.IDevice,
-	factory: ^dxgi.IFactory4,
-
-	// Graphics core resources
-
-	queue: ^dx.ICommandQueue,
-	command_allocator: ^dx.ICommandAllocator,
-	cmdlist: ^dx.IGraphicsCommandList,
-
-	// root signatures
-	root_signatures: [RootSignatureChoice]^dx.IRootSignature,
-
-	// PSOs
-	psos: [PSOName]PSO,
-
-	// Other
-
-	swapchain: ^dxgi.ISwapChain3,
-	dxc_compiler: ^dxc.ICompiler3,
-	constant_buffer: ConstantBufferUpload,
-	dxma_allocator: ^dxma.Allocator,
-	// descriptor heap for the render target view
-	swapchain_rtv_descriptor_heap: ^dx.IDescriptorHeap,
-	frame_index: int,
-	targets: [NUM_RENDERTARGETS]^dx.IResource, // render targets
-	gbuffer: GBuffer,
-
-	// fence stuff (for waiting to render frame)
+	/// fence stuff (for waiting to render frame)
 	fence: ^dx.IFence,
 	fence_value: u64,
 	fence_event: windows.HANDLE,
 
+	/// descriptor heap for ALL our resources
+	cbv_srv_uav_heap: UberDescriptorHeap,
+	dsv_heap: UberDescriptorHeap,
+	rtv_heap: UberDescriptorHeap,
+
+	/// Other
+	device: ^dx.IDevice,
+	factory: ^dxgi.IFactory4,
+	queue: ^dx.ICommandQueue,
+	command_allocator: ^dx.ICommandAllocator,
+	cmdlist: ^dx.IGraphicsCommandList,
+	swapchain: ^dxgi.ISwapChain3,
+	dxc_compiler: ^dxc.ICompiler3,
+	dxma_allocator: ^dxma.Allocator,
+	// descriptor heap for the render target view
+	swapchain_rtv_descriptor_heap: ^dx.IDescriptorHeap,
+	targets: [NUM_RENDERTARGETS]^dx.IResource, // render targets
+	frame_index: int,
 	depth_texture: Texture,
+	gbuffer: GBuffer,
+	root_signatures: [RootSignatureChoice]^dx.IRootSignature,
+	psos: [PSOName]PSO,
+	constant_buffer: ConstantBufferUpload,
+
+	/// Shadowmap
+	tx_shadowmap: Texture
+
 }
 
 ModelMatrixData :: struct {
@@ -262,7 +254,6 @@ InstanceData :: struct #align (256) {
 	world_mat: dxm `WORLDMATRIX`,
 	color: v4 `COLOR`
 }
-
 
 // ---- GLOBAL STATE ----
 
@@ -760,10 +751,18 @@ init_dx_user :: proc() {
 
 	// shadowmap setup
 	{
-
 		// creating shadowmap texture (DSV and then SRV)
 		// createte
 
+		ct.tx_shadowmap = texture_create(nil, 1024, 1024, .D32_FLOAT,
+			&g_resources_longterm, {.DSV, .SRV}, texture_name = "shadowmap")
+
+		ct.psos[.Shadowmap] = pso_create("src/shaders/shadowmap.hlsl", PSOParameters {
+			vertex_input = VertexData,
+			blend_state = .Off,
+			enable_depth = true,
+			rtv_count = 0,
+		}, pso_name = "Shadowmap pso")
 	}
 
 
@@ -775,9 +774,8 @@ init_dx_user :: proc() {
 		gbuffer_rtv_formats[i] = g_buffer.format
 	}
 
-	ct.psos[.GBuffer_Pass] = create_pso(gbuffer_shader_filename, PSOParameters {
+	ct.psos[.GBuffer_Pass] = pso_create(gbuffer_shader_filename, PSOParameters {
 		vertex_input = VertexData,
-		instance_vertex_input = struct{},
 		blend_state = .Off,
 		enable_depth = true,
 		rtv_count = GBUFFER_COUNT,
@@ -786,25 +784,23 @@ init_dx_user :: proc() {
 		front_counter_clockwise = true,
 	}, pso_name = "geometry pass PSO")
 
-	ct.psos[.Lighting_Pass] = create_pso(lighting_shader_filename, PSOParameters {
+	ct.psos[.Lighting_Pass] = pso_create(lighting_shader_filename, PSOParameters {
 		vertex_input = struct{},
-		instance_vertex_input = struct{},
 		blend_state = .Off,
 		enable_depth = false,
 		rtv_count = 1,
 		rtv_formats = {0 = .R8G8B8A8_UNORM, 1 ..=7 = .UNKNOWN},
 	}, pso_name = "lighting pass PSO")
 
-	ct.psos[.Gizmos] = create_pso(ui_shader_filename, PSOParameters {
+	ct.psos[.Gizmos] = pso_create(ui_shader_filename, PSOParameters {
 		vertex_input = Gizmos_Vertex_IA,
-		instance_vertex_input = InstanceData,
+		instance_vertex_input = typeid_of(InstanceData),
 		blend_state = .Off,
 		enable_depth = true,
 		fill_mode = .Wireframe,
 		rtv_count = 1,
 		rtv_formats = {0 = .R8G8B8A8_UNORM, 1 ..=7 = .UNKNOWN},
 	}, pso_name = "Gizmos PSO")
-
 
 	// hr = ct.command_allocator->Reset(
 	// hr = ct.cmdlist->Reset(ct.command_allocator, nil)

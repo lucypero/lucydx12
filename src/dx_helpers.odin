@@ -113,7 +113,7 @@ RootSignatureChoice :: enum {
 
 PSOParameters :: struct {
 	vertex_input: typeid,
-	instance_vertex_input: typeid,
+	instance_vertex_input: Maybe(typeid),
 	fill_mode: FillMode,
 	blend_state: BlendState,
 	cull_mode: CullMode,
@@ -213,17 +213,20 @@ add_to_input_element_desc :: proc(buffer_type: typeid, is_instance: bool, result
 	}
 }
 
-get_dx_vertex_input :: proc(input_layout_vertex, input_layout_instance: typeid) -> []dx.INPUT_ELEMENT_DESC {
+get_dx_vertex_input :: proc(input_layout_vertex: typeid, input_layout_instance: Maybe(typeid)) -> []dx.INPUT_ELEMENT_DESC {
 	res := make_dynamic_array_len_cap([dynamic]dx.INPUT_ELEMENT_DESC, 0, 0, context.temp_allocator)
 
 	add_to_input_element_desc(input_layout_vertex, false, &res)
-	add_to_input_element_desc(input_layout_instance, true, &res)
+
+	if il, ok := input_layout_instance.?; ok {
+		add_to_input_element_desc(il, true, &res)
+	}
 
 	return res[:]
 }
 
 
-create_pso :: proc(shader_filename: string, parameters: PSOParameters, pso_name: string = "") -> PSO {
+pso_create :: proc(shader_filename: string, parameters: PSOParameters, pso_name: string = "") -> PSO {
 	ct := &g_dx_context
 	vs, ps, ok := compile_shader(ct.dxc_compiler, shader_filename)
 	assert(ok, "could not compile shader!! check logs")
