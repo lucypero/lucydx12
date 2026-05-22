@@ -754,7 +754,7 @@ init_dx_user :: proc() {
 		// creating shadowmap texture (DSV and then SRV)
 		// createte
 
-		ct.tx_shadowmap = texture_create(nil, 1024, 1024, .D32_FLOAT,
+		ct.tx_shadowmap = texture_create(nil, 1024, 1024, .R8_TYPELESS,
 			&g_resources_longterm, {.DSV, .SRV}, texture_name = "shadowmap")
 
 		ct.psos[.Shadowmap] = pso_create("src/shaders/shadowmap.hlsl", PSOParameters {
@@ -1157,8 +1157,8 @@ create_depth_buffer :: proc() {
 	}
 
 	ct.depth_texture = texture_create(nil,
-		u64(WINDOW_WIDTH), u32(WINDOW_HEIGHT), .D32_FLOAT, &g_resources_longterm,
-		{.DSV, .SRV}, opt_clear_value = &opt_clear, srv_desc = &srv_desc, res_flags = {.ALLOW_DEPTH_STENCIL})
+		u64(WINDOW_WIDTH), u32(WINDOW_HEIGHT), .R32_TYPELESS, &g_resources_longterm,
+		{.DSV, .SRV}, opt_clear_value = &opt_clear, res_flags = {.ALLOW_DEPTH_STENCIL})
 }
 
 imgui_init :: proc() {

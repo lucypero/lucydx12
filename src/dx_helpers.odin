@@ -411,6 +411,8 @@ TextureViewFlags :: bit_set[TextureViewFlag]
 
 // creates texture on default heap
 // schedules an upload of data
+// TODO: i think you can further simplify the API here. you can deduce things like res_flags and srv_desc by
+//  the view flags.
 texture_create :: proc(
 	image_data: Maybe([][]byte), // slice of mipmap data. nil for texture initialized with no data
 	width: u64,
@@ -421,7 +423,6 @@ texture_create :: proc(
 	mip_levels: int = 1,
 	texture_name : string = "",
 	opt_clear_value: ^dx.CLEAR_VALUE = nil,
-	srv_desc: ^dx.SHADER_RESOURCE_VIEW_DESC = nil,
 	res_flags: dx.RESOURCE_FLAGS = {},
 ) -> Texture {
 
@@ -450,6 +451,7 @@ texture_create :: proc(
 		riidResource = nil,
 		ppvResource = nil
 	)
+
 	res := dxma.Allocation_GetResource(allocation)
 	append(pool_textures, cast(^dxgi.IUnknown)allocation)
 
@@ -460,6 +462,19 @@ texture_create :: proc(
 
 	if image_data_inner, ok := image_data.?; ok {
 		dx_upload_texture_trigger(&g_upload_service, res, image_data_inner, &texture_desc)
+	}
+
+	// creating views
+	// if format is typeless, then you need to pass a type to the views.
+
+	// special case: {DSV, SRV} (depth buffer than then gets read)
+
+	if view_flags == {.DSV, .SRV} {
+		// assert that format must be TYPELESS
+
+		// TODO: add all the typeless types
+		assert(format in {.R32_TYPELESS, .R8_TYPELESS})
+
 	}
 
 	return Texture {
