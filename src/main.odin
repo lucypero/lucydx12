@@ -765,7 +765,6 @@ init_dx_user :: proc() {
 		}, pso_name = "Shadowmap pso")
 	}
 
-
 	gbuffer_rtv_formats := [8]dxgi.FORMAT {
 		0 ..= 7 = .UNKNOWN,
 	}
@@ -982,9 +981,6 @@ update :: proc() {
 	for &pso in c.psos {
 		pso_hotswap_watch(&pso)
 	}
-
-	// add all the others
-	// TODO: just put all psos on an array.
 
 	do_imgui_ui()
 	camera_tick(keyboard)

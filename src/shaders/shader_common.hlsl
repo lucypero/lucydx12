@@ -34,6 +34,8 @@ struct DrawConstants {
 	uint material_index;
 };
 
+// STOP HARDCODING THIS FFS. YOU KEEP GETTING BUGS BECAUSE YOU HARDCODE THE INDEXES HERE!!!
+
 AllSrvsIndices get_srvs_from_heap() {
 	AllSrvsIndices idxs;
 	
@@ -42,7 +44,7 @@ AllSrvsIndices get_srvs_from_heap() {
 	idxs.g_buffer_ao_rough_metal_idx = 2;
 	
 	idxs.general_constants_idx = 3;
-	idxs.depth_idx = 4;
+	idxs.depth_idx = 5;
 	
 	idxs.param_struct_idx = 5;
 	
