@@ -754,7 +754,7 @@ init_dx_user :: proc() {
 		// creating shadowmap texture (DSV and then SRV)
 		// createte
 
-		ct.tx_shadowmap = texture_create(nil, 1024, 1024, .R8_TYPELESS,
+		ct.tx_shadowmap = texture_create(nil, 1024, 1024, .R32_TYPELESS,
 			&g_resources_longterm, {.DSV, .SRV}, texture_name = "shadowmap")
 
 		ct.psos[.Shadowmap] = pso_create("src/shaders/shadowmap.hlsl", PSOParameters {
@@ -1146,19 +1146,9 @@ create_depth_buffer :: proc() {
 		DepthStencil = {Depth = 1.0, Stencil = 0},
 	}
 
-	srv_desc := dx.SHADER_RESOURCE_VIEW_DESC {
-		Format = .R32_FLOAT,
-		ViewDimension = .TEXTURE2D,
-		Shader4ComponentMapping = dx.ENCODE_SHADER_4_COMPONENT_MAPPING(0, 1, 2, 3), // this is the default mapping
-		Texture2D = {
-			MostDetailedMip = 0,
-			MipLevels = 1,
-		}
-	}
-
 	ct.depth_texture = texture_create(nil,
 		u64(WINDOW_WIDTH), u32(WINDOW_HEIGHT), .R32_TYPELESS, &g_resources_longterm,
-		{.DSV, .SRV}, opt_clear_value = &opt_clear, res_flags = {.ALLOW_DEPTH_STENCIL})
+		{.DSV, .SRV}, opt_clear_value = &opt_clear)
 }
 
 imgui_init :: proc() {
@@ -1341,7 +1331,7 @@ create_gbuffer_unit :: proc(format: dxgi.FORMAT, debug_name: string) -> Texture 
 
 	return texture_create(nil, u64(WINDOW_WIDTH), u32(WINDOW_HEIGHT),
 		format, &g_resources_longterm, {.SRV, .RTV}, texture_name = debug_name, 
-		res_flags = {.ALLOW_RENDER_TARGET}, opt_clear_value = &opt_clear_value)
+		opt_clear_value = &opt_clear_value)
 }
 
 create_gbuffer :: proc() -> GBuffer {

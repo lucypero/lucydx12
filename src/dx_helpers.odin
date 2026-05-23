@@ -423,10 +423,19 @@ texture_create :: proc(
 	mip_levels: int = 1,
 	texture_name : string = "",
 	opt_clear_value: ^dx.CLEAR_VALUE = nil,
-	res_flags: dx.RESOURCE_FLAGS = {},
 ) -> Texture {
 
 	ct := &g_dx_context
+
+	res_flags: dx.RESOURCE_FLAGS = {}
+
+	if .DSV in view_flags {
+		res_flags += {.ALLOW_DEPTH_STENCIL}
+	}
+
+	if .RTV in view_flags {
+		res_flags += {.ALLOW_RENDER_TARGET}
+	}
 
 	texture_desc := dx.RESOURCE_DESC {
 		Width = (u64)(width),
@@ -468,21 +477,69 @@ texture_create :: proc(
 	// if format is typeless, then you need to pass a type to the views.
 
 	// special case: {DSV, SRV} (depth buffer than then gets read)
+	is_typeless := is_typeless(format)
 
 	if view_flags == {.DSV, .SRV} {
-		// assert that format must be TYPELESS
+		assert(is_typeless)
+	}
 
-		// TODO: add all the typeless types
-		assert(format in {.R32_TYPELESS, .R8_TYPELESS})
+	srv_index : int = -1
 
+	if .SRV in view_flags {
+		srv_desc := dx.SHADER_RESOURCE_VIEW_DESC {
+			Format = format,
+			ViewDimension = .TEXTURE2D,
+			Shader4ComponentMapping = dx.ENCODE_SHADER_4_COMPONENT_MAPPING(0, 1, 2, 3), // this is the default mapping
+			Texture2D = {
+				MostDetailedMip = 0,
+				MipLevels = cast(u32)mip_levels,
+			}
+		}
+
+		if is_typeless {
+			// converting typeless to srv type
+			#partial switch format {
+			case .R32_TYPELESS:
+				srv_desc.Format = .R32_FLOAT
+			case .R8_TYPELESS:
+				srv_desc.Format = .R8_SNORM
+			case:
+				panic("format for srv not supported")
+			}
+		}
+
+		srv_index = create_srv(res, &srv_desc, debug_index = true, debug_name = texture_name)
+	}
+
+	dsv_index : int = -1
+
+	if .DSV in view_flags {
+		dsv_format: dxgi.FORMAT
+		#partial switch format {
+		case .R32_TYPELESS:
+			dsv_format = .D32_FLOAT
+		case:
+			panic("format for dsv not supported")
+		}
+
+		dsv_index = create_dsv(res, dsv_format)
 	}
 
 	return Texture {
 		buffer = res,
 		format = format,
-		srv_index = .SRV in view_flags ? create_srv(res, srv_desc, debug_index = true, debug_name = texture_name) : -1,
-		dsv_index = .DSV in view_flags ? create_dsv(res) : -1,
+		srv_index = srv_index,
+		dsv_index = dsv_index,
 		rtv_index = .RTV in view_flags ? create_rtv(res) : -1,
+	}
+}
+
+is_typeless :: proc(format: dxgi.FORMAT) -> bool {
+	#partial switch format {
+	case .R8_TYPELESS, .X32_TYPELESS_G8X24_UINT, .X24_TYPELESS_G8_UINT, .R32_TYPELESS, .R16_TYPELESS, .BC1_TYPELESS, .BC2_TYPELESS, .BC3_TYPELESS, .BC4_TYPELESS, .BC5_TYPELESS, .BC7_TYPELESS, .R8G8_TYPELESS, .BC6H_TYPELESS, .R24G8_TYPELESS, .R32G32_TYPELESS, .R16G16_TYPELESS, .R32G8X24_TYPELESS, .R8G8B8A8_TYPELESS, .B8G8R8A8_TYPELESS, .B8G8R8X8_TYPELESS, .R32G32B32_TYPELESS, .R10G10B10A2_TYPELESS, .R32G32B32A32_TYPELESS, .R16G16B16A16_TYPELESS, .R24_UNORM_X8_TYPELESS, .R32_FLOAT_X8X24_TYPELESS:
+		return true
+	case:
+		return false
 	}
 }
 
@@ -521,12 +578,12 @@ create_cbv :: proc(
 	return ct.cbv_srv_uav_heap.next_descriptor_index - 1
 }
 
-create_dsv :: proc(res: ^dx.IResource) -> (dsv_index: int) {
+create_dsv :: proc(res: ^dx.IResource, format: dxgi.FORMAT) -> (dsv_index: int) {
 
 	ct := &g_dx_context
 	dsv_desc := dx.DEPTH_STENCIL_VIEW_DESC {
 		ViewDimension = .TEXTURE2D,
-		Format = .D32_FLOAT,
+		Format = format,
 	}
 
 	ct.device->CreateDepthStencilView(res, &dsv_desc, uber_heap_get_next_cpu_addr(ct.dsv_heap))
