@@ -8,7 +8,7 @@ struct DrawConstants {
 
 /// Root Parameters
 SamplerState mySampler : register(s0);
-int cbv_index: register (b0);
+int cbv_index: register (b0); // index of my big CBV into the srv heap
 ConstantBuffer<DrawConstants> draw_constants : register(b1);
 
 // Constant Buffer Struct Definition
