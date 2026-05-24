@@ -27,8 +27,7 @@ ConstantBuffer<DrawConstants> draw_constants : register(b1);
 
 PSInput VSMain(VSInput the_input) {
 	
-	AllSrvsIndices srv_indexes = get_srvs_from_heap();
-	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[srv_indexes.general_constants_idx];
+	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[GetCBVIndex()];
 	StructuredBuffer<MeshTransform> mesh_transforms = ResourceDescriptorHeap[general_constants.current_scene_mesh_transforms_idx];
 	
 	// instanced drawing

@@ -159,7 +159,6 @@ Context :: struct {
 
 	/// Shadowmap
 	tx_shadowmap: Texture
-
 }
 
 ModelMatrixData :: struct {
@@ -190,6 +189,9 @@ Material :: struct {
 	normal: TextureUV,
 }
 
+AllSrvsIndices :: struct #packed {
+};
+
 // constant buffer data
 ConstantBufferData :: struct #align (256) {
 	view: dxm,
@@ -201,6 +203,15 @@ ConstantBufferData :: struct #align (256) {
 	time: f32,
 	current_scene_materials_idx: u32,
 	current_scene_mesh_transforms_idx: u32,
+	general_constants_idx: i32,
+
+	// g buffer
+	g_buffer_color_idx: i32,
+	g_buffer_normal_idx: i32,
+	g_buffer_ao_rough_metal_idx: i32,
+
+	// depth
+	depth_idx: i32,
 }
 
 // testing
@@ -324,6 +335,10 @@ cb_update :: proc() {
 		time = g_the_time_sec,
 		current_scene_materials_idx = scene_is_active ? cast(u32)active_scene.material_srv_index : 0,
 		current_scene_mesh_transforms_idx = scene_is_active ? cast(u32)active_scene.model_matrices_srv_index : 0,
+		g_buffer_color_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Albedo].srv_index,
+		g_buffer_normal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Normal].srv_index,
+		g_buffer_ao_rough_metal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.AO_Rough_Metal].srv_index,
+		depth_idx = cast(i32)g_dx_context.depth_texture.srv_index
 	}
 
 	// sending data to the cpu mapped memory that the gpu can read
@@ -678,15 +693,16 @@ create_root_signatures :: proc() {
 
 	root_parameters: [root_parameters_len]dx.ROOT_PARAMETER
 
+	// Pretty sure this root parameter isn't needed anymore. you read the cbv directly from the heap now.
 	root_parameters[0] = {
 		ParameterType = .CBV,
-		Descriptor = {ShaderRegister = 0, RegisterSpace = 0},
+		Descriptor = {ShaderRegister = 0},
 		ShaderVisibility = .ALL, // vertex, pixel, or both (all)
 	}
 
 	root_parameters[1] = {
 		ParameterType = ._32BIT_CONSTANTS,
-		Constants = {ShaderRegister = 1, RegisterSpace = 0, Num32BitValues = 2},
+		Constants = {ShaderRegister = 1, Num32BitValues = 2},
 		ShaderVisibility = .ALL
 	}
 
@@ -1331,11 +1347,16 @@ create_gbuffer_unit :: proc(format: dxgi.FORMAT, debug_name: string) -> Texture 
 }
 
 create_gbuffer :: proc() -> GBuffer {
+
+	albedo := create_gbuffer_unit(.R8G8B8A8_UNORM, "gbuffer - ALBEDO")
+	normal := create_gbuffer_unit(.R10G10B10A2_UNORM, "gbuffer - NORMALS")
+	ao_Rough_Metal := create_gbuffer_unit(.R8G8B8A8_UNORM, "gbuffer - AO ROUGH METAL")
+
 	return GBuffer {
 		gbuffers = [GBufferUnitName]Texture {
-			.Albedo = create_gbuffer_unit(.R8G8B8A8_UNORM, "gbuffer - ALBEDO"),
-			.Normal = create_gbuffer_unit(.R10G10B10A2_UNORM, "gbuffer - NORMALS"),
-			.AO_Rough_Metal = create_gbuffer_unit(.R8G8B8A8_UNORM, "gbuffer - AO ROUGH METAL")
+			.Albedo = albedo,
+			.Normal = normal,
+			.AO_Rough_Metal = ao_Rough_Metal
 		}
 	}
 }

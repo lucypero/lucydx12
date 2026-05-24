@@ -3,6 +3,9 @@
 #pragma pack_matrix(column_major)
 #include "src/shaders/shader_common.hlsl"
 
+/// Shader Input
+
+/// Vertex Input
 struct VSInput {
 	float3 position : POSITION;
 	float3 normal : NORMAL;
@@ -10,6 +13,12 @@ struct VSInput {
 	float2 uvs : TEXCOORD;
 	float2 uvs_2 : TEXCOORD_SECOND_UV;
 };
+
+/// Root Parameters
+SamplerState mySampler : register(s0);
+ConstantBuffer<DrawConstants> draw_constants : register(b1);
+
+/// Shader Input --- end
 
 struct TextureUV {
 	uint texture_id;
@@ -27,10 +36,6 @@ struct MeshTransform
 	float4x4 model; 
 };
 
-SamplerState mySampler : register(s0);
-
-ConstantBuffer<DrawConstants> draw_constants : register(b1);
-
 struct PSInput {
 	float4 position : SV_POSITION;
 	float3 frag_pos_world: POSITION;
@@ -43,9 +48,7 @@ struct PSInput {
 
 PSInput VSMain(VSInput the_input) {
 
-	AllSrvsIndices srv_indexes = get_srvs_from_heap();
-	
-	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[srv_indexes.general_constants_idx];
+	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[GetCBVIndex()];
 	StructuredBuffer<MeshTransform> mesh_transforms = ResourceDescriptorHeap[general_constants.current_scene_mesh_transforms_idx];
 	
 	PSInput result;
@@ -99,8 +102,6 @@ PSInput VSMain(VSInput the_input) {
 	return result;
 }
 
-
-
 struct PSOutput {
 	float4 albedoRT : SV_Target0; 
 	float4 normalRT : SV_Target1; 
@@ -109,9 +110,7 @@ struct PSOutput {
 };
 
 PSOutput PSMain(PSInput input) {
-	AllSrvsIndices srv_indexes = get_srvs_from_heap();
-	
-	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[srv_indexes.general_constants_idx];
+	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[GetCBVIndex()];
 	PSOutput output;
 	
 	StructuredBuffer<Material> materials = ResourceDescriptorHeap[general_constants.current_scene_materials_idx];

@@ -75,8 +75,8 @@ uber_heap_create :: proc(type: dx.DESCRIPTOR_HEAP_TYPE, pool: ^DXResourcePool) -
 	}
 }
 
-uber_heap_count :: proc(heap: ^UberDescriptorHeap, debug_index: bool, debug_name: string = "") {
-	// if debug_index do lprintfln("creating view on uber heap: name: %v, index: %v", debug_name, heap.next_descriptor_index)
+uber_heap_count :: proc(heap: ^UberDescriptorHeap, debug_index: bool = false, debug_name: string = "") {
+	if debug_index do lprintfln("creating view on uber heap: name: %v, index: %v", debug_name, heap.next_descriptor_index)
 	heap.next_descriptor_index += 1
 }
 
@@ -236,11 +236,8 @@ pso_create :: proc(shader_filename: string, parameters: PSOParameters, pso_name:
 		ps->Release()
 	}
 
-	// create root signature here
-	// TODO: reuse standard ROOT SIGNATURE
-	root_signature := ct.root_signatures[.Standard]
-
 	assert(parameters.root_signature == .Standard, "custom root signatures are not supported")
+	root_signature := ct.root_signatures[parameters.root_signature]
 
 	// Creating the actual PSO
 	pso_dx: ^dx.IPipelineState = create_pso_dx(shader_filename, parameters, root_signature, vs, ps, pso_name)
@@ -508,7 +505,7 @@ texture_create :: proc(
 			}
 		}
 
-		srv_index = create_srv(res, &srv_desc, debug_index = true, debug_name = texture_name)
+		srv_index = create_srv(res, &srv_desc)
 	}
 
 	dsv_index : int = -1
@@ -587,14 +584,14 @@ create_dsv :: proc(res: ^dx.IResource, format: dxgi.FORMAT) -> (dsv_index: int) 
 	}
 
 	ct.device->CreateDepthStencilView(res, &dsv_desc, uber_heap_get_next_cpu_addr(ct.dsv_heap))
-	uber_heap_count(&ct.dsv_heap, false)
+	uber_heap_count(&ct.dsv_heap)
 	return ct.dsv_heap.next_descriptor_index - 1
 }
 
 create_rtv :: proc(res: ^dx.IResource) -> (rtv_index: int) {
 	ct := &g_dx_context
 	ct.device->CreateRenderTargetView(res, nil, uber_heap_get_next_cpu_addr(ct.rtv_heap))
-	uber_heap_count(&ct.rtv_heap, false)
+	uber_heap_count(&ct.rtv_heap)
 	return ct.rtv_heap.next_descriptor_index - 1
 }
 

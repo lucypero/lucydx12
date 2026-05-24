@@ -490,5 +490,5 @@ gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string
 		},
 	}
 
-	scene.material_srv_index = create_srv(scene.sb_materials, &srv_desc, true, "materials srv")
+	scene.material_srv_index = create_srv(scene.sb_materials, &srv_desc)
 }

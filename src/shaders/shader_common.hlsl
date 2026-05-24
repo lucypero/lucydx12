@@ -1,5 +1,9 @@
 #pragma once
 
+// Indices for different core things
+struct AllSrvsIndices {
+};
+
 struct GeneralConstants {
     float4x4 view;
     float4x4 projection;
@@ -10,10 +14,9 @@ struct GeneralConstants {
     float time;
     uint current_scene_materials_idx;
     uint current_scene_mesh_transforms_idx;
-};
-
-struct AllSrvsIndices {
-	int general_constants_idx;
+    
+    // Other srv indices
+    int general_constants_idx;
 	
 	// g buffer
 	int g_buffer_color_idx;
@@ -22,11 +25,6 @@ struct AllSrvsIndices {
 	
 	// depth 
 	int depth_idx;
-	
-	// (for slug text)
-	int param_struct_idx;
-	int curve_texture_idx;
-	int band_texture_idx;
 };
 
 struct DrawConstants {
@@ -34,23 +32,6 @@ struct DrawConstants {
 	uint material_index;
 };
 
-// STOP HARDCODING THIS FFS. YOU KEEP GETTING BUGS BECAUSE YOU HARDCODE THE INDEXES HERE!!!
-
-AllSrvsIndices get_srvs_from_heap() {
-	AllSrvsIndices idxs;
-	
-	idxs.g_buffer_color_idx = 0;
-	idxs.g_buffer_normal_idx = 1;
-	idxs.g_buffer_ao_rough_metal_idx = 2;
-	
-	idxs.general_constants_idx = 3;
-	idxs.depth_idx = 5;
-	
-	idxs.param_struct_idx = 5;
-	
-	// not done yet
-	idxs.curve_texture_idx = 6;
-	idxs.band_texture_idx = 7;
-	
-	return idxs;
+int GetCBVIndex() {
+	return 3;
 }

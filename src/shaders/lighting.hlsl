@@ -112,17 +112,15 @@ float3 DebugHueGradient(float t)
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-	AllSrvsIndices srv_indexes = get_srvs_from_heap();
-	
-	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[srv_indexes.general_constants_idx];
+	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[GetCBVIndex()];
 	
 	// g buffer
-	Texture2D<float4> albedo = ResourceDescriptorHeap[srv_indexes.g_buffer_color_idx];
-	Texture2D<float4> normal = ResourceDescriptorHeap[srv_indexes.g_buffer_normal_idx];
-	Texture2D<float4> ao_rough_metal = ResourceDescriptorHeap[srv_indexes.g_buffer_ao_rough_metal_idx];
+	Texture2D<float4> albedo = ResourceDescriptorHeap[general_constants.g_buffer_color_idx];
+	Texture2D<float4> normal = ResourceDescriptorHeap[general_constants.g_buffer_normal_idx];
+	Texture2D<float4> ao_rough_metal = ResourceDescriptorHeap[general_constants.g_buffer_ao_rough_metal_idx];
 	
 	// depth
-	Texture2D<float4> depthTexture = ResourceDescriptorHeap[srv_indexes.depth_idx];
+	Texture2D<float4> depthTexture = ResourceDescriptorHeap[general_constants.depth_idx];
 
     float3 albedoColor = albedo.Sample(mySampler, input.uvs).xyz;
     float3 normalColor = normal.Sample(mySampler, input.uvs).xyz;
