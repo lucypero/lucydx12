@@ -189,9 +189,6 @@ Material :: struct {
 	normal: TextureUV,
 }
 
-AllSrvsIndices :: struct #packed {
-};
-
 // constant buffer data
 ConstantBufferData :: struct #align (256) {
 	view: dxm,
@@ -203,7 +200,6 @@ ConstantBufferData :: struct #align (256) {
 	time: f32,
 	current_scene_materials_idx: u32,
 	current_scene_mesh_transforms_idx: u32,
-	general_constants_idx: i32,
 
 	// g buffer
 	g_buffer_color_idx: i32,
@@ -689,21 +685,19 @@ create_root_signatures :: proc() {
 	ct := &g_dx_context
 	hr : dx.HRESULT
 
-	root_parameters_len :: 2
-
-	root_parameters: [root_parameters_len]dx.ROOT_PARAMETER
-
-	// Pretty sure this root parameter isn't needed anymore. you read the cbv directly from the heap now.
-	root_parameters[0] = {
-		ParameterType = .CBV,
-		Descriptor = {ShaderRegister = 0},
-		ShaderVisibility = .ALL, // vertex, pixel, or both (all)
-	}
-
-	root_parameters[1] = {
-		ParameterType = ._32BIT_CONSTANTS,
-		Constants = {ShaderRegister = 1, Num32BitValues = 2},
-		ShaderVisibility = .ALL
+	root_parameters:= [2]dx.ROOT_PARAMETER {
+		// This is the index of the CBV on the srv heap
+		{
+			ParameterType = ._32BIT_CONSTANTS,
+			Constants = {ShaderRegister = 0, Num32BitValues = 1},
+			ShaderVisibility = .ALL
+		},
+		// This is the DrawConstants for the mesh drawing
+		{
+			ParameterType = ._32BIT_CONSTANTS,
+			Constants = {ShaderRegister = 1, Num32BitValues = 2},
+			ShaderVisibility = .ALL
+		}
 	}
 
 	sampler_desc := dx.STATIC_SAMPLER_DESC {
@@ -725,7 +719,7 @@ create_root_signatures :: proc() {
 	desc := dx.VERSIONED_ROOT_SIGNATURE_DESC {
 		Version = ._1_0,
 		Desc_1_0 = {
-			NumParameters = root_parameters_len,
+			NumParameters = len(root_parameters),
 			pParameters = &root_parameters[0],
 			NumStaticSamplers = 1,
 			pStaticSamplers = &sampler_desc,
@@ -1361,6 +1355,12 @@ create_gbuffer :: proc() -> GBuffer {
 	}
 }
 
+render_common :: proc() {
+	// send root parameters
+	ct := &g_dx_context
+	ct.cmdlist->SetGraphicsRoot32BitConstant(0, cast(u32)ct.constant_buffer.srv_index, 0)
+}
+
 pso_gbuffer_render :: proc() {
 
 	ct := &g_dx_context
@@ -1368,6 +1368,7 @@ pso_gbuffer_render :: proc() {
 	ct.cmdlist->SetPipelineState(ct.psos[.GBuffer_Pass].pipeline_state)
 	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap.heap)
 	ct.cmdlist->SetGraphicsRootSignature(ct.psos[.GBuffer_Pass].root_signature)
+	render_common()
 
 	transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
 
@@ -1515,6 +1516,7 @@ pso_lighting_render :: proc() {
 	//  so we don't need to set a descriptor table or set texture slots.
 	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap.heap)
 	ct.cmdlist->SetGraphicsRootSignature(ct.psos[.Lighting_Pass].root_signature)
+	render_common()
 
 	set_viewport_stuff()
 
@@ -1565,6 +1567,7 @@ pso_gizmos_render :: proc () {
 
 	// This state is reset everytime the cmd list is reset, so we need to rebind it
 	ct.cmdlist->SetGraphicsRootSignature(ct.psos[.Gizmos].root_signature)
+	render_common()
 
 	// setting rtv and dsv
 
