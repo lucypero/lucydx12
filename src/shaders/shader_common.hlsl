@@ -1,9 +1,17 @@
 #pragma once
 
-// Indices for different core things
-struct AllSrvsIndices {
+// Draw Constants for mesh drawing. this comes in as 2 32bit root constants
+struct DrawConstants {
+	uint mesh_index;
+	uint material_index;
 };
 
+/// Root Parameters
+SamplerState mySampler : register(s0);
+int cbv_index: register (b0);
+ConstantBuffer<DrawConstants> draw_constants : register(b1);
+
+// Constant Buffer Struct Definition
 struct GeneralConstants {
     float4x4 view;
     float4x4 projection;
@@ -16,7 +24,6 @@ struct GeneralConstants {
     uint current_scene_mesh_transforms_idx;
     
     // Other srv indices
-    int general_constants_idx;
 	
 	// g buffer
 	int g_buffer_color_idx;
@@ -26,12 +33,3 @@ struct GeneralConstants {
 	// depth 
 	int depth_idx;
 };
-
-struct DrawConstants {
-	uint mesh_index;
-	uint material_index;
-};
-
-int GetCBVIndex() {
-	return 3;
-}

@@ -4,8 +4,6 @@
 #pragma pack_matrix(column_major)
 #include "src/shaders/shader_common.hlsl"
 
-SamplerState mySampler : register(s0);
-
 // Assuming: 
 // uv: [0, 1] across the screen
 // depth: sampled from your depth buffer [0, 1]
@@ -112,7 +110,7 @@ float3 DebugHueGradient(float t)
 
 float4 PSMain(PSInput input) : SV_TARGET
 {
-	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[GetCBVIndex()];
+	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[cbv_index];
 	
 	// g buffer
 	Texture2D<float4> albedo = ResourceDescriptorHeap[general_constants.g_buffer_color_idx];

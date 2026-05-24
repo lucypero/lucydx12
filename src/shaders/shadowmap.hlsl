@@ -20,12 +20,10 @@ struct MeshTransform
 	float4x4 model; 
 };
 
-ConstantBuffer<DrawConstants> draw_constants : register(b1);
-
 // just do position processing
 PSInput VSMain(VSInput the_input) {
 
-	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[GetCBVIndex()];
+	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[cbv_index];
 	StructuredBuffer<MeshTransform> mesh_transforms = ResourceDescriptorHeap[general_constants.current_scene_mesh_transforms_idx];
 	
 	PSInput result;

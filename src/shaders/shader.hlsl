@@ -1,5 +1,4 @@
 // this is the first pass that populates all the g-buffers.
-
 #pragma pack_matrix(column_major)
 #include "src/shaders/shader_common.hlsl"
 
@@ -13,12 +12,6 @@ struct VSInput {
 	float2 uvs : TEXCOORD;
 	float2 uvs_2 : TEXCOORD_SECOND_UV;
 };
-
-/// Root Parameters
-SamplerState mySampler : register(s0);
-ConstantBuffer<DrawConstants> draw_constants : register(b1);
-
-/// Shader Input --- end
 
 struct TextureUV {
 	uint texture_id;
@@ -48,7 +41,7 @@ struct PSInput {
 
 PSInput VSMain(VSInput the_input) {
 
-	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[GetCBVIndex()];
+	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[cbv_index];
 	StructuredBuffer<MeshTransform> mesh_transforms = ResourceDescriptorHeap[general_constants.current_scene_mesh_transforms_idx];
 	
 	PSInput result;
@@ -110,7 +103,7 @@ struct PSOutput {
 };
 
 PSOutput PSMain(PSInput input) {
-	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[GetCBVIndex()];
+	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[cbv_index];
 	PSOutput output;
 	
 	StructuredBuffer<Material> materials = ResourceDescriptorHeap[general_constants.current_scene_materials_idx];
