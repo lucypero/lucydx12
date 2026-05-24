@@ -38,6 +38,6 @@ PSInput VSMain(VSInput the_input) {
 	return result;
 }
 
-float4 PSMain(PSInput input) : SV_TARGET {
-	return float4(1,1,1,1);
+void PSMain(PSInput input) : SV_TARGET {
+	return;
 }

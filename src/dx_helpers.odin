@@ -226,7 +226,7 @@ get_dx_vertex_input :: proc(input_layout_vertex: typeid, input_layout_instance: 
 }
 
 
-pso_create :: proc(shader_filename: string, parameters: PSOParameters, pso_name: string = "") -> PSO {
+pso_create :: proc(shader_filename: string, parameters: PSOParameters, render_proc: proc(pso:PSO), pso_name: string = "") -> PSO {
 	ct := &g_dx_context
 	vs, ps, ok := compile_shader(ct.dxc_compiler, shader_filename)
 	assert(ok, "could not compile shader!! check logs")
@@ -251,7 +251,8 @@ pso_create :: proc(shader_filename: string, parameters: PSOParameters, pso_name:
 		shader_filename = shader_filename,
 		parameters = parameters,
 		pso_index = pso_index,
-		pso_name = pso_name
+		pso_name = pso_name,
+		render_proc = render_proc
 	}
 
 	pso_hotswap_init(&pso)
@@ -707,7 +708,7 @@ create_constant_buffer_upload :: proc(size_in_bytes: u32, pool: ^DXResourcePool,
 	srv_index := create_cbv(&dx.CONSTANT_BUFFER_VIEW_DESC{
 		BufferLocation = vb->GetGPUVirtualAddress(),
 		SizeInBytes = size_in_bytes
-	}, true, debug_name = name)
+	})
 
 	return ConstantBufferUpload {
 		buffer = vb,
@@ -1264,6 +1265,8 @@ PSO :: struct {
 	/// For hot swapping
 	last_write_time: time.Time,
 	pso_swap: ^dx.IPipelineState,
+
+	render_proc: proc(pso: PSO)
 }
 
 create_pso_dx :: proc(shader_filename: string, parameters: PSOParameters,
