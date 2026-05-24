@@ -301,8 +301,7 @@ PSOName :: enum {
 	GBuffer_Pass,
 	Lighting_Pass,
 	Shadowmap,
-	Gizmos,
-	Text
+	Gizmos
 }
 
 // ----- //// GLOBAL STATE ------
@@ -772,7 +771,7 @@ init_dx_user :: proc() {
 			blend_state = .Off,
 			enable_depth = true,
 			rtv_count = 0,
-		}, pso_name = "Shadowmap pso")
+		}, render_proc = pso_shadowmap_render, pso_name = "Shadowmap pso")
 	}
 
 	gbuffer_rtv_formats := [8]dxgi.FORMAT {
@@ -791,7 +790,7 @@ init_dx_user :: proc() {
 		rtv_formats = gbuffer_rtv_formats,
 		// true because we flipped positions and normals in gltf to convert between coord systems.
 		front_counter_clockwise = true,
-	}, pso_name = "geometry pass PSO")
+	}, render_proc = pso_gbuffer_render, pso_name = "geometry pass PSO")
 
 	ct.psos[.Lighting_Pass] = pso_create(lighting_shader_filename, PSOParameters {
 		vertex_input = struct{},
@@ -799,7 +798,7 @@ init_dx_user :: proc() {
 		enable_depth = false,
 		rtv_count = 1,
 		rtv_formats = {0 = .R8G8B8A8_UNORM, 1 ..=7 = .UNKNOWN},
-	}, pso_name = "lighting pass PSO")
+	}, render_proc = pso_lighting_render, pso_name = "lighting pass PSO")
 
 	ct.psos[.Gizmos] = pso_create(ui_shader_filename, PSOParameters {
 		vertex_input = Gizmos_Vertex_IA,
@@ -809,7 +808,7 @@ init_dx_user :: proc() {
 		fill_mode = .Wireframe,
 		rtv_count = 1,
 		rtv_formats = {0 = .R8G8B8A8_UNORM, 1 ..=7 = .UNKNOWN},
-	}, pso_name = "Gizmos PSO")
+	}, render_proc = pso_gizmos_render, pso_name = "Gizmos PSO")
 
 	// hr = ct.command_allocator->Reset(
 	// hr = ct.cmdlist->Reset(ct.command_allocator, nil)
@@ -1067,9 +1066,9 @@ render :: proc() {
 
 	ct.cmdlist->Reset(ct.command_allocator, nil)
 
-	pso_gbuffer_render()
-	pso_lighting_render()
-	if g_light_draw_gizmos do pso_gizmos_render()
+	for pso in ct.psos {
+		pso.render_proc(pso)
+	}
 
 	render_imgui()
 
@@ -1355,24 +1354,29 @@ create_gbuffer :: proc() -> GBuffer {
 	}
 }
 
-render_common :: proc() {
+render_common :: proc(pso: PSO) {
 	// send root parameters
 	ct := &g_dx_context
+
+	ct.cmdlist->SetPipelineState(pso.pipeline_state)
+	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap.heap)
+	ct.cmdlist->SetGraphicsRootSignature(pso.root_signature)
 	ct.cmdlist->SetGraphicsRoot32BitConstant(0, cast(u32)ct.constant_buffer.srv_index, 0)
+
+	set_viewport_stuff()
 }
 
-pso_gbuffer_render :: proc() {
+pso_shadowmap_render :: proc(pso: PSO) {
+
+}
+
+pso_gbuffer_render :: proc(pso: PSO) {
 
 	ct := &g_dx_context
 
-	ct.cmdlist->SetPipelineState(ct.psos[.GBuffer_Pass].pipeline_state)
-	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap.heap)
-	ct.cmdlist->SetGraphicsRootSignature(ct.psos[.GBuffer_Pass].root_signature)
-	render_common()
+	render_common(pso)
 
 	transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
-
-	set_viewport_stuff()
 
 	// Transitioning gbuffers from SRVs to render target
 	transition_gbuffers(true)
@@ -1450,7 +1454,6 @@ pso_gbuffer_render :: proc() {
 			}
 		})
 	}
-
 }
 
 // to_render_target = false: transitions from render target to pixel shader resource
@@ -1484,12 +1487,12 @@ transition_gbuffers :: proc(to_render_target: bool) {
 	ct.cmdlist->ResourceBarrier(GBUFFER_COUNT, &res_barriers[cast(GBufferUnitName)0])
 }
 
-pso_lighting_render :: proc() {
+pso_lighting_render :: proc(pso: PSO) {
 
 
 	ct := &g_dx_context
 
-	ct.cmdlist->SetPipelineState(ct.psos[.Lighting_Pass].pipeline_state)
+	render_common(pso)
 
 	// Transitioning gbuffers from render target to SRVs
 	transition_gbuffers(false)
@@ -1512,13 +1515,6 @@ pso_lighting_render :: proc() {
 
 	transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
 
-	// descriptor heap is directly accessed in the shader.
-	//  so we don't need to set a descriptor table or set texture slots.
-	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap.heap)
-	ct.cmdlist->SetGraphicsRootSignature(ct.psos[.Lighting_Pass].root_signature)
-	render_common()
-
-	set_viewport_stuff()
 
 	// Setting render targets. Clearing RTV.
 	{
@@ -1541,11 +1537,16 @@ pso_lighting_render :: proc() {
 }
 
 // TODO: this is using resources from any loaded scene. change that.
-pso_gizmos_render :: proc () {
+pso_gizmos_render :: proc (pso: PSO) {
+
+	if !g_light_draw_gizmos do return
+
 	scene, ok:= get_first_active_scene() 
 	if !ok do return
 
 	ct := &g_dx_context
+
+	render_common(pso)
 
 	// updating gizmo data (looking at lights)
 	gizmos_count : u32 = 1
@@ -1560,17 +1561,7 @@ pso_gizmos_render :: proc () {
 		copy_to_buffer_already_mapped(scene.vb_gizmos_instance_data.gpu_pointer, slice.to_bytes(gizmos_instances))
 	}
 
-	ct.cmdlist->SetPipelineState(ct.psos[.Gizmos].pipeline_state)
-
-	// setting descriptor heap for our cbv srv uav's
-	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap.heap)
-
-	// This state is reset everytime the cmd list is reset, so we need to rebind it
-	ct.cmdlist->SetGraphicsRootSignature(ct.psos[.Gizmos].root_signature)
-	render_common()
-
 	// setting rtv and dsv
-
 	transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
 	defer {
 		transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
