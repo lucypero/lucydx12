@@ -1,5 +1,6 @@
 package main
 
+import "core:io"
 import "core:flags"
 import "core:thread"
 import "core:mem/virtual"
@@ -24,6 +25,7 @@ import "core:sync"
 import dxc "vendor:directx/dxc"
 import "core:prof/spall"
 import dxma "../libs/odin-d3d12ma"
+import "core:encoding/json"
 
 // imgui
 import im "../libs/odin-imgui"
@@ -155,7 +157,8 @@ Context :: struct {
 	gbuffer: GBuffer,
 	root_signatures: [RootSignatureChoice]^dx.IRootSignature,
 	psos: [PSOName]PSO,
-	constant_buffer: ConstantBufferUpload,
+	cb_general: ConstantBufferUpload,
+	cb_shadowmap: ConstantBufferUpload,
 
 	/// Shadowmap
 	tx_shadowmap: Texture
@@ -208,6 +211,8 @@ ConstantBufferData :: struct #align (256) {
 
 	// depth
 	depth_idx: i32,
+
+	shadowmap_cb_idx: i32,
 }
 
 // testing
@@ -271,11 +276,12 @@ InstanceData :: struct #align (256) {
 
 // private global staet
 
+g_config : RendererConfig
+
 g_global_trace_ctx: trace.Context
 g_frame_dt : f64 = 0.2 // in ms
 g_mesh_drawn_count: int = 0
 g_start_time: time.Time
-g_light_pos: v3
 g_light_draw_gizmos: bool
 g_light_int: f32
 g_the_time_sec: f32
@@ -298,15 +304,15 @@ Gizmos_Vertex_IA :: struct {
 
 // All our PSO's
 PSOName :: enum {
+	Shadowmap,
 	GBuffer_Pass,
 	Lighting_Pass,
-	Shadowmap,
 	Gizmos
 }
 
 // ----- //// GLOBAL STATE ------
 
-cb_update :: proc() {
+cb_general_update :: proc() {
 
 	// ticking cbv time value
 	thetime := time.diff(g_start_time, time.now())
@@ -324,7 +330,49 @@ cb_update :: proc() {
 		view = view,
 		projection = projection,
 		inverse_view_proj = linalg.inverse(projection * view),
-		light_pos = g_light_pos,
+		light_pos = g_config.light_pos,
+		light_int = g_light_int,
+		view_pos = g_cur_cam.pos,
+		time = g_the_time_sec,
+		current_scene_materials_idx = scene_is_active ? cast(u32)active_scene.material_srv_index : 0,
+		current_scene_mesh_transforms_idx = scene_is_active ? cast(u32)active_scene.model_matrices_srv_index : 0,
+		g_buffer_color_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Albedo].srv_index,
+		g_buffer_normal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Normal].srv_index,
+		g_buffer_ao_rough_metal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.AO_Rough_Metal].srv_index,
+		depth_idx = cast(i32)g_dx_context.depth_texture.srv_index,
+		shadowmap_cb_idx = cast(i32)g_dx_context.cb_shadowmap.srv_index
+	}
+
+	// sending data to the cpu mapped memory that the gpu can read
+	// copy_to_buffer_already_mapped(g_dx_context.constant_buffer.gpu_pointer, slice.to_bytes([]ConstantBufferData{cbv_data}))
+	copy_to_buffer_already_mapped_value(g_dx_context.cb_general.gpu_pointer, &cbv_data)
+}
+
+cb_shadowmap_update :: proc(light_pos: v3) {
+
+	// ticking cbv time value
+	thetime := time.diff(g_start_time, time.now())
+	g_the_time_sec = f32(thetime) / f32(time.Second)
+	// if the_time_sec > 1 {
+	// 	start_time = time.now()
+	// }
+
+	// sending constant buffer data
+	view, projection: dxm
+
+	{
+		look_at := light_pos + {1, 0, 0}
+		view = linalg.matrix4_look_at_f32(light_pos, look_at, {0, 1, 0}, true)
+		projection = linalg.matrix_ortho3d_f32(-5, 5, -5, 5, 0, 5)
+	}
+
+	active_scene, scene_is_active := get_first_active_scene()
+
+	cbv_data := ConstantBufferData {
+		view = view,
+		projection = projection,
+		inverse_view_proj = linalg.inverse(projection * view),
+		light_pos = g_config.light_pos,
 		light_int = g_light_int,
 		view_pos = g_cur_cam.pos,
 		time = g_the_time_sec,
@@ -338,13 +386,12 @@ cb_update :: proc() {
 
 	// sending data to the cpu mapped memory that the gpu can read
 	// copy_to_buffer_already_mapped(g_dx_context.constant_buffer.gpu_pointer, slice.to_bytes([]ConstantBufferData{cbv_data}))
-	copy_to_buffer_already_mapped_value(g_dx_context.constant_buffer.gpu_pointer, &cbv_data)
+	copy_to_buffer_already_mapped_value(g_dx_context.cb_shadowmap.gpu_pointer, &cbv_data)
 }
 
 // initializes app data in Context struct
 context_init :: proc(con: ^Context) {
 	g_cur_cam = camera_init()
-	g_light_pos = v3{0,2,0}
 	g_light_draw_gizmos = true
 	g_light_int = 1
 }
@@ -414,6 +461,7 @@ main :: proc() {
 	}
 
 	// /set up memory
+	load_settings()
 
 	// setting up upload thread
 	upload_thread := thread.create_and_start(upload_thread_start)
@@ -756,15 +804,20 @@ init_dx_user :: proc() {
 	ct.gbuffer = create_gbuffer()
 
 	// constant buffer
-	ct.constant_buffer = create_constant_buffer_upload(size_of(ConstantBufferData), &g_resources_longterm, name = "general constants cbv")
+	ct.cb_general = cb_upload_create(size_of(ConstantBufferData), &g_resources_longterm, name = "general constants cbv")
 
 	// shadowmap setup
 	{
 		// creating shadowmap texture (DSV and then SRV)
-		// createte
+		ct.cb_shadowmap = cb_upload_create(size_of(ConstantBufferData), &g_resources_longterm, name = "shadowmap cbv")
+
+		opt_clear := dx.CLEAR_VALUE {
+			Format = .D32_FLOAT,
+			DepthStencil = {Depth = 1.0, Stencil = 0},
+		}
 
 		ct.tx_shadowmap = texture_create(nil, 1024, 1024, .R32_TYPELESS,
-			&g_resources_longterm, {.DSV, .SRV}, texture_name = "shadowmap")
+			&g_resources_longterm, view_flags = {.DSV, .SRV}, texture_name = "shadowmap", opt_clear_value = &opt_clear)
 
 		ct.psos[.Shadowmap] = pso_create("src/shaders/shadowmap.hlsl", PSOParameters {
 			vertex_input = VertexData,
@@ -999,7 +1052,7 @@ do_imgui_ui :: proc() {
 
 	im.Begin("lucydx12")
 
-	im.DragFloat3("light pos", &g_light_pos, 0.1, -5000, 5000)
+	im.DragFloat3("light pos", &g_config.light_pos, 0.1, -5000, 5000)
 	im.DragFloat("light intensity", &g_light_int, 0.1, 0, 20)
 	im.Checkbox("draw light gizmos", &g_light_draw_gizmos)
 	im.DragFloat("cam speed", &g_cur_cam.speed, 0.0001, 0, 20)
@@ -1053,14 +1106,63 @@ do_imgui_ui :: proc() {
 	}
 
 	// im.ShowDemoWindow()
+
+	if im.Button("Save Settings") {
+		lprintfln("save here")
+		save_settings()
+	}
+
 }
 
+config_filename :: "config.json"
+JSON_SPEC :: json.Specification.Bitsquid
+
+RendererConfig :: struct {
+	cam_pos: v3,
+	cam_yaw: f32,
+	cam_pitch: f32,
+	light_pos: v3
+}
+
+save_settings :: proc() {
+
+	// syncing g_config with some some stuff
+	g_config.cam_pos = g_cur_cam.pos
+	g_config.cam_yaw = g_cur_cam.yaw
+	g_config.cam_pitch = g_cur_cam.pitch
+
+	// marshalling
+
+	json_data, err := json.marshal(g_config, {
+		pretty         = true,
+		use_enum_names = true,
+		spec = JSON_SPEC
+	})
+	assert(err == nil)
+
+	werr := os.write_entire_file(config_filename, json_data)
+	assert(werr == nil)
+}
+
+load_settings :: proc() {
+	data, read_err := os.read_entire_file(config_filename, context.temp_allocator)
+	if read_err == os.General_Error.Not_Exist {
+		save_settings()
+		return
+	}
+
+	assert(read_err == nil)
+
+	// todo watch out about allocations here
+	unmarshal_err := json.unmarshal(data, &g_config, JSON_SPEC)
+	assert(unmarshal_err == nil)
+}
 
 render :: proc() {
 	ct := &g_dx_context
 	hr: dx.HRESULT
 
-	cb_update()
+	cb_general_update()
 
 	g_mesh_drawn_count = 0
 
@@ -1361,51 +1463,29 @@ render_common :: proc(pso: PSO) {
 	ct.cmdlist->SetPipelineState(pso.pipeline_state)
 	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap.heap)
 	ct.cmdlist->SetGraphicsRootSignature(pso.root_signature)
-	ct.cmdlist->SetGraphicsRoot32BitConstant(0, cast(u32)ct.constant_buffer.srv_index, 0)
+	ct.cmdlist->SetGraphicsRoot32BitConstant(0, cast(u32)ct.cb_general.srv_index, 0)
 
 	set_viewport_stuff()
 }
 
 pso_shadowmap_render :: proc(pso: PSO) {
-
-}
-
-pso_gbuffer_render :: proc(pso: PSO) {
-
 	ct := &g_dx_context
 
-	render_common(pso)
+	cb_shadowmap_update(g_config.light_pos)
 
 	transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
+	transition_resource(ct.tx_shadowmap.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
+	render_common(pso)
 
-	// Transitioning gbuffers from SRVs to render target
-	transition_gbuffers(true)
+	dsv_handle := texture_get_dsv_cpu_address(ct.tx_shadowmap)
+	ct.cmdlist->OMSetRenderTargets(0, nil, false, &dsv_handle)
+	ct.cmdlist->ClearDepthStencilView(dsv_handle, {.DEPTH, .STENCIL}, 1.0, 0, 0, nil)
 
-	// Setting render targets. Clearing DSV and RTV.
-	{
-		rtv_handles := [GBUFFER_COUNT]dx.CPU_DESCRIPTOR_HANDLE {
-			texture_get_rtv_cpu_address(g_dx_context.gbuffer.gbuffers[.Albedo]),
-			texture_get_rtv_cpu_address(g_dx_context.gbuffer.gbuffers[.Normal]),
-			texture_get_rtv_cpu_address(g_dx_context.gbuffer.gbuffers[.AO_Rough_Metal]),
-		}
-		dsv_handle := texture_get_dsv_cpu_address(ct.depth_texture)
+	draw_scene_geometry()
+}
 
-		// setting depth buffer
-		ct.cmdlist->OMSetRenderTargets(GBUFFER_COUNT, &rtv_handles[0], false, &dsv_handle)
-
-		// clear backbuffer
-		clearcolor := [?]f32{0, 0, 0, 1.0}
-
-		// we should probably clear each gbuffer individually to a sane value...
-		for rtv_handle in rtv_handles {
-			ct.cmdlist->ClearRenderTargetView(rtv_handle, &clearcolor, 0, nil)
-		}
-
-		// clearing depth buffer
-		ct.cmdlist->ClearDepthStencilView(dsv_handle, {.DEPTH, .STENCIL}, 1.0, 0, 0, nil)
-	}
-
-	// draw call
+draw_scene_geometry :: proc() {
+	ct := &g_dx_context
 	ct.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
 
 	// drawing all scenes
@@ -1456,6 +1536,42 @@ pso_gbuffer_render :: proc(pso: PSO) {
 	}
 }
 
+pso_gbuffer_render :: proc(pso: PSO) {
+
+	ct := &g_dx_context
+
+	render_common(pso)
+
+	// Transitioning gbuffers from SRVs to render target
+	transition_gbuffers(true)
+
+	// Setting render targets. Clearing DSV and RTV.
+	{
+		rtv_handles := [GBUFFER_COUNT]dx.CPU_DESCRIPTOR_HANDLE {
+			texture_get_rtv_cpu_address(g_dx_context.gbuffer.gbuffers[.Albedo]),
+			texture_get_rtv_cpu_address(g_dx_context.gbuffer.gbuffers[.Normal]),
+			texture_get_rtv_cpu_address(g_dx_context.gbuffer.gbuffers[.AO_Rough_Metal]),
+		}
+		dsv_handle := texture_get_dsv_cpu_address(ct.depth_texture)
+
+		// setting depth buffer
+		ct.cmdlist->OMSetRenderTargets(GBUFFER_COUNT, &rtv_handles[0], false, &dsv_handle)
+
+		// clear backbuffer
+		clearcolor := [?]f32{0, 0, 0, 1.0}
+
+		// we should probably clear each gbuffer individually to a sane value...
+		for rtv_handle in rtv_handles {
+			ct.cmdlist->ClearRenderTargetView(rtv_handle, &clearcolor, 0, nil)
+		}
+
+		// clearing depth buffer
+		ct.cmdlist->ClearDepthStencilView(dsv_handle, {.DEPTH, .STENCIL}, 1.0, 0, 0, nil)
+	}
+
+	draw_scene_geometry()
+}
+
 // to_render_target = false: transitions from render target to pixel shader resource
 // to_render_target = true: viceversa
 transition_gbuffers :: proc(to_render_target: bool) {
@@ -1493,6 +1609,7 @@ pso_lighting_render :: proc(pso: PSO) {
 	ct := &g_dx_context
 
 	render_common(pso)
+	transition_resource(ct.tx_shadowmap.buffer, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
 
 	// Transitioning gbuffers from render target to SRVs
 	transition_gbuffers(false)
@@ -1554,7 +1671,7 @@ pso_gizmos_render :: proc (pso: PSO) {
 		gizmos_instances := make([]InstanceData, gizmos_count, context.temp_allocator)
 
 		gizmos_instances[0] = InstanceData {
-			world_mat = get_world_mat(g_light_pos, 0.1),
+			world_mat = get_world_mat(g_config.light_pos, 0.1),
 			color = v4{1,0,0, 0.5}
 		}
 

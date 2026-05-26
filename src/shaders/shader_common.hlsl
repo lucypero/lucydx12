@@ -32,4 +32,6 @@ struct GeneralConstants {
 	
 	// depth 
 	int depth_idx;
+
+	int shadowmap_cb_idx;
 };

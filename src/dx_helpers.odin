@@ -661,7 +661,7 @@ create_vertex_buffer_upload :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^
 }
 
 // created buffer on the upload heap, and maps it. keeps it mapped
-create_constant_buffer_upload :: proc(size_in_bytes: u32, pool: ^DXResourcePool, name: string = "") -> ConstantBufferUpload {
+cb_upload_create :: proc(size_in_bytes: u32, pool: ^DXResourcePool, name: string = "") -> ConstantBufferUpload {
 
 	vb: ^dx.IResource
 
