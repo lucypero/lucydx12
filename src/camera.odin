@@ -32,10 +32,10 @@ camera_init :: proc() -> Camera {
 	g_cur_cam_mode = .FPS
 	camera_toggle_mode()
 
-
 	return Camera{
-		pos = {0, 1, -1},
-		yaw = -90,
+		pos = g_config.cam_pos,
+		pitch = g_config.cam_pitch,
+		yaw = g_config.cam_yaw,
 		speed = 0.030
 	}
 }

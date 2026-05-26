@@ -402,7 +402,7 @@ load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: s
 	dds_file := parse_dds_file(texture_final_path)
 
 	texture := texture_create(dds_file.mipmap_data, u64(dds_file.width), dds_file.height,
-		dds_file.format, res_pool, {.SRV}, len(dds_file.mipmap_data), texture_name = string(image.name))
+		dds_file.format, res_pool, view_flags = {.SRV}, mip_levels = len(dds_file.mipmap_data), texture_name = string(image.name))
 
 	return texture.srv_index
 }

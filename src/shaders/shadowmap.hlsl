@@ -24,6 +24,7 @@ struct MeshTransform
 PSInput VSMain(VSInput the_input) {
 
 	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[cbv_index];
+	ConstantBuffer<GeneralConstants> shadowmap_constants = ResourceDescriptorHeap[general_constants.shadowmap_cb_idx];
 	StructuredBuffer<MeshTransform> mesh_transforms = ResourceDescriptorHeap[general_constants.current_scene_mesh_transforms_idx];
 	
 	PSInput result;
@@ -31,10 +32,10 @@ PSInput VSMain(VSInput the_input) {
 	float4x4 world_matrix = mesh_transforms[draw_constants.mesh_index].model;
 	float4 pos = float4(the_input.position, 1.0f);
 	float4 world_position = mul(world_matrix, pos);
-	float4 view_position = mul(general_constants.view, world_position);
+	float4 view_position = mul(shadowmap_constants.view, world_position);
 	
 	// result.position = mul(pos, world_position);
-	result.position = mul(general_constants.projection, view_position);
+	result.position = mul(shadowmap_constants.projection, view_position);
 	return result;
 }
 
