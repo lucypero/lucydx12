@@ -34,4 +34,7 @@ struct GeneralConstants {
 	int depth_idx;
 
 	int shadowmap_cb_idx;
+
+	bool draw_shadowmap;
+	int shadowmap_idx;
 };

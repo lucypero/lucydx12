@@ -230,5 +230,41 @@ float4 PSMain(PSInput input) : SV_TARGET
     // return float4(depth, 0.0, 0.0, 1.0);
     
     // -- Display Final image
+
+    // 2. Define the Minimap's position and size in UV space (0.0 to 1.0)
+    // Let's place it in the top-right corner.
+    float width  = 0.2;  // 20% of screen width
+    float height = 0.2;  // 20% of screen height
+    float posX   = 0.75; // Starts at 75% across the screen
+    float posY   = 0.05; // Starts at 5% down the screen
+    
+    // Calculate the boundaries of the minimap box
+    float minX = posX;
+    float maxX = posX + width;
+    float minY = posY;
+    float maxY = posY + height;
+
+    // 3. Check if the current pixel being rendered is inside the minimap box
+    if (general_constants.draw_shadowmap && input.uvs.x >= minX && input.uvs.x <= maxX && 
+        input.uvs.y >= minY && input.uvs.y <= maxY) 
+    {
+        // 4. Remap the full-screen UVs to local UVs (0.0 to 1.0) for the texture
+        float2 localUV;
+        localUV.x = (input.uvs.x - minX) / width;
+        localUV.y = (input.uvs.y - minY) / height;
+
+        // 5. Sample the minimap texture using the new local UVs
+        Texture2D<float4> shadowmap = ResourceDescriptorHeap[general_constants.shadowmap_idx];
+        float4 minimapColor = shadowmap.Sample(mySampler, localUV);
+
+        // 6. Composite the minimap over the main scene
+        // Using simple alpha blending here: lerp(background, foreground, foregroundAlpha)
+        // result = lerp(result, minimapColor, minimapColor.a);
+        
+        // Alternatively, if your texture has no alpha channel and you just want to overwrite:
+        result = minimapColor.xxx;
+        
+    }
+
     return float4(result, 1.0);
 }

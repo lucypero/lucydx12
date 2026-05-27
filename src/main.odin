@@ -213,6 +213,9 @@ ConstantBufferData :: struct #align (256) {
 	depth_idx: i32,
 
 	shadowmap_cb_idx: i32,
+
+	draw_shadowmap: bool,
+	shadowmap_idx: i32,
 }
 
 // testing
@@ -340,7 +343,9 @@ cb_general_update :: proc() {
 		g_buffer_normal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Normal].srv_index,
 		g_buffer_ao_rough_metal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.AO_Rough_Metal].srv_index,
 		depth_idx = cast(i32)g_dx_context.depth_texture.srv_index,
-		shadowmap_cb_idx = cast(i32)g_dx_context.cb_shadowmap.srv_index
+		shadowmap_cb_idx = cast(i32)g_dx_context.cb_shadowmap.srv_index,
+		draw_shadowmap = g_config.show_lightmap,
+		shadowmap_idx = cast(i32)g_dx_context.tx_shadowmap.srv_index,
 	}
 
 	// sending data to the cpu mapped memory that the gpu can read
@@ -1055,6 +1060,7 @@ do_imgui_ui :: proc() {
 	im.DragFloat3("light pos", &g_config.light_pos, 0.1, -5000, 5000)
 	im.DragFloat("light intensity", &g_light_int, 0.1, 0, 20)
 	im.Checkbox("draw light gizmos", &g_light_draw_gizmos)
+	im.Checkbox("draw lightmap", &g_config.show_lightmap)
 	im.DragFloat("cam speed", &g_cur_cam.speed, 0.0001, 0, 20)
 	im.DragFloat("cam cruise speed", &g_cur_cam.cruising_speed, 0.0001, 0, 20)
 
@@ -1107,6 +1113,8 @@ do_imgui_ui :: proc() {
 
 	// im.ShowDemoWindow()
 
+
+
 	if im.Button("Save Settings") {
 		lprintfln("save here")
 		save_settings()
@@ -1121,7 +1129,8 @@ RendererConfig :: struct {
 	cam_pos: v3,
 	cam_yaw: f32,
 	cam_pitch: f32,
-	light_pos: v3
+	light_pos: v3,
+	show_lightmap: bool
 }
 
 save_settings :: proc() {
