@@ -370,7 +370,6 @@ compile_individual_shader :: proc(shader_filename: string, source_buffer: ^dxc.B
 	return output_blob, true
 }
 
-
 DDSFile :: struct {
 	width: u32,
 	height: u32,
@@ -385,6 +384,14 @@ Texture :: struct {
 	srv_index: int,
 	dsv_index: int,
 	rtv_index: int,
+}
+
+StructuredBuffer :: struct {
+	buffer: ^dx.IResource,
+	fence_value: u64,
+	srv_index: int,
+	buffer_type: typeid,
+	count: int
 }
 
 texture_get_srv_cpu_address :: proc(tex: Texture) -> dx.CPU_DESCRIPTOR_HANDLE {
@@ -405,7 +412,7 @@ TextureViewFlag :: enum {
 	SRV
 }
 
-TextureViewFlags :: bit_set[TextureViewFlag]
+BufferViewFlags :: bit_set[TextureViewFlag]
 
 // creates texture on default heap
 // schedules an upload of data
@@ -417,7 +424,7 @@ texture_create :: proc(
 	height: u32,
 	format: dxgi.FORMAT,
 	pool_textures : ^DXResourcePool,
-	view_flags: TextureViewFlags = {},
+	view_flags: BufferViewFlags = {},
 	mip_levels: int = 1,
 	texture_name : string = "",
 	opt_clear_value: ^dx.CLEAR_VALUE = nil,
@@ -1182,16 +1189,19 @@ string_append :: proc(the_strs: ..string, allocator: mem.Allocator = context.all
 	return strings.to_string(sb)
 }
 
-create_structured_buffer_with_data :: proc(
+structured_buffer_create :: proc(
 	buffer_name: string,
 	pool_resource : ^DXResourcePool,
-	buffer_data : []byte
-) -> (res: ^dx.IResource, fence_value: u64) {
+	buffer_type: typeid,
+	count: int,
+	buffer_data : Maybe([]byte) = nil, // nil for no initial data
+	view_flags: BufferViewFlags = {.SRV},
+) -> StructuredBuffer {
 
 	ct := &g_dx_context
 
 	buffer_desc := dx.RESOURCE_DESC {
-		Width = u64(len(buffer_data)),
+		Width = cast(u64)(reflect.size_of_typeid(buffer_type) * count),
 		Height = 1,
 		Dimension = .BUFFER,
 		Layout = .ROW_MAJOR,
@@ -1214,18 +1224,45 @@ create_structured_buffer_with_data :: proc(
 		ppvResource = nil
 	)
 
-	default_res := dxma.Allocation_GetResource(allocation)
-	// already in upload thread. just do the copy.
+	fence_value: u64
 
-	// TODO: put data thing back to temp allocator (upload allocator), if the upload thread allocated it.
-	fence_value = dx_upload_trigger(&g_upload_service, default_res, buffer_data)
+	default_res := dxma.Allocation_GetResource(allocation)
+	if buffer_data_inner, ok := buffer_data.?; ok {
+		fence_value = dx_upload_trigger(&g_upload_service, default_res, buffer_data_inner)
+	}
 
 	append(pool_resource, cast(^dxgi.IUnknown)allocation)
 
 	buffer_name_cstring := windows.utf8_to_wstring_alloc(buffer_name, context.temp_allocator)
 	default_res->SetName(buffer_name_cstring)
 
-	return default_res, fence_value
+	// return default_res, fence_value
+	srv_index : int = -1
+
+	// probably should always be a SRV
+	if .SRV in view_flags {
+		srv_desc := dx.SHADER_RESOURCE_VIEW_DESC {
+			Format = .UNKNOWN,
+			ViewDimension = .BUFFER,
+			Shader4ComponentMapping = dx.ENCODE_SHADER_4_COMPONENT_MAPPING(0, 1, 2, 3), // this is the default mapping
+			Buffer = {
+				FirstElement = 0,
+				NumElements = u32(count),
+				StructureByteStride = cast(u32)reflect.size_of_typeid(buffer_type),
+				Flags = {},
+			},
+		}
+
+		srv_index = create_srv(default_res, &srv_desc)
+	}
+
+	return StructuredBuffer {
+		buffer = default_res,
+		fence_value = fence_value,
+		srv_index = srv_index,
+		buffer_type = buffer_type,
+		count = count
+	}
 }
 
 set_viewport_stuff :: proc() {

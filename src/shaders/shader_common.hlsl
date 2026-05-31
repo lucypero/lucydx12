@@ -37,4 +37,7 @@ struct GeneralConstants {
 
 	bool draw_shadowmap;
 	int shadowmap_idx;
+
+	// active light count
+	int light_count;
 };

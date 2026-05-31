@@ -192,6 +192,22 @@ Material :: struct {
 	normal: TextureUV,
 }
 
+LightType :: enum u32 {
+	Directional,
+	Point
+}
+
+Light :: struct #align (16) {
+	type: LightType,
+	position: v3,
+
+	radius: f32,
+	direction: v3,
+
+	intensity: f32,
+	color: v3,
+}
+
 // constant buffer data
 ConstantBufferData :: struct #align (256) {
 	view: dxm,
@@ -216,6 +232,7 @@ ConstantBufferData :: struct #align (256) {
 
 	draw_shadowmap: bool,
 	shadowmap_idx: i32,
+	light_count: i32,
 }
 
 // testing
@@ -230,12 +247,9 @@ Scene :: struct {
 	meshes: []Mesh,
 	allocator: virtual.Arena,
 
-	material_srv_index: int,
-	model_matrices_srv_index: int,
-
 	// dx resources
-	sb_model_matrices: ^dx.IResource,
-	sb_materials: ^dx.IResource,
+	sb_model_matrices: StructuredBuffer,
+	sb_materials: StructuredBuffer,
 
 	vertex_buffer: ^dx.IResource,
 	index_buffer: ^dx.IResource,
@@ -337,8 +351,8 @@ cb_general_update :: proc() {
 		light_int = g_light_int,
 		view_pos = g_cur_cam.pos,
 		time = g_the_time_sec,
-		current_scene_materials_idx = scene_is_active ? cast(u32)active_scene.material_srv_index : 0,
-		current_scene_mesh_transforms_idx = scene_is_active ? cast(u32)active_scene.model_matrices_srv_index : 0,
+		current_scene_materials_idx = scene_is_active ? cast(u32)active_scene.sb_materials.srv_index : 0,
+		current_scene_mesh_transforms_idx = scene_is_active ? cast(u32)active_scene.sb_model_matrices.srv_index : 0,
 		g_buffer_color_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Albedo].srv_index,
 		g_buffer_normal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Normal].srv_index,
 		g_buffer_ao_rough_metal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.AO_Rough_Metal].srv_index,
@@ -381,8 +395,8 @@ cb_shadowmap_update :: proc(light_pos: v3) {
 		light_int = g_light_int,
 		view_pos = g_cur_cam.pos,
 		time = g_the_time_sec,
-		current_scene_materials_idx = scene_is_active ? cast(u32)active_scene.material_srv_index : 0,
-		current_scene_mesh_transforms_idx = scene_is_active ? cast(u32)active_scene.model_matrices_srv_index : 0,
+		current_scene_materials_idx = scene_is_active ? cast(u32)active_scene.sb_materials.srv_index : 0,
+		current_scene_mesh_transforms_idx = scene_is_active ? cast(u32)active_scene.sb_model_matrices.srv_index : 0,
 		g_buffer_color_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Albedo].srv_index,
 		g_buffer_normal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Normal].srv_index,
 		g_buffer_ao_rough_metal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.AO_Rough_Metal].srv_index,
@@ -1123,8 +1137,10 @@ do_imgui_ui :: proc() {
 }
 
 config_filename :: "config.json"
+
 JSON_SPEC :: json.Specification.Bitsquid
 
+// This gets serialized
 RendererConfig :: struct {
 	cam_pos: v3,
 	cam_yaw: f32,

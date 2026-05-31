@@ -28,9 +28,6 @@ scene_from_gltf :: proc(scene: ^Scene) {
 	spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, name = load_gltf_profile_str)
 	}
 
-	// loading gltf files
-	last_fence_value: u64
-
 	model_filepath_c := strings.clone_to_cstring(scene.path, context.temp_allocator)
 	cgltf_options: cgltf.options
 
@@ -80,24 +77,8 @@ scene_from_gltf :: proc(scene: ^Scene) {
 			data.mesh_i += 1
 		})
 
-		scene.sb_model_matrices, last_fence_value = create_structured_buffer_with_data("model matrix data",
-			&scene.resource_pool,
-			slice.to_bytes(data.sample_matrix_data))
-
-		// creating SRV (structured buffer) (index 2)
-		srv_desc := dx.SHADER_RESOURCE_VIEW_DESC {
-			Format = .UNKNOWN,
-			ViewDimension = .BUFFER,
-			Shader4ComponentMapping = dx.ENCODE_SHADER_4_COMPONENT_MAPPING(0, 1, 2, 3), // this is the default mapping
-			Buffer = {
-				FirstElement = 0,
-				NumElements = u32(scene.mesh_count),
-				StructureByteStride = size_of(ModelMatrixData),
-				Flags = {},
-			},
-		}
-
-		scene.model_matrices_srv_index = create_srv(scene.sb_model_matrices, &srv_desc)
+		scene.sb_model_matrices = structured_buffer_create("model matrix data",
+			&scene.resource_pool, ModelMatrixData, cast(int)scene.mesh_count, buffer_data = slice.to_bytes(data.sample_matrix_data))
 	}
 
 	// gizmos stuff
@@ -111,7 +92,7 @@ scene_from_gltf :: proc(scene: ^Scene) {
 		scene.vb_gizmos_instance_data = create_vertex_buffer_upload(size_of(instance_data[0]), u32(slice.size(instance_data)), pool = &scene.resource_pool)
 	}
 
-	scene.fence_value = last_fence_value
+	scene.fence_value = scene.sb_model_matrices.fence_value
 }
 
 gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
@@ -472,23 +453,6 @@ gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string
 		}
 	}
 
-	scene.sb_materials, _ = create_structured_buffer_with_data(
-		"material buffer",
-		&scene.resource_pool,
-		slice.to_bytes(mats)
-	)
-
-	srv_desc := dx.SHADER_RESOURCE_VIEW_DESC {
-		Format = .UNKNOWN,
-		ViewDimension = .BUFFER,
-		Shader4ComponentMapping = dx.ENCODE_SHADER_4_COMPONENT_MAPPING(0, 1, 2, 3), // this is the default mapping
-		Buffer = {
-			FirstElement = 0,
-			NumElements = u32(len(mats)),
-			StructureByteStride = size_of(mats[0]),
-			Flags = {},
-		},
-	}
-
-	scene.material_srv_index = create_srv(scene.sb_materials, &srv_desc)
+	scene.sb_materials = structured_buffer_create("material buffer",
+		&scene.resource_pool, Material, len(mats), buffer_data = slice.to_bytes(mats))
 }
