@@ -202,6 +202,12 @@ LightType :: enum u32 {
 
 MAX_LIGHTS :: 8
 
+ShadowmapSettings :: struct {
+	lrbt: v4, // left right bottom top (for ortho projection)
+	near: f32,
+	far: f32,
+}
+
 // hlsl struct
 Light :: struct #align (16) {
 	type: LightType,
@@ -392,9 +398,16 @@ cb_shadowmap_update :: proc(light: Light) {
 
 	// light position used for shadowmap position, even in directional lights
 
+	sm_settings := g_config.shadowmap_settings
+
 	{
-		view = linalg.matrix4_look_at_f32(light.position, light.direction, {0, 1, 0}, true)
-		projection = linalg.matrix_ortho3d_f32(-5, 5, -5, 5, 0, 5)
+		view = linalg.matrix4_look_at_f32(light.position, light.position + light.direction, {0, 1, 0}, true)
+		projection = linalg.matrix_ortho3d_f32(sm_settings.lrbt.x, 
+			sm_settings.lrbt.y, 
+			sm_settings.lrbt.z, 
+			sm_settings.lrbt.w,
+			sm_settings.near,
+			sm_settings.far)
 	}
 
 	active_scene, scene_is_active := get_first_active_scene()
@@ -1127,6 +1140,11 @@ do_imgui_ui :: proc() {
 		im.TreePop()
 	}
 
+	// shadowmap
+	im.DragFloat4("shadowmap LRBT", &g_config.shadowmap_settings.lrbt)
+	im.DragFloat("shadowmap near", &g_config.shadowmap_settings.near)
+	im.DragFloat("shadowmap far", &g_config.shadowmap_settings.far)
+
 	im.Checkbox("draw light gizmos", &g_light_draw_gizmos)
 	im.Checkbox("draw lightmap", &g_config.show_lightmap)
 	im.DragFloat("cam speed", &g_cur_cam.speed, 0.0001, 0, 20)
@@ -1206,7 +1224,8 @@ RendererConfig :: struct {
 	cam_pitch: f32,
 	show_lightmap: bool,
 	light_count: int,
-	lights: [MAX_LIGHTS]Light
+	lights: [MAX_LIGHTS]Light,
+	shadowmap_settings: ShadowmapSettings
 }
 
 save_settings :: proc() {
