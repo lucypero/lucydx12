@@ -48,7 +48,7 @@ dxm :: matrix[4, 4]f32
 
 DXResourcePool :: [dynamic]^dx.IUnknown
 
-gbuffer_shader_filename :: "src/shaders/shader.hlsl"
+gbuffer_shader_filename :: "src/shaders/geometry.hlsl"
 lighting_shader_filename :: "src/shaders/lighting.hlsl"
 ui_shader_filename :: "src/shaders/ui.hlsl"
 text_shader_filename :: "src/shaders/text.hlsl"
@@ -161,7 +161,10 @@ Context :: struct {
 	cb_shadowmap: ConstantBufferUpload,
 
 	/// Shadowmap
-	tx_shadowmap: Texture
+	tx_shadowmap: Texture,
+
+	// light 
+	sb_lights: StructuredBuffer,
 }
 
 ModelMatrixData :: struct {
@@ -197,6 +200,9 @@ LightType :: enum u32 {
 	Point
 }
 
+MAX_LIGHTS :: 8
+
+// hlsl struct
 Light :: struct #align (16) {
 	type: LightType,
 	position: v3,
@@ -213,8 +219,6 @@ ConstantBufferData :: struct #align (256) {
 	view: dxm,
 	projection: dxm,
 	inverse_view_proj: dxm,
-	light_pos: v3,
-	light_int: f32,
 	view_pos: v3,
 	time: f32,
 	current_scene_materials_idx: u32,
@@ -232,7 +236,9 @@ ConstantBufferData :: struct #align (256) {
 
 	draw_shadowmap: bool,
 	shadowmap_idx: i32,
+
 	light_count: i32,
+	light_sb_idx: i32,
 }
 
 // testing
@@ -329,6 +335,28 @@ PSOName :: enum {
 
 // ----- //// GLOBAL STATE ------
 
+cbv_get :: proc(view, projection: dxm, scene_is_active: bool, active_scene: ^Scene) -> ConstantBufferData {
+
+	return ConstantBufferData {
+		view = view,
+		projection = projection,
+		inverse_view_proj = linalg.inverse(projection * view),
+		view_pos = g_cur_cam.pos,
+		time = g_the_time_sec,
+		current_scene_materials_idx = scene_is_active ? cast(u32)active_scene.sb_materials.srv_index : 0,
+		current_scene_mesh_transforms_idx = scene_is_active ? cast(u32)active_scene.sb_model_matrices.srv_index : 0,
+		g_buffer_color_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Albedo].srv_index,
+		g_buffer_normal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Normal].srv_index,
+		g_buffer_ao_rough_metal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.AO_Rough_Metal].srv_index,
+		depth_idx = cast(i32)g_dx_context.depth_texture.srv_index,
+		shadowmap_cb_idx = cast(i32)g_dx_context.cb_shadowmap.srv_index,
+		draw_shadowmap = g_config.show_lightmap,
+		shadowmap_idx = cast(i32)g_dx_context.tx_shadowmap.srv_index,
+		light_count = 1,
+		light_sb_idx = cast(i32)g_dx_context.sb_lights.srv_index,
+	}
+}
+
 cb_general_update :: proc() {
 
 	// ticking cbv time value
@@ -343,24 +371,7 @@ cb_general_update :: proc() {
 
 	active_scene, scene_is_active := get_first_active_scene()
 
-	cbv_data := ConstantBufferData {
-		view = view,
-		projection = projection,
-		inverse_view_proj = linalg.inverse(projection * view),
-		light_pos = g_config.light_pos,
-		light_int = g_light_int,
-		view_pos = g_cur_cam.pos,
-		time = g_the_time_sec,
-		current_scene_materials_idx = scene_is_active ? cast(u32)active_scene.sb_materials.srv_index : 0,
-		current_scene_mesh_transforms_idx = scene_is_active ? cast(u32)active_scene.sb_model_matrices.srv_index : 0,
-		g_buffer_color_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Albedo].srv_index,
-		g_buffer_normal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Normal].srv_index,
-		g_buffer_ao_rough_metal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.AO_Rough_Metal].srv_index,
-		depth_idx = cast(i32)g_dx_context.depth_texture.srv_index,
-		shadowmap_cb_idx = cast(i32)g_dx_context.cb_shadowmap.srv_index,
-		draw_shadowmap = g_config.show_lightmap,
-		shadowmap_idx = cast(i32)g_dx_context.tx_shadowmap.srv_index,
-	}
+	cbv_data := cbv_get(view, projection, scene_is_active, active_scene)
 
 	// sending data to the cpu mapped memory that the gpu can read
 	// copy_to_buffer_already_mapped(g_dx_context.constant_buffer.gpu_pointer, slice.to_bytes([]ConstantBufferData{cbv_data}))
@@ -387,21 +398,7 @@ cb_shadowmap_update :: proc(light_pos: v3) {
 
 	active_scene, scene_is_active := get_first_active_scene()
 
-	cbv_data := ConstantBufferData {
-		view = view,
-		projection = projection,
-		inverse_view_proj = linalg.inverse(projection * view),
-		light_pos = g_config.light_pos,
-		light_int = g_light_int,
-		view_pos = g_cur_cam.pos,
-		time = g_the_time_sec,
-		current_scene_materials_idx = scene_is_active ? cast(u32)active_scene.sb_materials.srv_index : 0,
-		current_scene_mesh_transforms_idx = scene_is_active ? cast(u32)active_scene.sb_model_matrices.srv_index : 0,
-		g_buffer_color_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Albedo].srv_index,
-		g_buffer_normal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Normal].srv_index,
-		g_buffer_ao_rough_metal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.AO_Rough_Metal].srv_index,
-		depth_idx = cast(i32)g_dx_context.depth_texture.srv_index
-	}
+	cbv_data := cbv_get(view, projection, scene_is_active, active_scene)
 
 	// sending data to the cpu mapped memory that the gpu can read
 	// copy_to_buffer_already_mapped(g_dx_context.constant_buffer.gpu_pointer, slice.to_bytes([]ConstantBufferData{cbv_data}))
@@ -652,6 +649,16 @@ init_dx :: proc() {
 		return
 	}
 
+	feature_data: dx.FEATURE_DATA_OPTIONS16
+
+	check(ct.device->CheckFeatureSupport(.OPTIONS16, &feature_data, size_of(feature_data)))
+
+	if feature_data.GPUUploadHeapSupported {
+		lprintfln("GPU UPLOAD is supported!")
+	} else {
+		lprintfln("GPU UPLOAD is NOT supported. You poor girl")
+	}
+
 	// set up logging callback
 	when ODIN_DEBUG {
 	info_queue: ^dx.IInfoQueue1
@@ -893,6 +900,8 @@ init_dx_user :: proc() {
 
 	load_white_texture()
 
+	ct.sb_lights = structured_buffer_create("light buffer", &g_resources_longterm, Light, MAX_LIGHTS, heap_type = .UPLOAD)
+
 	SCENE_MAX_LEN :: 3
 
 	// initting g_scenes
@@ -1071,8 +1080,8 @@ do_imgui_ui :: proc() {
 
 	im.Begin("lucydx12")
 
-	im.DragFloat3("light pos", &g_config.light_pos, 0.1, -5000, 5000)
-	im.DragFloat("light intensity", &g_light_int, 0.1, 0, 20)
+	// im.DragFloat3("light pos", &g_config.light_pos, 0.1, -5000, 5000)
+	// im.DragFloat("light intensity", &g_light_int, 0.1, 0, 20)
 	im.Checkbox("draw light gizmos", &g_light_draw_gizmos)
 	im.Checkbox("draw lightmap", &g_config.show_lightmap)
 	im.DragFloat("cam speed", &g_cur_cam.speed, 0.0001, 0, 20)

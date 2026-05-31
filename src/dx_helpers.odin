@@ -391,7 +391,8 @@ StructuredBuffer :: struct {
 	fence_value: u64,
 	srv_index: int,
 	buffer_type: typeid,
-	count: int
+	count: int,
+	gpu_pointer: rawptr // only valid if it's on an UPLOAD heap
 }
 
 texture_get_srv_cpu_address :: proc(tex: Texture) -> dx.CPU_DESCRIPTOR_HANDLE {
@@ -1196,6 +1197,7 @@ structured_buffer_create :: proc(
 	count: int,
 	buffer_data : Maybe([]byte) = nil, // nil for no initial data
 	view_flags: BufferViewFlags = {.SRV},
+	heap_type: dx.HEAP_TYPE = .DEFAULT
 ) -> StructuredBuffer {
 
 	ct := &g_dx_context
@@ -1215,7 +1217,7 @@ structured_buffer_create :: proc(
 	allocation : ^dxma.Allocation
 	dxma.Allocator_CreateResource(
 		pSelf = ct.dxma_allocator,
-		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
+		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = heap_type, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
 		pResourceDesc = &buffer_desc,
 		InitialResourceState = dx.RESOURCE_STATE_COMMON,
 		pOptimizedClearValue = nil,
@@ -1226,15 +1228,17 @@ structured_buffer_create :: proc(
 
 	fence_value: u64
 
-	default_res := dxma.Allocation_GetResource(allocation)
+	res := dxma.Allocation_GetResource(allocation)
+
 	if buffer_data_inner, ok := buffer_data.?; ok {
-		fence_value = dx_upload_trigger(&g_upload_service, default_res, buffer_data_inner)
+		assert(heap_type == .UPLOAD)
+		fence_value = dx_upload_trigger(&g_upload_service, res, buffer_data_inner)
 	}
 
 	append(pool_resource, cast(^dxgi.IUnknown)allocation)
 
 	buffer_name_cstring := windows.utf8_to_wstring_alloc(buffer_name, context.temp_allocator)
-	default_res->SetName(buffer_name_cstring)
+	res->SetName(buffer_name_cstring)
 
 	// return default_res, fence_value
 	srv_index : int = -1
@@ -1253,15 +1257,21 @@ structured_buffer_create :: proc(
 			},
 		}
 
-		srv_index = create_srv(default_res, &srv_desc)
+		srv_index = create_srv(res, &srv_desc)
+	}
+
+	gpu_data: rawptr
+	if heap_type == .UPLOAD {
+		res->Map(0, &dx.RANGE{}, &gpu_data)
 	}
 
 	return StructuredBuffer {
-		buffer = default_res,
+		buffer = res,
 		fence_value = fence_value,
 		srv_index = srv_index,
 		buffer_type = buffer_type,
-		count = count
+		count = count,
+		gpu_pointer = gpu_data
 	}
 }
 
