@@ -378,7 +378,7 @@ cb_general_update :: proc() {
 	copy_to_buffer_already_mapped_value(g_dx_context.cb_general.gpu_pointer, &cbv_data)
 }
 
-cb_shadowmap_update :: proc(light_pos: v3) {
+cb_shadowmap_update :: proc(light: Light) {
 
 	// ticking cbv time value
 	thetime := time.diff(g_start_time, time.now())
@@ -390,9 +390,10 @@ cb_shadowmap_update :: proc(light_pos: v3) {
 	// sending constant buffer data
 	view, projection: dxm
 
+	// light position used for shadowmap position, even in directional lights
+
 	{
-		look_at := light_pos + {1, 0, 0}
-		view = linalg.matrix4_look_at_f32(light_pos, look_at, {0, 1, 0}, true)
+		view = linalg.matrix4_look_at_f32(light.position, light.direction, {0, 1, 0}, true)
 		projection = linalg.matrix_ortho3d_f32(-5, 5, -5, 5, 0, 5)
 	}
 
@@ -1112,7 +1113,14 @@ do_imgui_ui :: proc() {
 			g_config.lights[i].type = cast(LightType)new_selected
 		}
 
-		im.DragFloat3("light pos", &g_config.lights[i].position, 0.1, -5000, 5000)
+		switch g_config.lights[i].type {
+		case .Directional:
+			im.DragFloat3("light pos (for shadowmap)", &g_config.lights[i].position, 0.1, -5000, 5000)
+			im.DragFloat3("light dir", &g_config.lights[i].direction, 0.1, -5000, 5000)
+		case .Point:
+			im.DragFloat3("light pos", &g_config.lights[i].position, 0.1, -5000, 5000)
+		}
+
 		im.DragFloat("light intensity", &g_config.lights[i].intensity, 0.1, 0, 20)
 
 		im.PopID()
@@ -1550,7 +1558,9 @@ render_common :: proc(pso: PSO) {
 pso_shadowmap_render :: proc(pso: PSO) {
 	ct := &g_dx_context
 
-	cb_shadowmap_update(g_config.lights[0].position)
+	the_dir_light := g_config.lights[0]
+
+	cb_shadowmap_update(the_dir_light)
 
 	transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
 	transition_resource(ct.tx_shadowmap.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
@@ -1684,7 +1694,6 @@ transition_gbuffers :: proc(to_render_target: bool) {
 
 pso_lighting_render :: proc(pso: PSO) {
 
-
 	ct := &g_dx_context
 
 	render_common(pso)
@@ -1750,8 +1759,27 @@ pso_gizmos_render :: proc (pso: PSO) {
 		gizmos_instances := make([]InstanceData, gizmos_count, context.temp_allocator)
 
 		for i in 0..<gizmos_count {
+
+			light := g_config.lights[i]
+
+			switch light.type {
+
+			case .Directional:
+				// not display directional lights
+				gizmos_instances[i] = InstanceData {
+					world_mat = get_world_mat(light.position, 0.1),
+					color = v4{1,0,0, 0.0}
+				}
+			case .Point:
+				gizmos_instances[i] = InstanceData {
+					world_mat = get_world_mat(light.position, 0.1),
+					color = v4{1,0,0, 0.5}
+				}
+
+			}
+
 			gizmos_instances[i] = InstanceData {
-				world_mat = get_world_mat(g_config.lights[i].position, 0.1),
+				world_mat = get_world_mat(light.position, 0.1),
 				color = v4{1,0,0, 0.5}
 			}
 		}
