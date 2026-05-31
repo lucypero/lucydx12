@@ -28,11 +28,6 @@ struct PSInput
 	float2 uvs : TEXCOORD0;
 };
 
-float3 ComputeDirectionalLight(Light light, float3 norm) {
-
-	return 0;
-};
-
 
 // Assuming: 
 // uv: [0, 1] across the screen
@@ -130,24 +125,15 @@ float3 DebugHueGradient(float t)
 	return a + b * cos(6.28318 * (c * t + d));
 }
 
-float3 ComputePointLight(Light light, float3 worldPosition, float3 norm, float3 albedoColor, float3 aoRoughMetalColor, float3 view_pos) {
+float3 ComputeDirectionalLight(Light light, float3 worldPosition, float3 norm, float3 albedoColor, float3 aoRoughMetalColor, float3 view_pos) {
 
-	float3 light_dir = normalize(light.position - worldPosition);
-
-	// do light thing here
+	float3 light_dir = normalize(light.direction);
 
 	// calculating diffuse
 	float3 diffuse = 0;
 	{
 		float diff = max(dot(norm, light_dir), 0.0f);
-		diffuse = diff * light.intensity;
-	}
-
-	float3 ambient = 0;
-	// calculating ambient
-	{
-		float amb_val = 0.05;
-		ambient = float3(amb_val, amb_val, amb_val);
+		diffuse = diff;
 	}
 
 	// Specular calculation
@@ -177,7 +163,50 @@ float3 ComputePointLight(Light light, float3 worldPosition, float3 norm, float3 
 		specular = specular * float3(1,1,1) * NdotL;
 	}
 
-	return (ambient + diffuse + specular) * albedoColor;
+	return (diffuse + specular) * albedoColor * light.intensity;
+};
+
+float3 ComputePointLight(Light light, float3 worldPosition, float3 norm, float3 albedoColor, float3 aoRoughMetalColor, float3 view_pos) {
+
+	float3 light_dir = normalize(light.position - worldPosition);
+
+	// do light thing here
+
+	// calculating diffuse
+	float3 diffuse = 0;
+	{
+		float diff = max(dot(norm, light_dir), 0.0f);
+		diffuse = diff * light.intensity;
+	}
+
+	// Specular calculation
+	float3 specular = 0;
+	{
+		float roughness = aoRoughMetalColor.y;
+
+		float3 N = norm;
+		float3 V = normalize(view_pos - worldPosition);
+		float3 L = normalize(light_dir);
+		float3 H = normalize(V + L);
+
+		// F0 is the base reflectivity (0.04 for non-metals)
+		float3 F0 = float3(0.04, 0.04, 0.04); 
+
+		// Cook-Torrance BRDF components
+		float D = DistributionGGX(N, H, roughness);
+		float G = GeometrySmith(N, V, L, roughness);
+		float3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
+
+		// Final Specular calculation
+		float3 numerator = D * G * F;
+		float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001; // prevent div by zero
+		specular = numerator / denominator;
+
+		float NdotL = max(dot(N, L), 0.0);
+		specular = specular * float3(1,1,1) * NdotL;
+	}
+
+	return (diffuse + specular) * albedoColor;
 };
 
 //  / helper code
@@ -222,19 +251,27 @@ float4 PSMain(PSInput input) : SV_TARGET
 
 	StructuredBuffer<Light> lights = ResourceDescriptorHeap[general_constants.light_sb_idx];
 
+	float3 ambient = 0;
+	// calculating ambient
+	{
+		float amb_val = 0.05;
+		ambient = float3(amb_val, amb_val, amb_val);
+	}
+
+	result = ambient;
+
 	for(int i = 0; i<general_constants.light_count; ++i) {
 
 		Light light = lights[i];
 
 		switch(light.type) {
 		case Directional:
-			result += ComputeDirectionalLight(light, norm);
+			result += ComputeDirectionalLight(light, worldPosition, norm, albedoColor, aoRoughMetalColor, general_constants.view_pos);
 			break;
 		case Point:
 			result += ComputePointLight(light, worldPosition, norm, albedoColor, aoRoughMetalColor, general_constants.view_pos);
 			break;
 		}
-
 	}
 
 	// -- Display Final image
