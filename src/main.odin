@@ -352,7 +352,7 @@ cbv_get :: proc(view, projection: dxm, scene_is_active: bool, active_scene: ^Sce
 		shadowmap_cb_idx = cast(i32)g_dx_context.cb_shadowmap.srv_index,
 		draw_shadowmap = g_config.show_lightmap,
 		shadowmap_idx = cast(i32)g_dx_context.tx_shadowmap.srv_index,
-		light_count = 1,
+		light_count = cast(i32)g_config.light_count,
 		light_sb_idx = cast(i32)g_dx_context.sb_lights.srv_index,
 	}
 }
@@ -1080,8 +1080,45 @@ do_imgui_ui :: proc() {
 
 	im.Begin("lucydx12")
 
-	// im.DragFloat3("light pos", &g_config.light_pos, 0.1, -5000, 5000)
-	// im.DragFloat("light intensity", &g_light_int, 0.1, 0, 20)
+	// light count
+	im.DragInt("Light Count", cast(^c.int)&g_config.light_count, v_min = 1, v_max = MAX_LIGHTS)
+
+	// light settings (for first light)
+	id_builder := strings.builder_make_none(context.temp_allocator)
+	other_thing := strings.builder_make_none(context.temp_allocator)
+
+	for i in 0..<g_config.light_count {
+
+		strings.builder_reset(&other_thing)
+		fmt.sbprintf(&other_thing, "Light %v", i)
+		other_thing_cstr, _ := strings.to_cstring(&other_thing)
+
+		if !im.TreeNode(other_thing_cstr) do continue
+		// setting imgui id
+		strings.builder_reset(&id_builder)
+		strings.write_string(&id_builder, "Light: ")
+		strings.write_int(&id_builder, i)
+		id_cstring, _ := strings.to_cstring(&id_builder)
+		im.PushID(id_cstring)
+
+		// rest
+
+		items := [?]cstring{"Directional", "Point"}
+		current_selected := cast(c.int)g_config.lights[i].type
+		new_selected: c.int = current_selected
+		im.ComboChar("Light Type", &new_selected, raw_data(&items), len(items))
+
+		if current_selected != new_selected {
+			g_config.lights[i].type = cast(LightType)new_selected
+		}
+
+		im.DragFloat3("light pos", &g_config.lights[i].position, 0.1, -5000, 5000)
+		im.DragFloat("light intensity", &g_config.lights[i].intensity, 0.1, 0, 20)
+
+		im.PopID()
+		im.TreePop()
+	}
+
 	im.Checkbox("draw light gizmos", &g_light_draw_gizmos)
 	im.Checkbox("draw lightmap", &g_config.show_lightmap)
 	im.DragFloat("cam speed", &g_cur_cam.speed, 0.0001, 0, 20)
@@ -1134,9 +1171,14 @@ do_imgui_ui :: proc() {
 		}
 	}
 
-	// im.ShowDemoWindow()
+	if im.TreeNode("hello") {
 
+		im.LabelText("inside tree", "hello")
 
+		im.TreePop()
+	}
+
+	im.ShowDemoWindow()
 
 	if im.Button("Save Settings") {
 		lprintfln("save here")
@@ -1154,8 +1196,9 @@ RendererConfig :: struct {
 	cam_pos: v3,
 	cam_yaw: f32,
 	cam_pitch: f32,
-	light_pos: v3,
-	show_lightmap: bool
+	show_lightmap: bool,
+	light_count: int,
+	lights: [MAX_LIGHTS]Light
 }
 
 save_settings :: proc() {
@@ -1198,8 +1241,10 @@ render :: proc() {
 
 	cb_general_update()
 
-	g_mesh_drawn_count = 0
+	// updating light buffer
+	copy_to_buffer_already_mapped(ct.sb_lights.gpu_pointer, slice.to_bytes(g_config.lights[:g_config.light_count]))
 
+	g_mesh_drawn_count = 0
 	ct.cmdlist->Reset(ct.command_allocator, nil)
 
 	for pso in ct.psos {
@@ -1505,7 +1550,7 @@ render_common :: proc(pso: PSO) {
 pso_shadowmap_render :: proc(pso: PSO) {
 	ct := &g_dx_context
 
-	cb_shadowmap_update(g_config.light_pos)
+	cb_shadowmap_update(g_config.lights[0].position)
 
 	transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
 	transition_resource(ct.tx_shadowmap.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
@@ -1700,13 +1745,15 @@ pso_gizmos_render :: proc (pso: PSO) {
 	render_common(pso)
 
 	// updating gizmo data (looking at lights)
-	gizmos_count : u32 = 1
+	gizmos_count : u32 = cast(u32)g_config.light_count
 	{
 		gizmos_instances := make([]InstanceData, gizmos_count, context.temp_allocator)
 
-		gizmos_instances[0] = InstanceData {
-			world_mat = get_world_mat(g_config.light_pos, 0.1),
-			color = v4{1,0,0, 0.5}
+		for i in 0..<gizmos_count {
+			gizmos_instances[i] = InstanceData {
+				world_mat = get_world_mat(g_config.lights[i].position, 0.1),
+				color = v4{1,0,0, 0.5}
+			}
 		}
 
 		copy_to_buffer_already_mapped(scene.vb_gizmos_instance_data.gpu_pointer, slice.to_bytes(gizmos_instances))

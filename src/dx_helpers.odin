@@ -1231,7 +1231,7 @@ structured_buffer_create :: proc(
 	res := dxma.Allocation_GetResource(allocation)
 
 	if buffer_data_inner, ok := buffer_data.?; ok {
-		assert(heap_type == .UPLOAD)
+		assert(heap_type == .DEFAULT)
 		fence_value = dx_upload_trigger(&g_upload_service, res, buffer_data_inner)
 	}
 
