@@ -1,3 +1,8 @@
+# shadow
+
+- light view: just use the directional vector of the light + a float for where u want the position to be in that vector.
+- orthogogal projection + light view = light projection matrix
+
 # shadow tooling todo
 
 x keep working on your create_texture proc and Texture struct
