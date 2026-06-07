@@ -125,7 +125,7 @@ float3 DebugHueGradient(float t)
 	return a + b * cos(6.28318 * (c * t + d));
 }
 
-float3 ComputeDirectionalLight(Light light, float3 worldPosition, float3 norm, float3 albedoColor, float3 aoRoughMetalColor, float3 view_pos) {
+float3 ComputeDirectionalLight(Light light, float3 worldPosition, float3 norm, float3 albedoColor, float3 aoRoughMetalColor, float3 view_pos, float4 frag_pos_light, Texture2D<float> tex_shadowmap) {
 
 	float3 light_dir = normalize(light.direction);
 
@@ -163,7 +163,27 @@ float3 ComputeDirectionalLight(Light light, float3 worldPosition, float3 norm, f
 		specular = specular * float3(1,1,1) * NdotL;
 	}
 
-	return (diffuse + specular) * albedoColor * light.intensity;
+	// Shadow calculation.
+
+	float shadow = 0;
+	float3 light_coords = frag_pos_light.xyz / frag_pos_light.w;
+	if(light_coords.z <= 1.0f) {
+		light_coords = (light_coords + 1.0f) / 2.0f;
+
+		// here u texture the shadow map
+
+		// light_coords.x *= -1;
+
+
+		float closest_depth = tex_shadowmap.Sample(mySampler, light_coords.xy).r;
+		float current_depth = light_coords.z;
+
+		if (current_depth > closest_depth) {
+			shadow = 1;
+		}
+	}
+
+	return (diffuse + specular) * (1 - shadow * 0.8) * albedoColor * light.intensity;
 };
 
 float3 ComputePointLight(Light light, float3 worldPosition, float3 norm, float3 albedoColor, float3 aoRoughMetalColor, float3 view_pos) {
@@ -232,6 +252,9 @@ float4 PSMain(PSInput input) : SV_TARGET
 
 	float3 worldPosition = GetWorldPosition(input.uvs, depth, general_constants.inverse_view_proj).xyz;
 
+	float4 frag_pos_light = mul(general_constants.light_projection, float4(worldPosition, 1));
+	// float4 frag_pos_light = mul(float4(worldPosition, 1), general_constants.light_projection);
+
 	// calculating normal
 
 	float3 norm = 0.0f;
@@ -260,13 +283,15 @@ float4 PSMain(PSInput input) : SV_TARGET
 
 	result = ambient;
 
+	Texture2D<float> shadowmap = ResourceDescriptorHeap[general_constants.shadowmap_idx];
+
 	for(int i = 0; i<general_constants.light_count; ++i) {
 
 		Light light = lights[i];
 
 		switch(light.type) {
 		case Directional:
-			result += ComputeDirectionalLight(light, worldPosition, norm, albedoColor, aoRoughMetalColor, general_constants.view_pos);
+			result += ComputeDirectionalLight(light, worldPosition, norm, albedoColor, aoRoughMetalColor, general_constants.view_pos, frag_pos_light, shadowmap);
 			break;
 		case Point:
 			result += ComputePointLight(light, worldPosition, norm, albedoColor, aoRoughMetalColor, general_constants.view_pos);

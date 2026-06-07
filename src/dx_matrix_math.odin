@@ -20,10 +20,6 @@ matrix4_perspective_z0_f32 :: proc "contextless" (
 	return
 }
 
-
-// unused procs below
-/*
-
 @(require_results)
 matrix_ortho3d_z0_f32 :: proc "contextless" (
 	left, right, bottom, top, near, far: f32,
@@ -43,6 +39,9 @@ matrix_ortho3d_z0_f32 :: proc "contextless" (
 
 	return
 }
+
+// unused procs below
+/*
 
 @(require_results)
 matrix4_infinite_perspective_z0_f32 :: proc "contextless" (

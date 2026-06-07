@@ -16,6 +16,7 @@ struct GeneralConstants {
 	float4x4 view;
 	float4x4 projection;
 	float4x4 inverse_view_proj;
+	float4x4 light_projection;
 	float3 view_pos;
 	float time;
 	uint current_scene_materials_idx;
