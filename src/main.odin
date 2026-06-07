@@ -1,7 +1,5 @@
 package main
 
-import "core:io"
-import "core:flags"
 import "core:thread"
 import "core:mem/virtual"
 import "core:debug/trace"
@@ -20,7 +18,6 @@ import "core:c"
 import "core:math"
 import "core:math/linalg"
 import "base:runtime"
-import "core:math/rand"
 import "core:sync"
 import dxc "vendor:directx/dxc"
 import "core:prof/spall"
@@ -401,7 +398,11 @@ cb_shadowmap_update :: proc(light: Light) {
 	sm_settings := g_config.shadowmap_settings
 
 	{
-		view = linalg.matrix4_look_at_f32(light.position, light.position + light.direction, {0, 1, 0}, true)
+		ld := linalg.normalize(light.direction)
+		scalar_along_lightdir := light.position.x
+		shadowmap_origin := 0 + ld * scalar_along_lightdir
+
+		view = linalg.matrix4_look_at_f32(shadowmap_origin, 0, {0, 1, 0}, true)
 		projection = linalg.matrix_ortho3d_f32(sm_settings.lrbt.x, 
 			sm_settings.lrbt.y, 
 			sm_settings.lrbt.z, 
