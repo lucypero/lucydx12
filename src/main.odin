@@ -222,6 +222,7 @@ ConstantBufferData :: struct #align (256) {
 	view: dxm,
 	projection: dxm,
 	inverse_view_proj: dxm,
+	light_projection: dxm,
 	view_pos: v3,
 	time: f32,
 	current_scene_materials_idx: u32,
@@ -338,12 +339,13 @@ PSOName :: enum {
 
 // ----- //// GLOBAL STATE ------
 
-cbv_get :: proc(view, projection: dxm, scene_is_active: bool, active_scene: ^Scene) -> ConstantBufferData {
+cbv_get :: proc(view, projection: dxm, scene_is_active: bool, active_scene: ^Scene, light_view, light_projection: dxm) -> ConstantBufferData {
 
 	return ConstantBufferData {
 		view = view,
 		projection = projection,
 		inverse_view_proj = linalg.inverse(projection * view),
+		light_projection = light_projection * light_view,
 		view_pos = g_cur_cam.pos,
 		time = g_the_time_sec,
 		current_scene_materials_idx = scene_is_active ? cast(u32)active_scene.sb_materials.srv_index : 0,
@@ -374,46 +376,41 @@ cb_general_update :: proc() {
 
 	active_scene, scene_is_active := get_first_active_scene()
 
-	cbv_data := cbv_get(view, projection, scene_is_active, active_scene)
+	// taking first light
+	light_view, light_projection := shadowmap_get_view_projection(g_config.lights[0])
+	cbv_data := cbv_get(view, projection, scene_is_active, active_scene, light_view, light_projection)
 
 	// sending data to the cpu mapped memory that the gpu can read
 	// copy_to_buffer_already_mapped(g_dx_context.constant_buffer.gpu_pointer, slice.to_bytes([]ConstantBufferData{cbv_data}))
 	copy_to_buffer_already_mapped_value(g_dx_context.cb_general.gpu_pointer, &cbv_data)
 }
 
-cb_shadowmap_update :: proc(light: Light) {
-
-	// ticking cbv time value
-	thetime := time.diff(g_start_time, time.now())
-	g_the_time_sec = f32(thetime) / f32(time.Second)
-	// if the_time_sec > 1 {
-	// 	start_time = time.now()
-	// }
-
-	// sending constant buffer data
-	view, projection: dxm
-
+shadowmap_get_view_projection :: proc(light: Light) -> (view, projection: dxm){
 	// light position used for shadowmap position, even in directional lights
 
 	sm_settings := g_config.shadowmap_settings
 
-	{
-		ld := linalg.normalize(light.direction)
-		scalar_along_lightdir := light.position.x
-		shadowmap_origin := 0 + ld * scalar_along_lightdir
+	ld := linalg.normalize(light.direction)
+	scalar_along_lightdir := light.position.x
+	shadowmap_origin := 0 + ld * scalar_along_lightdir
 
-		view = linalg.matrix4_look_at_f32(shadowmap_origin, 0, {0, 1, 0}, true)
-		projection = linalg.matrix_ortho3d_f32(sm_settings.lrbt.x, 
-			sm_settings.lrbt.y, 
-			sm_settings.lrbt.z, 
-			sm_settings.lrbt.w,
-			sm_settings.near,
-			sm_settings.far)
-	}
+	view = linalg.matrix4_look_at_f32(shadowmap_origin, 0, {0, 1, 0}, true)
+	projection = matrix_ortho3d_z0_f32(sm_settings.lrbt.x, 
+		sm_settings.lrbt.y, 
+		sm_settings.lrbt.z, 
+		sm_settings.lrbt.w,
+		sm_settings.near,
+		sm_settings.far)
+
+	return view, projection
+}
+
+cb_shadowmap_update :: proc(light: Light) {
 
 	active_scene, scene_is_active := get_first_active_scene()
 
-	cbv_data := cbv_get(view, projection, scene_is_active, active_scene)
+	view, projection := shadowmap_get_view_projection(light)
+	cbv_data := cbv_get(view, projection, scene_is_active, active_scene, view, projection)
 
 	// sending data to the cpu mapped memory that the gpu can read
 	// copy_to_buffer_already_mapped(g_dx_context.constant_buffer.gpu_pointer, slice.to_bytes([]ConstantBufferData{cbv_data}))
@@ -1130,7 +1127,7 @@ do_imgui_ui :: proc() {
 		switch g_config.lights[i].type {
 		case .Directional:
 			im.DragFloat3("light pos (for shadowmap)", &g_config.lights[i].position, 0.1, -5000, 5000)
-			im.DragFloat3("light dir", &g_config.lights[i].direction, 0.1, -5000, 5000)
+			im.SliderFloat3("light dir", &g_config.lights[i].direction, -1, 1)
 		case .Point:
 			im.DragFloat3("light pos", &g_config.lights[i].position, 0.1, -5000, 5000)
 		}
