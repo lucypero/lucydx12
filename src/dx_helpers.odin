@@ -329,27 +329,33 @@ ShaderKind :: enum {
 
 compile_individual_shader :: proc(shader_filename: string, source_buffer: ^dxc.Buffer, compiler: ^dxc.ICompiler3, shader_kind: ShaderKind) -> (res:^dxc.IBlob, ok: bool) {
 
-	arguments := [?]string {
-		"-E", "VSMain", // Entry point
-		"-T", "vs_6_6", // target profile (pixel shader 6)
-		"-Zi", // enable debug info
-		"-O3", // Optimization level 3
-		// "-I \".\"", // include paths
-	}
+	arguments : [dynamic; 10]string 
+
+	append(&arguments, "-E", "VSMain", "-T", "vs_6_6", "-O3")
 
 	if shader_kind == .Pixel {
 		arguments[1] = "PSMain"
 		arguments[3] = "ps_6_6"
 	}
 
-	arguments_wide : [len(arguments)]windows.wstring
+	when ODIN_DEBUG {
+	// disabling optimization, so we can debug the shader.
+	arguments[4] = "-Od"
+	append(&arguments, "-Zi", "-Fd", ".\\pdbs\\")
+
+	// sb := strings.builder_make_none(context.temp_allocator)
+	// fmt.sbprintf("%v.pdb")
+
+	}
+
+	arguments_wide := make([]windows.wstring, len(arguments), context.temp_allocator)
 
 	for arg, i in arguments {
 		arguments_wide[i] = windows.utf8_to_wstring_alloc(arg, allocator = context.temp_allocator)
 	}
 
 	results : ^dxc.IResult
-	compiler->Compile(source_buffer, &arguments_wide[0], len(arguments_wide), include_handler, dxc.IOperationResult_UUID, (^rawptr)(&results))
+	compiler->Compile(source_buffer, &arguments_wide[0], cast(u32)len(arguments_wide), include_handler, dxc.IOperationResult_UUID, (^rawptr)(&results))
 
 	errors : ^dxc.IBlobUtf8
 	results->GetOutput(.ERRORS, dxc.IBlobUtf8_UUID, (^rawptr)(&errors), nil)
@@ -367,6 +373,29 @@ compile_individual_shader :: proc(shader_filename: string, source_buffer: ^dxc.B
 	}
 
 	results->GetOutput(.OBJECT, dxc.IBlob_UUID, (^rawptr)(&output_blob), nil)
+
+
+	when ODIN_DEBUG {
+
+	pdb_blob: ^dxc.IBlob
+	pdb_name_blob: ^dxc.IBlobUtf16
+	// Getting PDB and saving it to file
+	results->GetOutput(.PDB, dxc.IBlob_UUID, (^rawptr)(&pdb_blob), &pdb_name_blob)
+
+	name_ptr := (^u16)(pdb_name_blob->GetBufferPointer())
+	name_len := pdb_name_blob->GetStringLength()
+	name_slice := mem.slice_ptr(name_ptr, cast(int)name_len)
+	name_utf8, _ := windows.utf16_to_utf8(name_slice, context.temp_allocator)
+
+	full_pdb_path := fmt.tprintf(".\\pdbs\\%s", name_utf8)
+
+	pdb_data := mem.slice_ptr(cast(^byte)pdb_blob->GetBufferPointer(), cast(int)pdb_blob->GetBufferSize())
+	err := os.write_entire_file_from_bytes(full_pdb_path, pdb_data)
+	assert(err == os.ERROR_NONE)
+
+	}
+
+
 	return output_blob, true
 }
 
