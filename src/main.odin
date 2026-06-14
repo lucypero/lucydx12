@@ -241,7 +241,6 @@ ConstantBufferData :: struct #align (256) {
 	// depth
 	depth_idx: i32,
 
-	draw_shadowmap: bool,
 	shadowmap_idx: i32,
 
 	light_count: i32,
@@ -374,7 +373,6 @@ cb_general_update :: proc() {
 		g_buffer_normal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Normal].srv_index,
 		g_buffer_ao_rough_metal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.AO_Rough_Metal].srv_index,
 		depth_idx = cast(i32)g_dx_context.depth_texture.srv_index,
-		draw_shadowmap = g_config.show_lightmap,
 		shadowmap_idx = cast(i32)g_dx_context.tx_shadowmap.srv_index,
 		light_count = cast(i32)g_config.light_count,
 		light_sb_idx = cast(i32)g_dx_context.sb_lights.srv_index,
@@ -395,6 +393,7 @@ shadowmap_get_view_projection :: proc(light: Light) -> (view, projection: dxm){
 	shadowmap_origin := 0 + ld * scalar_along_lightdir
 
 	view = linalg.matrix4_look_at_f32(shadowmap_origin, 0, {0, 1, 0}, true)
+
 	projection = matrix_ortho3d_z0_f32(sm_settings.lrbt.x, 
 		sm_settings.lrbt.y, 
 		sm_settings.lrbt.z, 
@@ -1550,7 +1549,34 @@ pso_shadowmap_render :: proc(pso: PSO) {
 
 	transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
 	transition_resource(ct.tx_shadowmap.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
-	render_common(pso)
+
+	// render_common(pso)
+
+	ct.cmdlist->SetPipelineState(pso.pipeline_state)
+	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap.heap)
+	ct.cmdlist->SetGraphicsRootSignature(pso.root_signature)
+	ct.cmdlist->SetGraphicsRoot32BitConstant(0, cast(u32)ct.cb_general.srv_index, 0)
+
+	// viewport
+
+	viewport := dx.VIEWPORT {
+		Width = f32(ct.tx_shadowmap.width),
+		Height = f32(ct.tx_shadowmap.height),
+		MinDepth = 0,
+		MaxDepth = 1,
+	}
+
+	scissor_rect := dx.RECT {
+		left = 0,
+		right = cast(i32)ct.tx_shadowmap.width,
+		top = 0,
+		bottom = cast(i32)ct.tx_shadowmap.height,
+	}
+
+	ct.cmdlist->RSSetViewports(1, &viewport)
+	ct.cmdlist->RSSetScissorRects(1, &scissor_rect)
+
+	// rendering
 
 	dsv_handle := texture_get_dsv_cpu_address(ct.tx_shadowmap)
 	ct.cmdlist->OMSetRenderTargets(0, nil, false, &dsv_handle)

@@ -180,7 +180,8 @@ float3 ComputeDirectionalLight(Light light, float3 worldPosition,
 	shadowUV = light_coords.xy * 0.5f + 0.5f;
 	shadowUV.y = -light_coords.y * 0.5f + 0.5f;
 
-	if (shadowUV.x < 0.0f || shadowUV.x > 1.0f || shadowUV.y < 0.0f || shadowUV.y > 1.0f) {
+	if (shadowUV.x < 0.0f || shadowUV.x > 1.0f || shadowUV.y < 0.0f || shadowUV.y > 1.0f  ||
+		light_coords.z < 0.0f || light_coords.z > 1.0f) {
 		shadow = 0;
 	} else {
 
@@ -259,7 +260,13 @@ float4 PSMain(PSInput input) : SV_TARGET
 	float3 aoRoughMetalColor = ao_rough_metal.Sample(mySampler, input.uvs).xyz;
 
 	// In the Pixel Shader
-	float depth = depthTexture.Sample(mySampler, input.uvs).r;
+	// Get the exact screen pixel coordinates
+	float depth = 0;
+
+	{
+		int3 texCoord = int3(input.position.xy, 0);
+		depth = depthTexture.Load(texCoord).r;
+	}
 
 	float3 worldPosition = GetWorldPosition(input.uvs, depth, general_constants.inverse_view_proj);
 	// return float4(worldPosition, 0.0);
@@ -326,7 +333,8 @@ float4 PSMain(PSInput input) : SV_TARGET
 	float maxY = posY + height;
 
 	// 3. Check if the current pixel being rendered is inside the minimap box
-	if (general_constants.draw_shadowmap && input.uvs.x >= minX && input.uvs.x <= maxX && 
+	bool draw_shadowmap = true;
+	if (draw_shadowmap && input.uvs.x >= minX && input.uvs.x <= maxX && 
 		input.uvs.y >= minY && input.uvs.y <= maxY) 
 	{
 		// 4. Remap the full-screen UVs to local UVs (0.0 to 1.0) for the texture
