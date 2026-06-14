@@ -4,30 +4,11 @@
 #pragma pack_matrix(column_major)
 #include "src/shaders/shader_common.hlsl"
 
-// Light struct
-
-enum LightType : uint32_t {
-	Directional,
-	Point,
-};
-
-struct Light {
-	LightType type;
-	float3 position;
-
-	float radius;
-	float3 direction;
-
-	float intensity;
-	float3 color;
-};
-
 struct PSInput
 {
 	float4 position : SV_Position;
 	float2 uvs : TEXCOORD0;
 };
-
 
 // Assuming: 
 // uv: [0, 1] across the screen

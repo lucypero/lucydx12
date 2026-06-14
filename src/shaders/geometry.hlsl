@@ -2,31 +2,12 @@
 #pragma pack_matrix(column_major)
 #include "src/shaders/shader_common.hlsl"
 
-/// Shader Input
-
-/// Vertex Input
 struct VSInput {
 	float3 position : POSITION;
 	float3 normal : NORMAL;
 	float4 tangent : TANGENT;
 	float2 uvs : TEXCOORD;
 	float2 uvs_2 : TEXCOORD_SECOND_UV;
-};
-
-struct TextureUV {
-	uint texture_id;
-	uint uv_id;
-};
-
-struct Material {
-	TextureUV base_color;
-	TextureUV metallic_roughness;
-	TextureUV normal;
-};
-
-struct MeshTransform
-{
-	float4x4 model; 
 };
 
 struct PSInput {
@@ -37,6 +18,13 @@ struct PSInput {
 	float3 bitangent_world: BITANGENT;
 	float2 uvs : TEXCOORD0;
 	float2 uvs_2 : TEXCOORD1;
+};
+
+struct PSOutput {
+	float4 albedoRT : SV_Target0; 
+	float4 normalRT : SV_Target1; 
+	// X channel: AO --- Y channel: roughness --- Z channel: metalness
+	float4 AoRoughMetalRT : SV_Target2; 
 };
 
 PSInput VSMain(VSInput the_input) {
@@ -95,21 +83,12 @@ PSInput VSMain(VSInput the_input) {
 	return result;
 }
 
-struct PSOutput {
-	float4 albedoRT : SV_Target0; 
-	float4 normalRT : SV_Target1; 
-	// X channel: AO --- Y channel: roughness --- Z channel: metalness
-	float4 AoRoughMetalRT : SV_Target2; 
-};
-
 PSOutput PSMain(PSInput input) {
 	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[cbv_index];
 	PSOutput output;
 
 	StructuredBuffer<Material> materials = ResourceDescriptorHeap[general_constants.current_scene_materials_idx];
-
 	Material mat = materials[draw_constants.material_index];
-
 
 	// Albedo map
 	{

@@ -8,3 +8,5 @@ imgui.ini
 *.radproject
 *.spall
 cache/
+
+*.gen.hlsl

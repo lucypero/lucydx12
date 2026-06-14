@@ -124,7 +124,6 @@ PSOParameters :: struct {
 	rtv_formats: [8]dxgi.FORMAT,
 }
 
-
 VertexInputA :: struct {
 	asd : v3 `POSITION`,
 	dsa : v4 `COLOR`,
@@ -1505,4 +1504,83 @@ pso_hotswap_swap :: proc(pso: ^PSO) {
 		pso_pointer^ = pso.pipeline_state
 		pso.pso_swap = nil
 	}
+}
+
+odin_base_type_to_hlsl_type :: proc(base_type: ^runtime.Type_Info) -> string {
+	#partial switch element_type in base_type.variant {
+	case reflect.Type_Info_Integer:
+		if reflect.is_signed(base_type) {
+			return "int"
+		} else {
+			return "uint"
+		}
+	case reflect.Type_Info_Float:
+		return "float"
+	case: 
+		panic("base element type not supported")
+	}
+}
+
+// NOTE: just take a SB instead of allocator, use the same SB for everything
+odin_type_to_hlsl_core_type :: proc(ti: ^runtime.Type_Info, sb_out: ^strings.Builder) {
+
+	#partial switch type_variant in ti.variant {
+	case reflect.Type_Info_Named:
+		strings.write_string(sb_out, type_variant.name)
+	case reflect.Type_Info_Integer, reflect.Type_Info_Float:
+		strings.write_string(sb_out, odin_base_type_to_hlsl_type(ti))
+	case reflect.Type_Info_Matrix:
+		base_type := type_variant.elem
+		strings.write_string(sb_out, odin_base_type_to_hlsl_type(base_type))
+		fmt.sbprintf(sb_out, "%vx%v", type_variant.row_count, type_variant.column_count)
+	case reflect.Type_Info_Array:
+		base_type := type_variant.elem
+		strings.write_string(sb_out, odin_base_type_to_hlsl_type(base_type))
+		fmt.sbprintf(sb_out, "%v", type_variant.count)
+	}
+}
+
+// also enums
+convert_struct_odin_to_hlsl :: proc(struct_type: typeid, allocator: runtime.Allocator) -> string {
+
+	struct_type_info := type_info_of(struct_type)
+
+	sb := strings.builder_make_none(allocator)
+	named := struct_type_info.variant.(reflect.Type_Info_Named)
+
+	if reflect.is_enum(struct_type_info) {
+
+		enum_type := reflect.type_info_base(struct_type_info).variant.(reflect.Type_Info_Enum)
+		enum_type_core := reflect.type_info_core(struct_type_info)
+
+		fmt.sbprintf(&sb, "enum %v : ", named.name)
+		odin_type_to_hlsl_core_type(enum_type_core, &sb)
+		fmt.sbprintfln(&sb, " {{")
+
+		for enum_name in enum_type.names {
+			fmt.sbprintfln(&sb, "	%v,", enum_name)
+		}
+		fmt.sbprintf(&sb, "};")
+	} else if reflect.is_struct(struct_type_info) {
+		names := reflect.struct_field_names(struct_type)
+		types := reflect.struct_field_types(struct_type)
+
+		fmt.sbprintfln(&sb, "struct %v {{", named.name)
+
+		// struct fields
+
+		for type, i in types {
+			field_name := names[i]
+			fmt.sbprintf(&sb, "	")
+			odin_type_to_hlsl_core_type(type, &sb)
+			fmt.sbprintfln(&sb, " %v;", field_name)
+		}
+
+		// end
+		fmt.sbprintf(&sb, "};")
+	} else {
+		panic("type not supported")
+	}
+
+	return strings.to_string(sb)
 }
