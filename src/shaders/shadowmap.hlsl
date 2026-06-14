@@ -15,11 +15,6 @@ struct PSInput {
 	float4 position : SV_POSITION;
 };
 
-struct MeshTransform
-{
-	float4x4 model; 
-};
-
 // just do position processing
 PSInput VSMain(VSInput the_input) {
 

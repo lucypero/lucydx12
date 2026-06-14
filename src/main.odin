@@ -35,6 +35,9 @@ PROFILE :: #config(PROFILE, false)
 
 NUM_RENDERTARGETS :: 2
 
+@(rodata)
+TYPES_FOR_HLSL := [?]typeid{GeneralConstants, DrawConstants, LightType, Light, TextureUV, Material}
+
 TURNS_TO_RAD :: math.PI * 2
 
 v2 :: linalg.Vector2f32
@@ -196,6 +199,11 @@ Material :: struct {
 	normal: TextureUV,
 }
 
+DrawConstants :: struct {
+	mesh_index: u32,
+	material_index: u32,
+}
+
 LightType :: enum u32 {
 	Directional,
 	Point
@@ -222,7 +230,7 @@ Light :: struct #align (16) {
 }
 
 // constant buffer data
-ConstantBufferData :: struct #align (256) {
+GeneralConstants :: struct #align (256) {
 	view: dxm,
 	projection: dxm,
 	inverse_view_proj: dxm,
@@ -359,7 +367,7 @@ cb_general_update :: proc() {
 	// taking first light
 	light_view, light_projection := shadowmap_get_view_projection(g_config.lights[0])
 
-	cbv_data := ConstantBufferData {
+	cbv_data := GeneralConstants {
 		view = view,
 		projection = projection,
 		inverse_view_proj = linalg.inverse(projection * view),
@@ -822,6 +830,23 @@ init_dx_user :: proc() {
 	ct := &g_dx_context
 	hr : dx.HRESULT
 
+	// Generating HLSL file with all the structs
+	{
+		sb := strings.builder_make_none(context.temp_allocator)
+		fmt.sbprintfln(&sb, "// Generated file from odin. DO NOT MODIFY")
+		fmt.sbprintfln(&sb, "// Contains structs that mirror structs in Odin\n")
+
+		fmt.sbprintfln(&sb, "#pragma once")
+		fmt.sbprintfln(&sb, "#pragma pack_matrix(column_major)\n")
+
+		for type in TYPES_FOR_HLSL {
+			fmt.sbprintfln(&sb, "\n%v", convert_struct_odin_to_hlsl(type, context.temp_allocator))
+		}
+
+		err := os.write_entire_file_from_string("src/shaders/gen/structs.gen.hlsl", strings.to_string(sb))
+		assert(err == os.General_Error.None)
+	}
+
 	// Creating all root signatures
 	create_root_signatures()
 
@@ -829,7 +854,7 @@ init_dx_user :: proc() {
 	ct.gbuffer = create_gbuffer()
 
 	// constant buffer
-	ct.cb_general = cb_upload_create(size_of(ConstantBufferData), &g_resources_longterm, name = "general constants cbv")
+	ct.cb_general = cb_upload_create(size_of(GeneralConstants), &g_resources_longterm, name = "general constants cbv")
 
 	// shadowmap setup
 	{
@@ -1592,11 +1617,6 @@ draw_scene_geometry :: proc() {
 		// going through scene tree
 
 		// drawing scene
-
-		DrawConstants :: struct {
-			mesh_index: u32,
-			material_index: u32,
-		}
 
 		scene_walk(scene, nil, proc(node: Node, scene: Scene, data: rawptr) {
 			ct := &g_dx_context

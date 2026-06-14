@@ -18,11 +18,6 @@ struct PSInput {
 	float4 color: COLOR;
 };
 
-struct MeshTransform
-{
-	float4x4 model; 
-};
-
 PSInput VSMain(VSInput the_input) {
 
 	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[cbv_index];

@@ -1,6 +1,6 @@
 [
 	{
-		"label": "build debug",
+		"label": "A - build debug",
 		"command": "odin build src -debug -out:lucydx12.exe -linker:radlink -vet-packages:main,sluggish_generator -vet-unused-variables -vet-shadowing -vet-using-stmt -vet-cast",
 		"use_new_terminal": false,
 		"allow_concurrent_runs": false,
