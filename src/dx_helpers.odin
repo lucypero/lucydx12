@@ -1521,7 +1521,6 @@ odin_base_type_to_hlsl_type :: proc(base_type: ^runtime.Type_Info) -> string {
 	}
 }
 
-// NOTE: just take a SB instead of allocator, use the same SB for everything
 odin_type_to_hlsl_core_type :: proc(ti: ^runtime.Type_Info, sb_out: ^strings.Builder) {
 
 	#partial switch type_variant in ti.variant {
