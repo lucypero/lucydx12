@@ -123,6 +123,7 @@ PSOutput PSMain(PSInput input) {
 
 		albedoColor = baseColorTexture.Sample(mySampler, base_color_uvs);
 		output.albedoRT = albedoColor;
+		output.albedoRT = float4(0.0,1.0,0.0,1.0);
 	}
 
 	// Normal map
@@ -176,7 +177,7 @@ PSOutput PSMain(PSInput input) {
 		output.normalRT = normalColor;
 
 		// uncomment to skip normal map
-		// output.normalRT = float4(N * 0.5 + 0.5, 1.0);
+		output.normalRT = float4(N * 0.5 + 0.5, 1.0);
 	}
 
 	// AO + Rough + Metalness map

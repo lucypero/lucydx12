@@ -33,7 +33,7 @@ struct PSInput
 // uv: [0, 1] across the screen
 // depth: sampled from your depth buffer [0, 1]
 
-float4 GetWorldPosition(float2 uv, float depth, float4x4 invViewProj) {
+float3 GetWorldPosition(float2 uv, float depth, float4x4 invViewProj) {
 	// Convert UV to [-1, 1] NDC range. 
 	// Note: Y is often flipped depending on your API (Vulkan vs DX)
 	float2 ndcXY = uv * 2.0 - 1.0;
@@ -46,7 +46,7 @@ float4 GetWorldPosition(float2 uv, float depth, float4x4 invViewProj) {
 	float4 worldPos = mul(invViewProj, ndcPos);
 
 	// Perspective Divide
-	return worldPos / worldPos.w;
+	return (worldPos / worldPos.w).xyz;
 }
 
 PSInput VSMain(uint VertexID : SV_VertexID)
@@ -125,7 +125,9 @@ float3 DebugHueGradient(float t)
 	return a + b * cos(6.28318 * (c * t + d));
 }
 
-float3 ComputeDirectionalLight(Light light, float3 worldPosition, float3 norm, float3 albedoColor, float3 aoRoughMetalColor, float3 view_pos, float4 frag_pos_light, Texture2D<float> tex_shadowmap) {
+float3 ComputeDirectionalLight(Light light, float3 worldPosition,
+	float3 norm, float3 albedoColor, float3 aoRoughMetalColor,
+	ConstantBuffer<GeneralConstants> general_constants, float3 world_position, Texture2D<float> tex_shadowmap) {
 
 	float3 light_dir = normalize(light.direction);
 
@@ -142,7 +144,7 @@ float3 ComputeDirectionalLight(Light light, float3 worldPosition, float3 norm, f
 		float roughness = aoRoughMetalColor.y;
 
 		float3 N = norm;
-		float3 V = normalize(view_pos - worldPosition);
+		float3 V = normalize(general_constants.view_pos - worldPosition);
 		float3 L = normalize(light_dir);
 		float3 H = normalize(V + L);
 
@@ -165,23 +167,32 @@ float3 ComputeDirectionalLight(Light light, float3 worldPosition, float3 norm, f
 
 	// Shadow calculation.
 
+
+	float4 light_view = mul(general_constants.light_view, float4(worldPosition, 1));
+	float4 light_proj = mul(general_constants.light_projection, light_view);
+
+	float3 light_coords = light_proj.xyz / light_proj.w;
+
 	float shadow = 0;
-	float3 light_coords = frag_pos_light.xyz / frag_pos_light.w;
-	if(light_coords.z <= 1.0f) {
-		light_coords = (light_coords + 1.0f) / 2.0f;
 
-		// here u texture the shadow map
+	/// FROM NDC (-1, +1) TO UV (0, 1)
+	float2 shadowUV;
+	shadowUV = light_coords.xy * 0.5f + 0.5f;
+	shadowUV.y = -light_coords.y * 0.5f + 0.5f;
 
-		// light_coords.x *= -1;
+	if (shadowUV.x < 0.0f || shadowUV.x > 1.0f || shadowUV.y < 0.0f || shadowUV.y > 1.0f) {
+		shadow = 0;
+	} else {
 
-
-		float closest_depth = tex_shadowmap.Sample(mySampler, light_coords.xy).r;
+		float closest_depth = tex_shadowmap.Sample(mySampler, shadowUV).r;
 		float current_depth = light_coords.z;
 
-		if (current_depth > closest_depth) {
+		float bias = 0.005f; // Tweak as needed
+		if (current_depth - bias > closest_depth) {
 			shadow = 1;
 		}
 	}
+
 
 	return (diffuse + specular) * (1 - shadow * 0.8) * albedoColor * light.intensity;
 };
@@ -250,9 +261,9 @@ float4 PSMain(PSInput input) : SV_TARGET
 	// In the Pixel Shader
 	float depth = depthTexture.Sample(mySampler, input.uvs).r;
 
-	float3 worldPosition = GetWorldPosition(input.uvs, depth, general_constants.inverse_view_proj).xyz;
+	float3 worldPosition = GetWorldPosition(input.uvs, depth, general_constants.inverse_view_proj);
+	// return float4(worldPosition, 0.0);
 
-	float4 frag_pos_light = mul(general_constants.light_projection, float4(worldPosition, 1));
 	// float4 frag_pos_light = mul(float4(worldPosition, 1), general_constants.light_projection);
 
 	// calculating normal
@@ -291,7 +302,7 @@ float4 PSMain(PSInput input) : SV_TARGET
 
 		switch(light.type) {
 		case Directional:
-			result += ComputeDirectionalLight(light, worldPosition, norm, albedoColor, aoRoughMetalColor, general_constants.view_pos, frag_pos_light, shadowmap);
+			result += ComputeDirectionalLight(light, worldPosition, norm, albedoColor, aoRoughMetalColor, general_constants, worldPosition, shadowmap);
 			break;
 		case Point:
 			result += ComputePointLight(light, worldPosition, norm, albedoColor, aoRoughMetalColor, general_constants.view_pos);
@@ -336,5 +347,6 @@ float4 PSMain(PSInput input) : SV_TARGET
 
 	}
 
+	// return float4(0.0, 1.0, 0.0, 1.0);
 	return float4(result, 1.0);
 }

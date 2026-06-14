@@ -1,7 +1,9 @@
-# shadow
+10.332
+10.346
 
-- light view: just use the directional vector of the light + a float for where u want the position to be in that vector.
-- orthogogal projection + light view = light projection matrix
+# shadow - debugging:
+
+- maybe the world position you're getting is wrong. maybe the bug is there.
 
 # shadow tooling todo
 

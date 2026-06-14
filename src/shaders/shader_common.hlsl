@@ -16,6 +16,7 @@ struct GeneralConstants {
 	float4x4 view;
 	float4x4 projection;
 	float4x4 inverse_view_proj;
+	float4x4 light_view;
 	float4x4 light_projection;
 	float3 view_pos;
 	float time;
@@ -31,8 +32,6 @@ struct GeneralConstants {
 
 	// depth 
 	int depth_idx;
-
-	int shadowmap_cb_idx;
 
 	bool draw_shadowmap;
 	int shadowmap_idx;
