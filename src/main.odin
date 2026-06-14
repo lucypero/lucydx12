@@ -838,7 +838,9 @@ init_dx_user :: proc() {
 			DepthStencil = {Depth = 1.0, Stencil = 0},
 		}
 
-		ct.tx_shadowmap = texture_create(nil, 1024, 1024, .R32_TYPELESS,
+		SHADOWMAP_RES :: 2048
+
+		ct.tx_shadowmap = texture_create(nil, SHADOWMAP_RES, SHADOWMAP_RES, .R32_TYPELESS,
 			&g_resources_longterm, view_flags = {.DSV, .SRV}, texture_name = "shadowmap", opt_clear_value = &opt_clear)
 
 		ct.psos[.Shadowmap] = pso_create("src/shaders/shadowmap.hlsl", PSOParameters {
