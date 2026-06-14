@@ -905,7 +905,7 @@ init_dx_user :: proc() {
 		scene.allocator = arena_new()
 	}
 
-	scene_schedule_load(&g_scenes[0], g_scene_list[0])
+	scene_schedule_load(&g_scenes[0], g_scene_list[g_config.scene_pick])
 
 	// This fence is used to wait for frames to finish
 	{
@@ -1152,18 +1152,21 @@ do_imgui_ui :: proc() {
 	//            static int item_current = 0;
 	//            ImGui::Combo("combo", &item_current, items, IM_ARRAYSIZE(items));
 
-	@static current_selected : c.int = 0
+	current_selected : c.int = cast(c.int)g_config.scene_pick
+
 	items := [?]cstring{"sponza", "something else"}
 	new_selected: c.int = current_selected
 	im.ComboChar("scene", &new_selected, raw_data(&items), len(items))
 
 	if current_selected != new_selected {
 		current_selected = new_selected
+		g_config.scene_pick = cast(int)current_selected
 		scene_swap(g_scene_list[current_selected])
 	}
 
 	if im.Button("switch scenes") {
 		current_selected = current_selected == 0 ? 1 : 0
+		g_config.scene_pick = cast(int)current_selected
 		scene_swap(g_scene_list[current_selected])
 	}
 
@@ -1195,6 +1198,7 @@ RendererConfig :: struct {
 	show_lightmap: bool,
 	light_count: int,
 	lights: [MAX_LIGHTS]Light,
+	scene_pick: int,
 	shadowmap_settings: ShadowmapSettings
 }
 
@@ -1532,7 +1536,7 @@ create_gbuffer :: proc() -> GBuffer {
 	}
 }
 
-render_common :: proc(pso: PSO) {
+render_common :: proc(pso: PSO, viewport_width, viewport_height: int) {
 	// send root parameters
 	ct := &g_dx_context
 
@@ -1541,7 +1545,7 @@ render_common :: proc(pso: PSO) {
 	ct.cmdlist->SetGraphicsRootSignature(pso.root_signature)
 	ct.cmdlist->SetGraphicsRoot32BitConstant(0, cast(u32)ct.cb_general.srv_index, 0)
 
-	set_viewport_stuff()
+	set_viewport_stuff(viewport_width, viewport_height)
 }
 
 pso_shadowmap_render :: proc(pso: PSO) {
@@ -1550,31 +1554,7 @@ pso_shadowmap_render :: proc(pso: PSO) {
 	transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
 	transition_resource(ct.tx_shadowmap.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
 
-	// render_common(pso)
-
-	ct.cmdlist->SetPipelineState(pso.pipeline_state)
-	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap.heap)
-	ct.cmdlist->SetGraphicsRootSignature(pso.root_signature)
-	ct.cmdlist->SetGraphicsRoot32BitConstant(0, cast(u32)ct.cb_general.srv_index, 0)
-
-	// viewport
-
-	viewport := dx.VIEWPORT {
-		Width = f32(ct.tx_shadowmap.width),
-		Height = f32(ct.tx_shadowmap.height),
-		MinDepth = 0,
-		MaxDepth = 1,
-	}
-
-	scissor_rect := dx.RECT {
-		left = 0,
-		right = cast(i32)ct.tx_shadowmap.width,
-		top = 0,
-		bottom = cast(i32)ct.tx_shadowmap.height,
-	}
-
-	ct.cmdlist->RSSetViewports(1, &viewport)
-	ct.cmdlist->RSSetScissorRects(1, &scissor_rect)
+	render_common(pso, ct.tx_shadowmap.width, ct.tx_shadowmap.height)
 
 	// rendering
 
@@ -1641,7 +1621,7 @@ pso_gbuffer_render :: proc(pso: PSO) {
 
 	ct := &g_dx_context
 
-	render_common(pso)
+	render_common(pso, ct.depth_texture.width, ct.depth_texture.height)
 
 	// Transitioning gbuffers from SRVs to render target
 	transition_gbuffers(true)
@@ -1708,7 +1688,7 @@ pso_lighting_render :: proc(pso: PSO) {
 
 	ct := &g_dx_context
 
-	render_common(pso)
+	render_common(pso, ct.depth_texture.width, ct.depth_texture.height)
 	transition_resource(ct.tx_shadowmap.buffer, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
 
 	// Transitioning gbuffers from render target to SRVs
@@ -1763,7 +1743,7 @@ pso_gizmos_render :: proc (pso: PSO) {
 
 	ct := &g_dx_context
 
-	render_common(pso)
+	render_common(pso, ct.depth_texture.width, ct.depth_texture.height)
 
 	// updating gizmo data (looking at lights)
 	gizmos_count : u32 = cast(u32)g_config.light_count
@@ -1812,9 +1792,6 @@ pso_gizmos_render :: proc (pso: PSO) {
 	dsv_handle := texture_get_dsv_cpu_address(ct.depth_texture)
 
 	ct.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, &dsv_handle)
-
-	set_viewport_stuff()
-
 	ct.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
 
 	// binding vertex buffer view and instance buffer view

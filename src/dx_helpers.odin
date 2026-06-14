@@ -1311,21 +1311,21 @@ structured_buffer_create :: proc(
 	}
 }
 
-set_viewport_stuff :: proc() {
+set_viewport_stuff :: proc(viewport_width, viewport_height: int) {
 	ct := &g_dx_context
 
 	viewport := dx.VIEWPORT {
-		Width = f32(WINDOW_WIDTH),
-		Height = f32(WINDOW_HEIGHT),
+		Width = f32(viewport_width),
+		Height = f32(viewport_height),
 		MinDepth = 0,
 		MaxDepth = 1,
 	}
 
 	scissor_rect := dx.RECT {
 		left = 0,
-		right = WINDOW_WIDTH,
+		right = cast(i32)viewport_width,
 		top = 0,
-		bottom = WINDOW_HEIGHT,
+		bottom = cast(i32)viewport_height,
 	}
 
 	ct.cmdlist->RSSetViewports(1, &viewport)
