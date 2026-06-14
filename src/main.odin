@@ -72,6 +72,11 @@ MODEL_FILEPATH_TOYCAR :: GLTF_SAMPLES_DIR + "/ToyCar/glTF/ToyCar.gltf"
 MODEL_FILEPATH_NORMAL_MAP_TEST :: "models/normal_map_test.glb"
 MODEL_FILEPATH_SUZANNE :: GLTF_SAMPLES_DIR + "/Suzanne/glTF/Suzanne.gltf"
 MODEL_FILEPATH_FLIGHTHELMET :: GLTF_SAMPLES_DIR + "/FlightHelmet/glTF/FlightHelmet.gltf"
+MODEL_FILEPATH_CHESS :: GLTF_SAMPLES_DIR + "/ABeautifulGame/glTF/ABeautifulGame.gltf"
+MODEL_FILEPATH_SHADOW_TEST :: "models/shadow_test.glb"
+
+@(rodata)
+g_scene_list := [?]string{MODEL_FILEPATH_SHADOW_TEST, MODEL_FILEPATH_SPONZA}
 
 VertexData :: struct {
 	pos: v3 `POSITION`,
@@ -155,7 +160,6 @@ Context :: struct {
 	root_signatures: [RootSignatureChoice]^dx.IRootSignature,
 	psos: [PSOName]PSO,
 	cb_general: ConstantBufferUpload,
-	cb_shadowmap: ConstantBufferUpload,
 
 	/// Shadowmap
 	tx_shadowmap: Texture,
@@ -222,6 +226,7 @@ ConstantBufferData :: struct #align (256) {
 	view: dxm,
 	projection: dxm,
 	inverse_view_proj: dxm,
+	light_view: dxm,
 	light_projection: dxm,
 	view_pos: v3,
 	time: f32,
@@ -235,8 +240,6 @@ ConstantBufferData :: struct #align (256) {
 
 	// depth
 	depth_idx: i32,
-
-	shadowmap_cb_idx: i32,
 
 	draw_shadowmap: bool,
 	shadowmap_idx: i32,
@@ -339,28 +342,6 @@ PSOName :: enum {
 
 // ----- //// GLOBAL STATE ------
 
-cbv_get :: proc(view, projection: dxm, scene_is_active: bool, active_scene: ^Scene, light_view, light_projection: dxm) -> ConstantBufferData {
-
-	return ConstantBufferData {
-		view = view,
-		projection = projection,
-		inverse_view_proj = linalg.inverse(projection * view),
-		light_projection = light_projection * light_view,
-		view_pos = g_cur_cam.pos,
-		time = g_the_time_sec,
-		current_scene_materials_idx = scene_is_active ? cast(u32)active_scene.sb_materials.srv_index : 0,
-		current_scene_mesh_transforms_idx = scene_is_active ? cast(u32)active_scene.sb_model_matrices.srv_index : 0,
-		g_buffer_color_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Albedo].srv_index,
-		g_buffer_normal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Normal].srv_index,
-		g_buffer_ao_rough_metal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.AO_Rough_Metal].srv_index,
-		depth_idx = cast(i32)g_dx_context.depth_texture.srv_index,
-		shadowmap_cb_idx = cast(i32)g_dx_context.cb_shadowmap.srv_index,
-		draw_shadowmap = g_config.show_lightmap,
-		shadowmap_idx = cast(i32)g_dx_context.tx_shadowmap.srv_index,
-		light_count = cast(i32)g_config.light_count,
-		light_sb_idx = cast(i32)g_dx_context.sb_lights.srv_index,
-	}
-}
 
 cb_general_update :: proc() {
 
@@ -378,7 +359,26 @@ cb_general_update :: proc() {
 
 	// taking first light
 	light_view, light_projection := shadowmap_get_view_projection(g_config.lights[0])
-	cbv_data := cbv_get(view, projection, scene_is_active, active_scene, light_view, light_projection)
+
+	cbv_data := ConstantBufferData {
+		view = view,
+		projection = projection,
+		inverse_view_proj = linalg.inverse(projection * view),
+		light_view = light_view,
+		light_projection = light_projection,
+		view_pos = g_cur_cam.pos,
+		time = g_the_time_sec,
+		current_scene_materials_idx = scene_is_active ? cast(u32)active_scene.sb_materials.srv_index : 0,
+		current_scene_mesh_transforms_idx = scene_is_active ? cast(u32)active_scene.sb_model_matrices.srv_index : 0,
+		g_buffer_color_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Albedo].srv_index,
+		g_buffer_normal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Normal].srv_index,
+		g_buffer_ao_rough_metal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.AO_Rough_Metal].srv_index,
+		depth_idx = cast(i32)g_dx_context.depth_texture.srv_index,
+		draw_shadowmap = g_config.show_lightmap,
+		shadowmap_idx = cast(i32)g_dx_context.tx_shadowmap.srv_index,
+		light_count = cast(i32)g_config.light_count,
+		light_sb_idx = cast(i32)g_dx_context.sb_lights.srv_index,
+	}
 
 	// sending data to the cpu mapped memory that the gpu can read
 	// copy_to_buffer_already_mapped(g_dx_context.constant_buffer.gpu_pointer, slice.to_bytes([]ConstantBufferData{cbv_data}))
@@ -403,18 +403,6 @@ shadowmap_get_view_projection :: proc(light: Light) -> (view, projection: dxm){
 		sm_settings.far)
 
 	return view, projection
-}
-
-cb_shadowmap_update :: proc(light: Light) {
-
-	active_scene, scene_is_active := get_first_active_scene()
-
-	view, projection := shadowmap_get_view_projection(light)
-	cbv_data := cbv_get(view, projection, scene_is_active, active_scene, view, projection)
-
-	// sending data to the cpu mapped memory that the gpu can read
-	// copy_to_buffer_already_mapped(g_dx_context.constant_buffer.gpu_pointer, slice.to_bytes([]ConstantBufferData{cbv_data}))
-	copy_to_buffer_already_mapped_value(g_dx_context.cb_shadowmap.gpu_pointer, &cbv_data)
 }
 
 // initializes app data in Context struct
@@ -846,9 +834,6 @@ init_dx_user :: proc() {
 
 	// shadowmap setup
 	{
-		// creating shadowmap texture (DSV and then SRV)
-		ct.cb_shadowmap = cb_upload_create(size_of(ConstantBufferData), &g_resources_longterm, name = "shadowmap cbv")
-
 		opt_clear := dx.CLEAR_VALUE {
 			Format = .D32_FLOAT,
 			DepthStencil = {Depth = 1.0, Stencil = 0},
@@ -921,7 +906,7 @@ init_dx_user :: proc() {
 		scene.allocator = arena_new()
 	}
 
-	scene_schedule_load(&g_scenes[0], MODEL_FILEPATH_SPONZA)
+	scene_schedule_load(&g_scenes[0], g_scene_list[0])
 
 	// This fence is used to wait for frames to finish
 	{
@@ -1175,24 +1160,12 @@ do_imgui_ui :: proc() {
 
 	if current_selected != new_selected {
 		current_selected = new_selected
-
-		switch current_selected {
-		case 0:
-			scene_swap(MODEL_FILEPATH_SPONZA)
-		case 1:
-			scene_swap(MODEL_FILEPATH_FLIGHTHELMET)
-		}
+		scene_swap(g_scene_list[current_selected])
 	}
 
 	if im.Button("switch scenes") {
 		current_selected = current_selected == 0 ? 1 : 0
-
-		switch current_selected {
-		case 0:
-			scene_swap(MODEL_FILEPATH_SPONZA)
-		case 1:
-			scene_swap(MODEL_FILEPATH_FLIGHTHELMET)
-		}
+		scene_swap(g_scene_list[current_selected])
 	}
 
 	if im.TreeNode("hello") {
@@ -1574,10 +1547,6 @@ render_common :: proc(pso: PSO) {
 
 pso_shadowmap_render :: proc(pso: PSO) {
 	ct := &g_dx_context
-
-	the_dir_light := g_config.lights[0]
-
-	cb_shadowmap_update(the_dir_light)
 
 	transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
 	transition_resource(ct.tx_shadowmap.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})

@@ -453,6 +453,8 @@ gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string
 		}
 	}
 
+	lprintfln("All textures loaded.")
+
 	scene.sb_materials = structured_buffer_create("material buffer",
 		&scene.resource_pool, Material, len(mats), buffer_data = slice.to_bytes(mats))
 }

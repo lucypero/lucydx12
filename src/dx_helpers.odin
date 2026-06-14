@@ -961,6 +961,8 @@ texture_cache_query :: proc(model_filepath, image_name: string, format: dxgi.FOR
 		return texture_out_path
 	}
 
+	lprintfln("converting texture %v...", image_name)
+
 	// create dirs
 	dir_err := os.make_directory_all(cache_dir)
 
