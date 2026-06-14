@@ -413,6 +413,8 @@ Texture :: struct {
 	srv_index: int,
 	dsv_index: int,
 	rtv_index: int,
+	width: int,
+	height: int,
 }
 
 StructuredBuffer :: struct {
@@ -566,7 +568,10 @@ texture_create :: proc(
 		srv_index = srv_index,
 		dsv_index = dsv_index,
 		rtv_index = .RTV in view_flags ? create_rtv(res) : -1,
+		width = cast(int)width,
+		height = cast(int)height
 	}
+
 }
 
 is_typeless :: proc(format: dxgi.FORMAT) -> bool {

@@ -33,7 +33,6 @@ struct GeneralConstants {
 	// depth 
 	int depth_idx;
 
-	bool draw_shadowmap;
 	int shadowmap_idx;
 
 	// light
