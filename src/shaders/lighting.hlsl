@@ -126,7 +126,7 @@ float3 ComputeDirectionalLight(Light light, float3 worldPosition,
 
 		float3 N = norm;
 		float3 V = normalize(general_constants.view_pos - worldPosition);
-		float3 L = normalize(light_dir);
+		float3 L = light_dir;
 		float3 H = normalize(V + L);
 
 		// F0 is the base reflectivity (0.04 for non-metals)
@@ -166,10 +166,14 @@ float3 ComputeDirectionalLight(Light light, float3 worldPosition,
 		shadow = 0;
 	} else {
 
-		float closest_depth = tex_shadowmap.Sample(mySampler, shadowUV).r;
+		float closest_depth = tex_shadowmap.Sample(sampler_shadowmap, shadowUV).r;
 		float current_depth = light_coords.z;
 
-		float bias = 0.005f; // Tweak as needed
+		// biasing the bias based on angle between surface normal and light dir
+
+		float bias = max(general_constants.shadowmap_bias_max * (1.0f - dot(norm, light_dir)),
+			general_constants.shadowmap_bias_min);
+
 		if (current_depth - bias > closest_depth) {
 			shadow = 1;
 		}
