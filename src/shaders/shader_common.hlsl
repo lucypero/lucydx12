@@ -2,6 +2,8 @@
 
 /// Root Parameters
 SamplerState mySampler : register(s0);
+SamplerState sampler_shadowmap : register(s1);
+
 int cbv_index: register (b0); // index of my big CBV into the srv heap
 
 struct MeshTransform

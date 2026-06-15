@@ -1,10 +1,10 @@
 cam_pos: [
-	0.16520381
-	3.88015389
-	0.27899700
+	-5.62660408
+	6.62850475
+	-0.85001338
 ]
-cam_yaw: -6.99488735
-cam_pitch: 0.12296534
+cam_yaw: -8.80985928
+cam_pitch: 0.14796609
 show_shadowmap: true
 light_count: 2
 lights: [
@@ -179,4 +179,6 @@ shadowmap_settings: {
 	]
 	near: 0.10000000
 	far: 60.00000000
+	shadowmap_bias_min: 0.00001000
+	shadowmap_bias_max: 0.00500000
 }

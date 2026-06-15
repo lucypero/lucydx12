@@ -215,6 +215,8 @@ ShadowmapSettings :: struct {
 	lrbt: v4, // left right bottom top (for ortho projection)
 	near: f32,
 	far: f32,
+	shadowmap_bias_min: f32,
+	shadowmap_bias_max: f32,
 }
 
 // hlsl struct
@@ -249,8 +251,15 @@ GeneralConstants :: struct #align (256) {
 	// depth
 	depth_idx: i32,
 
+	// Shadows
+
 	draw_shadowmap: b32,
 	shadowmap_idx: i32,
+	shadowmap_bias_min: f32,
+	shadowmap_bias_max: f32,
+
+	// Other
+
 
 	light_count: i32,
 	light_sb_idx: i32,
@@ -384,6 +393,8 @@ cb_general_update :: proc() {
 		depth_idx = cast(i32)g_dx_context.depth_texture.srv_index,
 		draw_shadowmap = cast(b32)g_config.show_shadowmap,
 		shadowmap_idx = cast(i32)g_dx_context.tx_shadowmap.srv_index,
+		shadowmap_bias_max = g_config.shadowmap_settings.shadowmap_bias_max,
+		shadowmap_bias_min = g_config.shadowmap_settings.shadowmap_bias_min,
 		light_count = cast(i32)g_config.light_count,
 		light_sb_idx = cast(i32)g_dx_context.sb_lights.srv_index,
 	}
@@ -782,20 +793,35 @@ create_root_signatures :: proc() {
 		}
 	}
 
-	sampler_desc := dx.STATIC_SAMPLER_DESC {
-		Filter = .ANISOTROPIC,
-		AddressU = .WRAP,
-		AddressV = .WRAP,
-		AddressW = .WRAP,
-		MipLODBias = 0.0,
-		MaxAnisotropy = 16,
-		ComparisonFunc = .NEVER,
-		BorderColor = .OPAQUE_BLACK,
-		MinLOD = 0.0,
-		MaxLOD = dx.FLOAT32_MAX,
-		ShaderRegister = 0,
-		RegisterSpace = 0,
-		ShaderVisibility = .PIXEL,
+	sampler_descs := [?]dx.STATIC_SAMPLER_DESC { 
+		{
+			Filter = .ANISOTROPIC,
+			AddressU = .WRAP,
+			AddressV = .WRAP,
+			AddressW = .WRAP,
+			MipLODBias = 0.0,
+			MaxAnisotropy = 16,
+			ComparisonFunc = .NEVER,
+			MinLOD = 0.0,
+			MaxLOD = dx.FLOAT32_MAX,
+			ShaderRegister = 0,
+			RegisterSpace = 0,
+			ShaderVisibility = .PIXEL,
+		},
+		{
+			Filter = .MIN_MAG_MIP_LINEAR,
+			AddressU = .BORDER,
+			AddressV = .BORDER,
+			AddressW = .BORDER,
+			MipLODBias = 0.0,
+			ComparisonFunc = .NEVER,
+			BorderColor = .OPAQUE_WHITE,
+			MinLOD = 0.0,
+			MaxLOD = dx.FLOAT32_MAX,
+			ShaderRegister = 1,
+			RegisterSpace = 0,
+			ShaderVisibility = .PIXEL,
+		},
 	}
 
 	desc := dx.VERSIONED_ROOT_SIGNATURE_DESC {
@@ -803,8 +829,8 @@ create_root_signatures :: proc() {
 		Desc_1_0 = {
 			NumParameters = len(root_parameters),
 			pParameters = &root_parameters[0],
-			NumStaticSamplers = 1,
-			pStaticSamplers = &sampler_desc,
+			NumStaticSamplers = len(sampler_descs),
+			pStaticSamplers = &sampler_descs[0],
 		},
 	}
 
@@ -1155,6 +1181,8 @@ do_imgui_ui :: proc() {
 	im.DragFloat4("shadowmap LRBT", &g_config.shadowmap_settings.lrbt)
 	im.DragFloat("shadowmap near", &g_config.shadowmap_settings.near)
 	im.DragFloat("shadowmap far", &g_config.shadowmap_settings.far)
+	im.DragFloat("shadowmap bias min", &g_config.shadowmap_settings.shadowmap_bias_min, format = "%.9f")
+	im.DragFloat("shadowmap bias max", &g_config.shadowmap_settings.shadowmap_bias_max, format = "%.9f")
 
 	im.Checkbox("draw light gizmos", &g_light_draw_gizmos)
 	im.Checkbox("draw lightmap", &g_config.show_shadowmap)
