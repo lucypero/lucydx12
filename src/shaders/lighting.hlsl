@@ -314,8 +314,7 @@ float4 PSMain(PSInput input) : SV_TARGET
 	float maxY = posY + height;
 
 	// 3. Check if the current pixel being rendered is inside the minimap box
-	bool draw_shadowmap = true;
-	if (draw_shadowmap && input.uvs.x >= minX && input.uvs.x <= maxX && 
+	if (general_constants.draw_shadowmap && input.uvs.x >= minX && input.uvs.x <= maxX && 
 		input.uvs.y >= minY && input.uvs.y <= maxY) 
 	{
 		// 4. Remap the full-screen UVs to local UVs (0.0 to 1.0) for the texture

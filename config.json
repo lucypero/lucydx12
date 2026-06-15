@@ -1,11 +1,11 @@
 cam_pos: [
-	0.77163315
-	3.72601438
-	-0.07462790
+	0.16520381
+	3.88015389
+	0.27899700
 ]
-cam_yaw: -6.89489269
-cam_pitch: 0.01796530
-show_lightmap: true
+cam_yaw: -6.99488735
+cam_pitch: 0.12296534
+show_shadowmap: true
 light_count: 2
 lights: [
 	{
