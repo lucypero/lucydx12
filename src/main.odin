@@ -249,6 +249,7 @@ GeneralConstants :: struct #align (256) {
 	// depth
 	depth_idx: i32,
 
+	draw_shadowmap: b32,
 	shadowmap_idx: i32,
 
 	light_count: i32,
@@ -381,6 +382,7 @@ cb_general_update :: proc() {
 		g_buffer_normal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Normal].srv_index,
 		g_buffer_ao_rough_metal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.AO_Rough_Metal].srv_index,
 		depth_idx = cast(i32)g_dx_context.depth_texture.srv_index,
+		draw_shadowmap = cast(b32)g_config.show_shadowmap,
 		shadowmap_idx = cast(i32)g_dx_context.tx_shadowmap.srv_index,
 		light_count = cast(i32)g_config.light_count,
 		light_sb_idx = cast(i32)g_dx_context.sb_lights.srv_index,
@@ -1155,7 +1157,7 @@ do_imgui_ui :: proc() {
 	im.DragFloat("shadowmap far", &g_config.shadowmap_settings.far)
 
 	im.Checkbox("draw light gizmos", &g_light_draw_gizmos)
-	im.Checkbox("draw lightmap", &g_config.show_lightmap)
+	im.Checkbox("draw lightmap", &g_config.show_shadowmap)
 	im.DragFloat("cam speed", &g_cur_cam.speed, 0.0001, 0, 20)
 	im.DragFloat("cam cruise speed", &g_cur_cam.cruising_speed, 0.0001, 0, 20)
 
@@ -1222,7 +1224,7 @@ RendererConfig :: struct {
 	cam_pos: v3,
 	cam_yaw: f32,
 	cam_pitch: f32,
-	show_lightmap: bool,
+	show_shadowmap: bool,
 	light_count: int,
 	lights: [MAX_LIGHTS]Light,
 	scene_pick: int,

@@ -1516,6 +1516,9 @@ odin_base_type_to_hlsl_type :: proc(base_type: ^runtime.Type_Info) -> string {
 		}
 	case reflect.Type_Info_Float:
 		return "float"
+	case reflect.Type_Info_Boolean:
+		assert(base_type.size == 4) // only allow b32 bools (bool in hlsl)
+		return "bool"
 	case: 
 		panic("base element type not supported")
 	}
@@ -1526,7 +1529,7 @@ odin_type_to_hlsl_core_type :: proc(ti: ^runtime.Type_Info, sb_out: ^strings.Bui
 	#partial switch type_variant in ti.variant {
 	case reflect.Type_Info_Named:
 		strings.write_string(sb_out, type_variant.name)
-	case reflect.Type_Info_Integer, reflect.Type_Info_Float:
+	case reflect.Type_Info_Integer, reflect.Type_Info_Float, reflect.Type_Info_Boolean:
 		strings.write_string(sb_out, odin_base_type_to_hlsl_type(ti))
 	case reflect.Type_Info_Matrix:
 		base_type := type_variant.elem
@@ -1536,6 +1539,8 @@ odin_type_to_hlsl_core_type :: proc(ti: ^runtime.Type_Info, sb_out: ^strings.Bui
 		base_type := type_variant.elem
 		strings.write_string(sb_out, odin_base_type_to_hlsl_type(base_type))
 		fmt.sbprintf(sb_out, "%v", type_variant.count)
+	case:
+		panic("core type not supported")
 	}
 }
 
