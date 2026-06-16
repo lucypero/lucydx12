@@ -809,12 +809,12 @@ create_root_signatures :: proc() {
 			ShaderVisibility = .PIXEL,
 		},
 		{
-			Filter = .MIN_MAG_MIP_LINEAR,
+			Filter = .COMPARISON_MIN_MAG_LINEAR_MIP_POINT,
 			AddressU = .BORDER,
 			AddressV = .BORDER,
 			AddressW = .BORDER,
 			MipLODBias = 0.0,
-			ComparisonFunc = .NEVER,
+			ComparisonFunc = .LESS_EQUAL,
 			BorderColor = .OPAQUE_WHITE,
 			MinLOD = 0.0,
 			MaxLOD = dx.FLOAT32_MAX,
@@ -1181,8 +1181,14 @@ do_imgui_ui :: proc() {
 	im.DragFloat4("shadowmap LRBT", &g_config.shadowmap_settings.lrbt)
 	im.DragFloat("shadowmap near", &g_config.shadowmap_settings.near)
 	im.DragFloat("shadowmap far", &g_config.shadowmap_settings.far)
-	im.DragFloat("shadowmap bias min", &g_config.shadowmap_settings.shadowmap_bias_min, format = "%.9f")
-	im.DragFloat("shadowmap bias max", &g_config.shadowmap_settings.shadowmap_bias_max, format = "%.9f")
+
+	// shadowmap bias
+	{
+		bias_array : [2]f32 = {g_config.shadowmap_settings.shadowmap_bias_min, g_config.shadowmap_settings.shadowmap_bias_max}
+		im.SliderFloat2("Shadowmap Bias min/max", &bias_array, 0.0001, 0.01, "%.5f")
+		g_config.shadowmap_settings.shadowmap_bias_min = bias_array[0]
+		g_config.shadowmap_settings.shadowmap_bias_max = bias_array[1]
+	}
 
 	im.Checkbox("draw light gizmos", &g_light_draw_gizmos)
 	im.Checkbox("draw lightmap", &g_config.show_shadowmap)
@@ -1227,12 +1233,12 @@ do_imgui_ui :: proc() {
 		scene_swap(g_scene_list[current_selected])
 	}
 
-	if im.TreeNode("hello") {
 
-		im.LabelText("inside tree", "hello")
-
-		im.TreePop()
-	}
+	// tree example
+	// if im.TreeNode("hello") {
+	// 	im.LabelText("inside tree", "hello")
+	// 	im.TreePop()
+	// }
 
 	im.ShowDemoWindow()
 

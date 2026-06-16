@@ -106,11 +106,19 @@ float3 DebugHueGradient(float t)
 	return a + b * cos(6.28318 * (c * t + d));
 }
 
+float2 get_shadowmap_sampling_offset(int u, int v, Texture2D<float> tex_shadowmap) {
+
+	float2 shadow_map_size;
+	tex_shadowmap.GetDimensions(shadow_map_size.x, shadow_map_size.y);
+
+	return float2( u * 1.0f/shadow_map_size.x, v * 1.0f/shadow_map_size.y );
+}
+
 float3 ComputeDirectionalLight(Light light, float3 worldPosition,
 	float3 norm, float3 albedoColor, float3 aoRoughMetalColor,
 	ConstantBuffer<GeneralConstants> general_constants, float3 world_position, Texture2D<float> tex_shadowmap) {
 
-	float3 light_dir = normalize(light.direction);
+	float3 light_dir = normalize(-light.direction);
 
 	// calculating diffuse
 	float3 diffuse = 0;
@@ -157,30 +165,42 @@ float3 ComputeDirectionalLight(Light light, float3 worldPosition,
 	float shadow = 0;
 
 	/// FROM NDC (-1, +1) TO UV (0, 1)
-	float2 shadowUV;
-	shadowUV = light_coords.xy * 0.5f + 0.5f;
-	shadowUV.y = -light_coords.y * 0.5f + 0.5f;
+	float2 shadow_uv;
+	shadow_uv = light_coords.xy * 0.5f + 0.5f;
+	shadow_uv.y = -light_coords.y * 0.5f + 0.5f;
 
-	if (shadowUV.x < 0.0f || shadowUV.x > 1.0f || shadowUV.y < 0.0f || shadowUV.y > 1.0f  ||
+	float shadow_factor = 0;
+
+	if (shadow_uv.x < 0.0f || shadow_uv.x > 1.0f || shadow_uv.y < 0.0f || shadow_uv.y > 1.0f  ||
 		light_coords.z < 0.0f || light_coords.z > 1.0f) {
-		shadow = 0;
+		shadow_factor = 0;
 	} else {
-
-		float closest_depth = tex_shadowmap.Sample(sampler_shadowmap, shadowUV).r;
-		float current_depth = light_coords.z;
-
-		// biasing the bias based on angle between surface normal and light dir
 
 		float bias = max(general_constants.shadowmap_bias_max * (1.0f - dot(norm, light_dir)),
 			general_constants.shadowmap_bias_min);
 
-		if (current_depth - bias > closest_depth) {
-			shadow = 1;
+		float current_depth = light_coords.z - bias;
+
+		// PCF sampling for shadow map
+		float sum = 0;
+		float x, y;
+
+		//perform PCF filtering on a 4 x 4 texel neighborhood
+		for (y = -1.5; y <= 1.5; y += 1.0)
+		{
+			for (x = -1.5; x <= 1.5; x += 1.0)
+			{
+				sum += tex_shadowmap.SampleCmpLevelZero(sampler_shadowmap, shadow_uv + get_shadowmap_sampling_offset(x,y, tex_shadowmap), current_depth);
+			}
 		}
+
+		// shadow_factor = tex_shadowmap.SampleCmpLevelZero(sampler_shadowmap, shadow_uv, current_depth);
+
+		shadow_factor = sum / 16.0f;
 	}
 
 
-	return (diffuse + specular) * (1 - shadow * 0.8) * albedoColor * light.intensity;
+	return (diffuse + specular) * (shadow_factor) * albedoColor * light.intensity;
 };
 
 float3 ComputePointLight(Light light, float3 worldPosition, float3 norm, float3 albedoColor, float3 aoRoughMetalColor, float3 view_pos) {
@@ -225,6 +245,7 @@ float3 ComputePointLight(Light light, float3 worldPosition, float3 norm, float3 
 
 	return (diffuse + specular) * albedoColor;
 };
+
 
 //  / helper code
 
@@ -280,7 +301,7 @@ float4 PSMain(PSInput input) : SV_TARGET
 	float3 ambient = 0;
 	// calculating ambient
 	{
-		float amb_val = 0.05;
+		float amb_val = 0.1;
 		ambient = float3(amb_val, amb_val, amb_val);
 	}
 
