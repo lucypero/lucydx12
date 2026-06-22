@@ -239,7 +239,7 @@ pso_create :: proc(shader_filename: string, parameters: PSOParameters, render_pr
 	root_signature := ct.root_signatures[parameters.root_signature]
 
 	// Creating the actual PSO
-	pso_dx: ^dx.IPipelineState = create_pso_dx(shader_filename, parameters, root_signature, vs, ps, pso_name)
+	pso_dx: ^dx.IPipelineState = create_pso_dx(parameters, root_signature, vs, ps, pso_name)
 
 	pso_index := len(g_resources_longterm)
 	append(&g_resources_longterm, pso_dx)
@@ -290,7 +290,7 @@ dxc_init :: proc() -> ^dxc.ICompiler3 {
 	return compiler
 }
 
-// compiles vertex and pixel shader
+// compiles vertex and pixel shader, for a graphics pipeline
 compile_shader :: proc(compiler: ^dxc.ICompiler3, shader_filename: string) -> (vs, ps: ^dxc.IBlob, ok: bool) {
 
 	data, ok_f := os.read_entire_file_from_path(shader_filename, context.allocator)
@@ -321,20 +321,53 @@ compile_shader :: proc(compiler: ^dxc.ICompiler3, shader_filename: string) -> (v
 	return vs, ps, true
 }
 
+compile_shader_compute :: proc(compiler: ^dxc.ICompiler3, shader_filename: string) -> (cs: ^dxc.IBlob, ok: bool) {
+
+	data, ok_f := os.read_entire_file_from_path(shader_filename, context.allocator)
+
+	if ok_f != os.General_Error.None {
+		lprintfln("could not read file")
+		os.exit(1)
+	}
+
+	defer(delete(data))
+
+	if len(data) == 0 do return
+
+	source_buffer := dxc.Buffer {
+		Ptr = &data[0],
+		Size = len(data),
+		Encoding = dxc.CP_ACP
+	}
+
+	cs, ok = compile_individual_shader(shader_filename, &source_buffer, compiler, .Compute)
+	if !ok do return
+
+	return cs, true
+}
+
 ShaderKind :: enum {
 	Vertex,
-	Pixel
+	Pixel,
+	Compute
 }
 
 compile_individual_shader :: proc(shader_filename: string, source_buffer: ^dxc.Buffer, compiler: ^dxc.ICompiler3, shader_kind: ShaderKind) -> (res:^dxc.IBlob, ok: bool) {
 
 	arguments : [dynamic; 10]string 
 
-	append(&arguments, "-E", "VSMain", "-T", "vs_6_6", "-O3")
+	append(&arguments, "-E", "???", "-T", "???", "-O3")
 
-	if shader_kind == .Pixel {
+	switch shader_kind {
+	case .Vertex:
+		arguments[1] = "VSMain"
+		arguments[3] = "vs_6_6"
+	case .Pixel:
 		arguments[1] = "PSMain"
 		arguments[3] = "ps_6_6"
+	case .Compute:
+		arguments[1] = "CSMain"
+		arguments[3] = "cs_6_6"
 	}
 
 	when ODIN_DEBUG {
@@ -1336,6 +1369,10 @@ PSO :: struct {
 	root_signature: ^dx.IRootSignature,
 	shader_filename: string,
 
+	// false = graphics PSO. true = compute PSO
+	is_compute: bool,
+
+	// GRAPHICS PSO parameters (does not apply to Compute)
 	parameters: PSOParameters,
 
 	// index in the queue array to free the resource. i use this to swap the pointer when the pso gets hot swapped
@@ -1351,7 +1388,7 @@ PSO :: struct {
 	render_proc: proc(pso: PSO)
 }
 
-create_pso_dx :: proc(shader_filename: string, parameters: PSOParameters,
+create_pso_dx :: proc(parameters: PSOParameters,
 	root_signature: ^dx.IRootSignature,
 	vs, ps: ^dxc.IBlob,
 	pso_name: string = "") -> ^dx.IPipelineState {
@@ -1460,6 +1497,52 @@ create_pso_dx :: proc(shader_filename: string, parameters: PSOParameters,
 	return pso_dx
 }
 
+create_pso_compute_dx :: proc(root_signature: ^dx.IRootSignature, cs: ^dxc.IBlob, pso_name: string = "") -> ^dx.IPipelineState {
+
+	ct := &g_dx_context
+
+	desc := dx.COMPUTE_PIPELINE_STATE_DESC {
+		pRootSignature = root_signature,
+		CS = dx.SHADER_BYTECODE{pShaderBytecode = cs->GetBufferPointer(), BytecodeLength = cs->GetBufferSize()}
+	}
+
+	compute_pso_dx : ^dx.IPipelineState
+
+	hr := ct.device->CreateComputePipelineState(&desc, dx.IPipelineState_UUID, (^rawptr)(&compute_pso_dx))
+	check(hr, "compute pipeline creation fail")
+
+	if pso_name != "" {
+		pso_name_wide := windows.utf8_to_wstring_alloc(pso_name, allocator = context.temp_allocator)
+		compute_pso_dx->SetName(pso_name_wide)
+	}
+	return compute_pso_dx
+}
+
+pso_compute_create :: proc(shader_filename: string, render_proc: proc(pso:PSO), pso_name: string = "") -> PSO {
+
+	ct := &g_dx_context
+
+	cs, ok := compile_shader_compute(ct.dxc_compiler, shader_filename)
+	assert(ok, "could not compile compute shader")
+	defer cs->Release()
+
+	compute_pso_dx := create_pso_compute_dx(ct.root_signatures[.Standard], cs, pso_name)
+	pso_index := len(g_resources_longterm)
+	append(&g_resources_longterm, compute_pso_dx)
+
+	pso := PSO {
+		pipeline_state = compute_pso_dx,
+		root_signature = ct.root_signatures[.Standard],
+		shader_filename = shader_filename,
+		pso_index = pso_index,
+		pso_name = pso_name,
+		render_proc = render_proc
+	}
+
+	pso_hotswap_init(&pso)
+	return pso
+}
+
 // checks if it should rebuild a shader
 // if it should then compiles the new shader and makes a new PSO with it
 pso_hotswap_watch :: proc(pso: ^PSO) {
@@ -1474,16 +1557,29 @@ pso_hotswap_watch :: proc(pso: ^PSO) {
 	}
 
 	if reload {
-		// handle releasing resources
-		vs, ps, ok := compile_shader(g_dx_context.dxc_compiler, pso.shader_filename)
-		if !ok {
-			lprintln("Could not compile new shader!! check logs")
+		if pso.is_compute {
+			// handle releasing resources
+			cs, ok := compile_shader_compute(g_dx_context.dxc_compiler, pso.shader_filename)
+			if !ok {
+				lprintln("Could not compile new shader!! check logs")
+			} else {
+				// create the new PSO to be swapped later
+				pso.pso_swap = create_pso_compute_dx(pso.root_signature, cs, pso.pso_name)
+				cs->Release()
+				lprintfln("Shader reloaded successfully: %v", pso.shader_filename)
+			}
 		} else {
-			// create the new PSO to be swapped later
-			pso.pso_swap = create_pso_dx(pso.shader_filename, pso.parameters, pso.root_signature, vs, ps, pso.pso_name)
-			vs->Release()
-			ps->Release()
-			lprintfln("Shader reloaded successfully: %v", pso.shader_filename)
+			// handle releasing resources
+			vs, ps, ok := compile_shader(g_dx_context.dxc_compiler, pso.shader_filename)
+			if !ok {
+				lprintln("Could not compile new shader!! check logs")
+			} else {
+				// create the new PSO to be swapped later
+				pso.pso_swap = create_pso_dx(pso.parameters, pso.root_signature, vs, ps, pso.pso_name)
+				vs->Release()
+				ps->Release()
+				lprintfln("Shader reloaded successfully: %v", pso.shader_filename)
+			}
 		}
 	}
 }
