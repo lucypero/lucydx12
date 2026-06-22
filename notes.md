@@ -1,6 +1,11 @@
 10.332
 10.346
 
+# AA - Anti-Aliasing
+
+- Figure out what AA to use.
+- support dynamic window resolution, so u can make the window bigger so the frame looks better.
+
 # shadow - debugging:
 
 - maybe the world position you're getting is wrong. maybe the bug is there.

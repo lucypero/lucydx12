@@ -599,7 +599,7 @@ main :: proc() {
 
 		// DXGI report
 		dxgi_debug: ^dxgi.IDebug1
-		dxgi.DXGIGetDebugInterface1(0, dxgi.IDebug1_UUID, (^rawptr)(&dxgi_debug))
+		dxgi.GetDebugInterface1(0, dxgi.IDebug1_UUID, (^rawptr)(&dxgi_debug))
 		dxgi_debug->ReportLiveObjects(dxgi.DEBUG_ALL, {})
 		}
 	}
