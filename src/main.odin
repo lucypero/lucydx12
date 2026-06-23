@@ -52,6 +52,7 @@ gbuffer_shader_filename :: "src/shaders/geometry.hlsl"
 lighting_shader_filename :: "src/shaders/lighting.hlsl"
 ui_shader_filename :: "src/shaders/ui.hlsl"
 text_shader_filename :: "src/shaders/text.hlsl"
+post_process_shader_filename :: "src/shaders/post_process.hlsl"
 
 // window dimensions
 WINDOW_WIDTH :: 2000
@@ -169,6 +170,9 @@ Context :: struct {
 
 	// light 
 	sb_lights: StructuredBuffer,
+
+	// compute
+	tx_post_process_output: Texture,
 }
 
 ModelMatrixData :: struct {
@@ -263,6 +267,11 @@ GeneralConstants :: struct #align (256) {
 
 	light_count: i32,
 	light_sb_idx: i32,
+
+
+	// Compute shader,
+
+	compute_out_idx: i32,
 }
 
 // testing
@@ -354,7 +363,8 @@ PSOName :: enum {
 	Shadowmap,
 	GBuffer_Pass,
 	Lighting_Pass,
-	Gizmos
+	Gizmos,
+	PostProcess
 }
 
 // ----- //// GLOBAL STATE ------
@@ -940,6 +950,9 @@ init_dx_user :: proc() {
 		rtv_formats = {0 = .R8G8B8A8_UNORM, 1 ..=7 = .UNKNOWN},
 	}, render_proc = pso_gizmos_render, pso_name = "Gizmos PSO")
 
+	ct.psos[.PostProcess] = pso_compute_create(post_process_shader_filename, 
+		render_proc = pso_post_process_render, pso_name = "Post-Process Compute PSO")
+
 	// hr = ct.command_allocator->Reset(
 	// hr = ct.cmdlist->Reset(ct.command_allocator, nil)
 	create_depth_buffer()
@@ -950,6 +963,14 @@ init_dx_user :: proc() {
 	imgui_init()
 
 	load_white_texture()
+
+	// post-process output
+
+	// ct.tx_shadowmap = texture_create(nil, SHADOWMAP_RES, SHADOWMAP_RES, .R32_TYPELESS,
+	// 	&g_resources_longterm, view_flags = {.DSV, .SRV}, texture_name = "shadowmap", opt_clear_value = &opt_clear)
+
+	ct.tx_post_process_output = texture_create(nil, WINDOW_WIDTH, WINDOW_HEIGHT, .R32G32B32A32_FLOAT,
+		&g_resources_longterm, view_flags = {.UAV}, texture_name = "post-process UAV output")
 
 	ct.sb_lights = structured_buffer_create("light buffer", &g_resources_longterm, Light, MAX_LIGHTS, heap_type = .UPLOAD)
 
@@ -1673,6 +1694,15 @@ draw_scene_geometry :: proc() {
 			}
 		})
 	}
+}
+
+pso_post_process_render :: proc(pso: PSO) {
+	// ct := &g_dx_context
+
+	// Issue the compute stuff
+
+	// fmt.println("hello")
+
 }
 
 pso_gbuffer_render :: proc(pso: PSO) {
