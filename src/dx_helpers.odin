@@ -1548,7 +1548,8 @@ pso_compute_create :: proc(shader_filename: string, render_proc: proc(pso:PSO), 
 		shader_filename = shader_filename,
 		pso_index = pso_index,
 		pso_name = pso_name,
-		render_proc = render_proc
+		render_proc = render_proc,
+		is_compute = true,
 	}
 
 	pso_hotswap_init(&pso)
