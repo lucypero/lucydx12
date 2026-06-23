@@ -75,8 +75,7 @@ uber_heap_create :: proc(type: dx.DESCRIPTOR_HEAP_TYPE, pool: ^DXResourcePool) -
 	}
 }
 
-uber_heap_count :: proc(heap: ^UberDescriptorHeap, debug_index: bool = false, debug_name: string = "") {
-	if debug_index do lprintfln("creating view on uber heap: name: %v, index: %v", debug_name, heap.next_descriptor_index)
+uber_heap_count :: proc(heap: ^UberDescriptorHeap) {
 	heap.next_descriptor_index += 1
 }
 
@@ -445,6 +444,7 @@ Texture :: struct {
 	srv_index: int,
 	dsv_index: int,
 	rtv_index: int,
+	uav_index: int,
 	width: int,
 	height: int,
 }
@@ -473,7 +473,8 @@ texture_get_rtv_cpu_address :: proc(tex: Texture) -> dx.CPU_DESCRIPTOR_HANDLE {
 TextureViewFlag :: enum {
 	DSV,
 	RTV,
-	SRV
+	SRV,
+	UAV
 }
 
 BufferViewFlags :: bit_set[TextureViewFlag]
@@ -504,6 +505,10 @@ texture_create :: proc(
 
 	if .RTV in view_flags {
 		res_flags += {.ALLOW_RENDER_TARGET}
+	}
+
+	if .UAV in view_flags {
+		res_flags += {.ALLOW_UNORDERED_ACCESS}
 	}
 
 	texture_desc := dx.RESOURCE_DESC {
@@ -599,6 +604,7 @@ texture_create :: proc(
 		format = format,
 		srv_index = srv_index,
 		dsv_index = dsv_index,
+		uav_index = .UAV in view_flags ? create_uav(res) : -1,
 		rtv_index = .RTV in view_flags ? create_rtv(res) : -1,
 		width = cast(int)width,
 		height = cast(int)height
@@ -633,20 +639,26 @@ copy_to_buffer_already_mapped_value :: proc(gpu_data: rawptr, data: ^$T){
 
 // creates a SRV for the resource on the uber SRV heap
 // use this after creeating the uber heap
-create_srv :: proc(res : ^dx.IResource, srv_desc : ^dx.SHADER_RESOURCE_VIEW_DESC = nil,
-	debug_index: bool = false, debug_name: string = "",
-) -> (srv_index: int){
+create_srv :: proc(res : ^dx.IResource, srv_desc : ^dx.SHADER_RESOURCE_VIEW_DESC = nil) -> (srv_index: int){
 	ct := &g_dx_context
 	ct.device->CreateShaderResourceView(res, srv_desc, uber_heap_get_next_cpu_addr(ct.cbv_srv_uav_heap))
-	uber_heap_count(&ct.cbv_srv_uav_heap, debug_index, debug_name)
+	uber_heap_count(&ct.cbv_srv_uav_heap)
 	return ct.cbv_srv_uav_heap.next_descriptor_index - 1
 }
 
-create_cbv :: proc(
-	cbv_desc : ^dx.CONSTANT_BUFFER_VIEW_DESC, debug_index: bool = false, debug_name: string = "") -> (srv_index: int) {
+// creates a UAV for the resource on the uber SRV heap
+// use this after creeating the uber heap
+create_uav :: proc(res : ^dx.IResource) -> (srv_index: int) {
+	ct := &g_dx_context
+	ct.device->CreateUnorderedAccessView(res, nil, nil, uber_heap_get_next_cpu_addr(ct.cbv_srv_uav_heap))
+	uber_heap_count(&ct.cbv_srv_uav_heap)
+	return ct.cbv_srv_uav_heap.next_descriptor_index - 1
+}
+
+create_cbv :: proc(cbv_desc : ^dx.CONSTANT_BUFFER_VIEW_DESC) -> (srv_index: int) {
 	ct := &g_dx_context
 	ct.device->CreateConstantBufferView(cbv_desc, uber_heap_get_next_cpu_addr(ct.cbv_srv_uav_heap))
-	uber_heap_count(&ct.cbv_srv_uav_heap, debug_index, debug_name)
+	uber_heap_count(&ct.cbv_srv_uav_heap)
 	return ct.cbv_srv_uav_heap.next_descriptor_index - 1
 }
 
