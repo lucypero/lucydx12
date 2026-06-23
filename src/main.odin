@@ -1626,10 +1626,15 @@ render_common :: proc(pso: PSO, viewport_width, viewport_height: int) {
 
 	ct.cmdlist->SetPipelineState(pso.pipeline_state)
 	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap.heap)
-	ct.cmdlist->SetGraphicsRootSignature(pso.root_signature)
-	ct.cmdlist->SetGraphicsRoot32BitConstant(0, cast(u32)ct.cb_general.srv_index, 0)
 
-	set_viewport_stuff(viewport_width, viewport_height)
+	if pso.is_compute {
+		ct.cmdlist->SetComputeRootSignature(pso.root_signature)
+		ct.cmdlist->SetComputeRoot32BitConstant(0, cast(u32)ct.cb_general.srv_index, 0)
+	} else {
+		ct.cmdlist->SetGraphicsRootSignature(pso.root_signature)
+		ct.cmdlist->SetGraphicsRoot32BitConstant(0, cast(u32)ct.cb_general.srv_index, 0)
+		set_viewport_stuff(viewport_width, viewport_height)
+	}
 }
 
 pso_shadowmap_render :: proc(pso: PSO) {
@@ -1696,13 +1701,17 @@ draw_scene_geometry :: proc() {
 	}
 }
 
+// Rendering the Post-Process Compute PSO
 pso_post_process_render :: proc(pso: PSO) {
-	// ct := &g_dx_context
+	ct := &g_dx_context
 
 	// Issue the compute stuff
 
-	// fmt.println("hello")
+	render_common(pso, WINDOW_WIDTH, WINDOW_HEIGHT)
 
+	// rendering
+	// you can use the same command list as everything else. it's fine.
+	ct.cmdlist->Dispatch(WINDOW_WIDTH, WINDOW_HEIGHT, 1)
 }
 
 pso_gbuffer_render :: proc(pso: PSO) {
