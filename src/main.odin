@@ -122,11 +122,16 @@ GBufferUnitName :: enum {
 	AO_Rough_Metal,
 }
 
-GBuffer :: struct {
-	gbuffers: [GBufferUnitName]Texture,
-}
+GBuffer :: [GBufferUnitName]Texture
 
 MAX_GIZMOS :: 20
+
+Swapchain :: struct {
+	swapchain: ^dxgi.ISwapChain3,
+	swapchain_rtv_descriptor_heap: ^dx.IDescriptorHeap,
+	targets: [NUM_RENDERTARGETS]^dx.IResource, // render targets
+	frame_index: int, // last swapchain RTV we wrote to
+}
 
 Context :: struct {
 	/// SDL stuff
@@ -152,13 +157,10 @@ Context :: struct {
 	queue: ^dx.ICommandQueue,
 	command_allocator: ^dx.ICommandAllocator,
 	cmdlist: ^dx.IGraphicsCommandList,
-	swapchain: ^dxgi.ISwapChain3,
 	dxc_compiler: ^dxc.ICompiler3,
 	dxma_allocator: ^dxma.Allocator,
 	// descriptor heap for the render target view
-	swapchain_rtv_descriptor_heap: ^dx.IDescriptorHeap,
-	targets: [NUM_RENDERTARGETS]^dx.IResource, // render targets
-	frame_index: int,
+	swapchain: Swapchain,
 	depth_texture: Texture,
 	gbuffer: GBuffer,
 	root_signatures: [RootSignatureChoice]^dx.IRootSignature,
@@ -171,7 +173,7 @@ Context :: struct {
 	// light 
 	sb_lights: StructuredBuffer,
 
-	// compute
+	// compute. (should be the final RTV texture)
 	tx_post_process_output: Texture,
 }
 
@@ -397,9 +399,9 @@ cb_general_update :: proc() {
 		time = g_the_time_sec,
 		current_scene_materials_idx = scene_is_active ? cast(u32)active_scene.sb_materials.srv_index : 0,
 		current_scene_mesh_transforms_idx = scene_is_active ? cast(u32)active_scene.sb_model_matrices.srv_index : 0,
-		g_buffer_color_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Albedo].srv_index,
-		g_buffer_normal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.Normal].srv_index,
-		g_buffer_ao_rough_metal_idx = cast(i32)g_dx_context.gbuffer.gbuffers[.AO_Rough_Metal].srv_index,
+		g_buffer_color_idx = cast(i32)g_dx_context.gbuffer[.Albedo].srv_index,
+		g_buffer_normal_idx = cast(i32)g_dx_context.gbuffer[.Normal].srv_index,
+		g_buffer_ao_rough_metal_idx = cast(i32)g_dx_context.gbuffer[.AO_Rough_Metal].srv_index,
 		depth_idx = cast(i32)g_dx_context.depth_texture.srv_index,
 		draw_shadowmap = cast(b32)g_config.show_shadowmap,
 		shadowmap_idx = cast(i32)g_dx_context.tx_shadowmap.srv_index,
@@ -407,6 +409,7 @@ cb_general_update :: proc() {
 		shadowmap_bias_min = g_config.shadowmap_settings.shadowmap_bias_min,
 		light_count = cast(i32)g_config.light_count,
 		light_sb_idx = cast(i32)g_dx_context.sb_lights.srv_index,
+		compute_out_idx = cast(i32)g_dx_context.tx_post_process_output.uav_index,
 	}
 
 	// sending data to the cpu mapped memory that the gpu can read
@@ -746,41 +749,6 @@ init_dx :: proc() {
 	// Create the swapchain, it's the thing that contains render targets that we draw into.
 	//  It has 2 render targets (NUM_RENDERTARGETS), giving us double buffering.
 	ct.swapchain = create_swapchain(ct.factory, ct.queue, ct.window)
-
-	ct.frame_index = cast(int)ct.swapchain->GetCurrentBackBufferIndex()
-
-	// Create swapchain rtv heap
-	{
-		desc := dx.DESCRIPTOR_HEAP_DESC {
-			NumDescriptors = NUM_RENDERTARGETS,
-			Type = .RTV,
-			Flags = {},
-		}
-
-		hr = ct.device->CreateDescriptorHeap(
-			&desc,
-			dx.IDescriptorHeap_UUID,
-			(^rawptr)(&ct.swapchain_rtv_descriptor_heap),
-		)
-		check(hr, "Failed creating descriptor heap")
-		ct.swapchain_rtv_descriptor_heap->SetName("lucy's swapchain RTV descriptor heap")
-		append(&g_resources_longterm, ct.swapchain_rtv_descriptor_heap)
-	}
-
-	// Fetch the two render targets from the swapchain
-	{
-		rtv_descriptor_size: u32 = ct.device->GetDescriptorHandleIncrementSize(.RTV)
-		rtv_descriptor_handle: dx.CPU_DESCRIPTOR_HANDLE
-		ct.swapchain_rtv_descriptor_heap->GetCPUDescriptorHandleForHeapStart(&rtv_descriptor_handle)
-
-		for i: u32 = 0; i < NUM_RENDERTARGETS; i += 1 {
-			hr = ct.swapchain->GetBuffer(i, dx.IResource_UUID, (^rawptr)(&ct.targets[i]))
-			ct.targets[i]->Release()
-			check(hr, "Failed getting render target")
-			ct.device->CreateRenderTargetView(ct.targets[i], nil, rtv_descriptor_handle)
-			rtv_descriptor_handle.ptr += uint(rtv_descriptor_size)
-		}
-	}
 }
 
 create_root_signatures :: proc() {
@@ -918,7 +886,7 @@ init_dx_user :: proc() {
 		0 ..= 7 = .UNKNOWN,
 	}
 
-	for g_buffer, i in g_dx_context.gbuffer.gbuffers {
+	for g_buffer, i in g_dx_context.gbuffer {
 		gbuffer_rtv_formats[i] = g_buffer.format
 	}
 
@@ -1043,16 +1011,12 @@ do_main_loop :: proc() {
 create_swapchain :: proc(
 	factory: ^dxgi.IFactory4,
 	queue: ^dx.ICommandQueue,
-	window: ^sdl.Window,
-) -> (
-	swapchain: ^dxgi.ISwapChain3,
-) {
+	window: ^sdl.Window) -> (swapchain: Swapchain) {
 
 	// Get the window handle from SDL
 	window_info: sdl.SysWMinfo
 	sdl.GetWindowWMInfo(window, &window_info)
 	window_handle := dxgi.HWND(window_info.info.win.window)
-
 
 	desc := dxgi.SWAP_CHAIN_DESC1 {
 		Width = u32(WINDOW_WIDTH),
@@ -1072,10 +1036,45 @@ create_swapchain :: proc(
 		&desc,
 		nil,
 		nil,
-		(^^dxgi.ISwapChain1)(&swapchain),
+		(^^dxgi.ISwapChain1)(&swapchain.swapchain),
 	)
 	check(hr, "Failed to create swap chain")
-	append(&g_resources_longterm, swapchain)
+	append(&g_resources_longterm, swapchain.swapchain)
+
+	swapchain.frame_index = cast(int)swapchain.swapchain->GetCurrentBackBufferIndex()
+
+	// Create swapchain rtv heap
+	{
+		desc := dx.DESCRIPTOR_HEAP_DESC {
+			NumDescriptors = NUM_RENDERTARGETS,
+			Type = .RTV,
+			Flags = {},
+		}
+
+		hr = g_dx_context.device->CreateDescriptorHeap(
+			&desc,
+			dx.IDescriptorHeap_UUID,
+			(^rawptr)(&swapchain.swapchain_rtv_descriptor_heap),
+		)
+		check(hr, "Failed creating descriptor heap")
+		swapchain.swapchain_rtv_descriptor_heap->SetName("lucy's swapchain RTV descriptor heap")
+		append(&g_resources_longterm, swapchain.swapchain_rtv_descriptor_heap)
+	}
+
+	// Fetch the two render targets from the swapchain
+	{
+		rtv_descriptor_size: u32 = g_dx_context.device->GetDescriptorHandleIncrementSize(.RTV)
+		rtv_descriptor_handle: dx.CPU_DESCRIPTOR_HANDLE
+		swapchain.swapchain_rtv_descriptor_heap->GetCPUDescriptorHandleForHeapStart(&rtv_descriptor_handle)
+
+		for i: u32 = 0; i < NUM_RENDERTARGETS; i += 1 {
+			hr = swapchain.swapchain->GetBuffer(i, dx.IResource_UUID, (^rawptr)(&swapchain.targets[i]))
+			swapchain.targets[i]->Release()
+			check(hr, "Failed getting render target")
+			g_dx_context.device->CreateRenderTargetView(swapchain.targets[i], nil, rtv_descriptor_handle)
+			rtv_descriptor_handle.ptr += uint(rtv_descriptor_size)
+		}
+	}
 
 	return
 }
@@ -1341,7 +1340,7 @@ render :: proc() {
 	// Cannot draw after this point!!
 
 	// Transitioning the render target to "Present" state
-	transition_resource(g_dx_context.targets[g_dx_context.frame_index],
+	transition_resource(g_dx_context.swapchain.targets[g_dx_context.swapchain.frame_index],
 		ct.cmdlist, {.RENDER_TARGET}, dx.RESOURCE_STATE_PRESENT, subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES)
 
 	ct.cmdlist->Close()
@@ -1355,7 +1354,7 @@ render :: proc() {
 		when PROFILE do spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, name = "Present")
 		flags: dxgi.PRESENT
 		params: dxgi.PRESENT_PARAMETERS
-		hr = g_dx_context.swapchain->Present1(1, flags, &params)
+		hr = g_dx_context.swapchain.swapchain->Present1(1, flags, &params)
 		check(hr, "Present failed")
 	}
 
@@ -1377,7 +1376,7 @@ render :: proc() {
 			windows.WaitForSingleObject(g_dx_context.fence_event, windows.INFINITE)
 		}
 
-		ct.frame_index = cast(int)ct.swapchain->GetCurrentBackBufferIndex()
+		ct.swapchain.frame_index = cast(int)ct.swapchain.swapchain->GetCurrentBackBufferIndex()
 		check(ct.command_allocator->Reset())
 
 		// swap PSO here if needed (hot reload of shaders)
@@ -1612,11 +1611,9 @@ create_gbuffer :: proc() -> GBuffer {
 	ao_Rough_Metal := create_gbuffer_unit(.R8G8B8A8_UNORM, "gbuffer - AO ROUGH METAL")
 
 	return GBuffer {
-		gbuffers = [GBufferUnitName]Texture {
-			.Albedo = albedo,
-			.Normal = normal,
-			.AO_Rough_Metal = ao_Rough_Metal
-		}
+		.Albedo = albedo,
+		.Normal = normal,
+		.AO_Rough_Metal = ao_Rough_Metal
 	}
 }
 
@@ -1726,9 +1723,9 @@ pso_gbuffer_render :: proc(pso: PSO) {
 	// Setting render targets. Clearing DSV and RTV.
 	{
 		rtv_handles := [GBUFFER_COUNT]dx.CPU_DESCRIPTOR_HANDLE {
-			texture_get_rtv_cpu_address(g_dx_context.gbuffer.gbuffers[.Albedo]),
-			texture_get_rtv_cpu_address(g_dx_context.gbuffer.gbuffers[.Normal]),
-			texture_get_rtv_cpu_address(g_dx_context.gbuffer.gbuffers[.AO_Rough_Metal]),
+			texture_get_rtv_cpu_address(g_dx_context.gbuffer[.Albedo]),
+			texture_get_rtv_cpu_address(g_dx_context.gbuffer[.Normal]),
+			texture_get_rtv_cpu_address(g_dx_context.gbuffer[.AO_Rough_Metal]),
 		}
 		dsv_handle := texture_get_dsv_cpu_address(ct.depth_texture)
 
@@ -1770,13 +1767,13 @@ transition_gbuffers :: proc(to_render_target: bool) {
 
 	// populating all res barriers with each gbuffer
 	res_barriers[.Albedo] = res_barriers[.Albedo]
-	res_barriers[.Albedo].Transition.pResource = ct.gbuffer.gbuffers[.Albedo].buffer
+	res_barriers[.Albedo].Transition.pResource = ct.gbuffer[.Albedo].buffer
 
 	res_barriers[.Normal] = res_barriers[.Albedo]
-	res_barriers[.Normal].Transition.pResource = ct.gbuffer.gbuffers[.Normal].buffer
+	res_barriers[.Normal].Transition.pResource = ct.gbuffer[.Normal].buffer
 
 	res_barriers[.AO_Rough_Metal] = res_barriers[.Albedo]
-	res_barriers[.AO_Rough_Metal].Transition.pResource = ct.gbuffer.gbuffers[.AO_Rough_Metal].buffer
+	res_barriers[.AO_Rough_Metal].Transition.pResource = ct.gbuffer[.AO_Rough_Metal].buffer
 
 	ct.cmdlist->ResourceBarrier(GBUFFER_COUNT, &res_barriers[cast(GBufferUnitName)0])
 }
@@ -1797,7 +1794,7 @@ pso_lighting_render :: proc(pso: PSO) {
 			Type = .TRANSITION,
 			Flags = {},
 			Transition = {
-				pResource = g_dx_context.targets[g_dx_context.frame_index],
+				pResource = g_dx_context.swapchain.targets[g_dx_context.swapchain.frame_index],
 				StateBefore = dx.RESOURCE_STATE_PRESENT,
 				StateAfter = {.RENDER_TARGET},
 				Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
@@ -1813,7 +1810,7 @@ pso_lighting_render :: proc(pso: PSO) {
 	// Setting render targets. Clearing RTV.
 	{
 		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
-			get_descriptor_heap_cpu_address(ct.swapchain_rtv_descriptor_heap, ct.frame_index),
+			get_descriptor_heap_cpu_address(ct.swapchain.swapchain_rtv_descriptor_heap, ct.swapchain.frame_index),
 		}
 
 		ct.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
@@ -1883,7 +1880,7 @@ pso_gizmos_render :: proc (pso: PSO) {
 	}
 
 	rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
-		get_descriptor_heap_cpu_address(ct.swapchain_rtv_descriptor_heap, ct.frame_index),
+		get_descriptor_heap_cpu_address(ct.swapchain.swapchain_rtv_descriptor_heap, ct.swapchain.frame_index),
 	}
 
 	dsv_handle := texture_get_dsv_cpu_address(ct.depth_texture)
