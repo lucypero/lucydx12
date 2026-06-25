@@ -128,9 +128,7 @@ MAX_GIZMOS :: 20
 
 Swapchain :: struct {
 	swapchain: ^dxgi.ISwapChain3,
-	swapchain_rtv_descriptor_heap: ^dx.IDescriptorHeap, // rtv heap where all the swapchain's RTVs live
-	// TODO: Turn this into Texture objects
-	targets: [NUM_RENDERTARGETS]^dx.IResource, // render target textures
+	targets: [NUM_RENDERTARGETS]Texture, // render target textures
 	frame_index: int, // last swapchain RTV we wrote to
 }
 
@@ -176,9 +174,6 @@ Context :: struct {
 
 	// light 
 	sb_lights: StructuredBuffer,
-
-	// compute. (should be the final RTV texture)
-	tx_post_process_output: Texture,
 }
 
 ModelMatrixData :: struct {
@@ -415,7 +410,7 @@ cb_general_update :: proc() {
 		shadowmap_bias_min = g_config.shadowmap_settings.shadowmap_bias_min,
 		light_count = cast(i32)g_config.light_count,
 		light_sb_idx = cast(i32)g_dx_context.sb_lights.srv_index,
-		compute_out_idx = cast(i32)g_dx_context.tx_post_process_output.uav_index,
+		// compute_out_idx = cast(i32)g_dx_context.swapchain.frame_index.uav_index,
 		lighting_out_srv_idx = cast(i32)g_dx_context.tx_lighting_out.srv_index,
 	}
 
@@ -946,10 +941,6 @@ init_dx_user :: proc() {
 	load_white_texture()
 
 	// post-process output
-
-	ct.tx_post_process_output = texture_create(nil, WINDOW_WIDTH, WINDOW_HEIGHT, .R32G32B32A32_FLOAT,
-		&g_resources_longterm, view_flags = {.UAV}, texture_name = "post-process UAV output")
-
 	ct.sb_lights = structured_buffer_create("light buffer", &g_resources_longterm, Light, MAX_LIGHTS, heap_type = .UPLOAD)
 
 	SCENE_MAX_LEN :: 3
@@ -1035,7 +1026,7 @@ create_swapchain :: proc(
 		Height = u32(WINDOW_HEIGHT),
 		Format = .R8G8B8A8_UNORM,
 		SampleDesc = {Count = 1, Quality = 0},
-		BufferUsage = {.RENDER_TARGET_OUTPUT},
+		BufferUsage = {.RENDER_TARGET_OUTPUT, .UNORDERED_ACCESS},
 		BufferCount = NUM_RENDERTARGETS,
 		Scaling = .NONE,
 		SwapEffect = .FLIP_DISCARD,
@@ -1055,36 +1046,19 @@ create_swapchain :: proc(
 
 	swapchain.frame_index = cast(int)swapchain.swapchain->GetCurrentBackBufferIndex()
 
-	// Create swapchain rtv heap
-	{
-		desc := dx.DESCRIPTOR_HEAP_DESC {
-			NumDescriptors = NUM_RENDERTARGETS,
-			Type = .RTV,
-			Flags = {},
-		}
-
-		hr = g_dx_context.device->CreateDescriptorHeap(
-			&desc,
-			dx.IDescriptorHeap_UUID,
-			(^rawptr)(&swapchain.swapchain_rtv_descriptor_heap),
-		)
-		check(hr, "Failed creating descriptor heap")
-		swapchain.swapchain_rtv_descriptor_heap->SetName("lucy's swapchain RTV descriptor heap")
-		append(&g_resources_longterm, swapchain.swapchain_rtv_descriptor_heap)
-	}
-
 	// Fetch the two render targets from the swapchain
 	{
-		rtv_descriptor_size: u32 = g_dx_context.device->GetDescriptorHandleIncrementSize(.RTV)
-		rtv_descriptor_handle: dx.CPU_DESCRIPTOR_HANDLE
-		swapchain.swapchain_rtv_descriptor_heap->GetCPUDescriptorHandleForHeapStart(&rtv_descriptor_handle)
-
 		for i: u32 = 0; i < NUM_RENDERTARGETS; i += 1 {
-			hr = swapchain.swapchain->GetBuffer(i, dx.IResource_UUID, (^rawptr)(&swapchain.targets[i]))
-			swapchain.targets[i]->Release()
+
+			tex := &swapchain.targets[i]
+
+			hr = swapchain.swapchain->GetBuffer(i, dx.IResource_UUID, (^rawptr)(&tex.buffer))
 			check(hr, "Failed getting render target")
-			g_dx_context.device->CreateRenderTargetView(swapchain.targets[i], nil, rtv_descriptor_handle)
-			rtv_descriptor_handle.ptr += uint(rtv_descriptor_size)
+
+			tex.buffer->Release()
+
+			tex.rtv_index = create_rtv(tex.buffer)
+			tex.uav_index = create_uav(tex.buffer)
 		}
 	}
 
@@ -1352,7 +1326,7 @@ render :: proc() {
 	// Cannot draw after this point!!
 
 	// Transitioning the render target to "Present" state
-	transition_resource(g_dx_context.swapchain.targets[g_dx_context.swapchain.frame_index],
+	transition_resource(g_dx_context.swapchain.targets[g_dx_context.swapchain.frame_index].buffer,
 		ct.cmdlist, {.RENDER_TARGET}, dx.RESOURCE_STATE_PRESENT, subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES)
 
 	ct.cmdlist->Close()
@@ -1726,7 +1700,7 @@ pso_post_process_render :: proc(pso: PSO) {
 			Type = .TRANSITION,
 			Flags = {},
 			Transition = {
-				pResource = g_dx_context.swapchain.targets[g_dx_context.swapchain.frame_index],
+				pResource = g_dx_context.swapchain.targets[g_dx_context.swapchain.frame_index].buffer,
 				StateBefore = dx.RESOURCE_STATE_PRESENT,
 				StateAfter = {.RENDER_TARGET},
 				Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
@@ -1738,8 +1712,10 @@ pso_post_process_render :: proc(pso: PSO) {
 
 	// Setting render targets. Clearing RTV.
 	{
+
+
 		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
-			get_descriptor_heap_cpu_address(ct.swapchain.swapchain_rtv_descriptor_heap, ct.swapchain.frame_index),
+			get_descriptor_heap_cpu_address(ct.rtv_heap.heap, ct.swapchain.targets[ct.swapchain.frame_index].rtv_index),
 		}
 
 		ct.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
