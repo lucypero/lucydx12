@@ -20,10 +20,14 @@ void CSMain(
 
 	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[cbv_index];
 	RWTexture2D<float4> result_texture = ResourceDescriptorHeap[general_constants.compute_out_idx];
+	// lighting pass output. we'll process this.
+	Texture2D<float3> in_texture = ResourceDescriptorHeap[general_constants.lighting_out_srv_idx];
 
 	// Get the dimensions of the bound texture resource
 	uint width, height;
 	result_texture.GetDimensions(width, height);
 
-	result_texture[dispatchThreadID.xy] = float4(float(dispatchThreadID.x) / float(width), 1.0f, 0.0f, 1.0f);
+	float3 light_out_color = in_texture[dispatchThreadID.xy];
+
+	result_texture[dispatchThreadID.xy] = float4(float(dispatchThreadID.x) / float(width), light_out_color.g, light_out_color.b, 1.0f);
 }

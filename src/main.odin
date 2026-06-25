@@ -128,8 +128,9 @@ MAX_GIZMOS :: 20
 
 Swapchain :: struct {
 	swapchain: ^dxgi.ISwapChain3,
-	swapchain_rtv_descriptor_heap: ^dx.IDescriptorHeap,
-	targets: [NUM_RENDERTARGETS]^dx.IResource, // render targets
+	swapchain_rtv_descriptor_heap: ^dx.IDescriptorHeap, // rtv heap where all the swapchain's RTVs live
+	// TODO: Turn this into Texture objects
+	targets: [NUM_RENDERTARGETS]^dx.IResource, // render target textures
 	frame_index: int, // last swapchain RTV we wrote to
 }
 
@@ -169,6 +170,9 @@ Context :: struct {
 
 	/// Shadowmap
 	tx_shadowmap: Texture,
+
+	// Lighting pass output. Post Process input.
+	tx_lighting_out: Texture,
 
 	// light 
 	sb_lights: StructuredBuffer,
@@ -274,6 +278,7 @@ GeneralConstants :: struct #align (256) {
 	// Compute shader,
 
 	compute_out_idx: i32,
+	lighting_out_srv_idx: i32,
 }
 
 // testing
@@ -361,6 +366,7 @@ Gizmos_Vertex_IA :: struct {
 }
 
 // All our PSO's
+// The ORDER of these items matter a lot. it's the order in which the PSO's are rendered.
 PSOName :: enum {
 	Shadowmap,
 	GBuffer_Pass,
@@ -410,6 +416,7 @@ cb_general_update :: proc() {
 		light_count = cast(i32)g_config.light_count,
 		light_sb_idx = cast(i32)g_dx_context.sb_lights.srv_index,
 		compute_out_idx = cast(i32)g_dx_context.tx_post_process_output.uav_index,
+		lighting_out_srv_idx = cast(i32)g_dx_context.tx_lighting_out.srv_index,
 	}
 
 	// sending data to the cpu mapped memory that the gpu can read
@@ -746,8 +753,6 @@ init_dx :: proc() {
 		ct.rtv_heap = uber_heap_create(.RTV, &g_resources_longterm)
 	}
 
-	// Create the swapchain, it's the thing that contains render targets that we draw into.
-	//  It has 2 render targets (NUM_RENDERTARGETS), giving us double buffering.
 	ct.swapchain = create_swapchain(ct.factory, ct.queue, ct.window)
 }
 
@@ -921,6 +926,14 @@ init_dx_user :: proc() {
 	ct.psos[.PostProcess] = pso_compute_create(post_process_shader_filename, 
 		render_proc = pso_post_process_render, pso_name = "Post-Process Compute PSO")
 
+	lighting_out_clear_value := dx.CLEAR_VALUE {
+		Format = .R8G8B8A8_UNORM,
+		Color = v4{0, 0, 0, 1}
+	}
+
+	ct.tx_lighting_out = texture_create(nil, WINDOW_WIDTH, WINDOW_HEIGHT, .R8G8B8A8_UNORM,
+		&g_resources_longterm, view_flags = {.RTV, .SRV}, texture_name = "lighting pass output", opt_clear_value = &lighting_out_clear_value)
+
 	// hr = ct.command_allocator->Reset(
 	// hr = ct.cmdlist->Reset(ct.command_allocator, nil)
 	create_depth_buffer()
@@ -933,9 +946,6 @@ init_dx_user :: proc() {
 	load_white_texture()
 
 	// post-process output
-
-	// ct.tx_shadowmap = texture_create(nil, SHADOWMAP_RES, SHADOWMAP_RES, .R32_TYPELESS,
-	// 	&g_resources_longterm, view_flags = {.DSV, .SRV}, texture_name = "shadowmap", opt_clear_value = &opt_clear)
 
 	ct.tx_post_process_output = texture_create(nil, WINDOW_WIDTH, WINDOW_HEIGHT, .R32G32B32A32_FLOAT,
 		&g_resources_longterm, view_flags = {.UAV}, texture_name = "post-process UAV output")
@@ -1008,6 +1018,8 @@ do_main_loop :: proc() {
 	}
 }
 
+// Create the swapchain, it's the thing that contains render targets that we draw into.
+//  It has NUM_RENDERTARGETS render targets, giving us double buffering (if it's 2 NUM_RENDERTARGETS).
 create_swapchain :: proc(
 	factory: ^dxgi.IFactory4,
 	queue: ^dx.ICommandQueue,
@@ -1706,6 +1718,37 @@ pso_post_process_render :: proc(pso: PSO) {
 
 	render_common(pso, WINDOW_WIDTH, WINDOW_HEIGHT)
 
+	transition_resource(ct.tx_lighting_out.buffer, ct.cmdlist, {.RENDER_TARGET}, {.PIXEL_SHADER_RESOURCE})
+
+	// here u have to transition the swapchain buffer so it is a RT
+	{
+		to_render_target_barrier := dx.RESOURCE_BARRIER {
+			Type = .TRANSITION,
+			Flags = {},
+			Transition = {
+				pResource = g_dx_context.swapchain.targets[g_dx_context.swapchain.frame_index],
+				StateBefore = dx.RESOURCE_STATE_PRESENT,
+				StateAfter = {.RENDER_TARGET},
+				Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
+			},
+		}
+
+		ct.cmdlist->ResourceBarrier(1, &to_render_target_barrier)
+	}
+
+	// Setting render targets. Clearing RTV.
+	{
+		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
+			get_descriptor_heap_cpu_address(ct.swapchain.swapchain_rtv_descriptor_heap, ct.swapchain.frame_index),
+		}
+
+		ct.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
+
+		// clear backbuffer
+		clearcolor := [?]f32{0.05, 0.05, 0.05, 1.0}
+		ct.cmdlist->ClearRenderTargetView(rtv_handles[0], &clearcolor, 0, nil)
+	}
+
 	// rendering
 	// you can use the same command list as everything else. it's fine.
 	ct.cmdlist->Dispatch(WINDOW_WIDTH, WINDOW_HEIGHT, 1)
@@ -1783,40 +1826,28 @@ pso_lighting_render :: proc(pso: PSO) {
 	ct := &g_dx_context
 
 	render_common(pso, ct.depth_texture.width, ct.depth_texture.height)
+
 	transition_resource(ct.tx_shadowmap.buffer, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
 
 	// Transitioning gbuffers from render target to SRVs
 	transition_gbuffers(false)
 
-	// here u have to transition the swapchain buffer so it is a RT
-	{
-		to_render_target_barrier := dx.RESOURCE_BARRIER {
-			Type = .TRANSITION,
-			Flags = {},
-			Transition = {
-				pResource = g_dx_context.swapchain.targets[g_dx_context.swapchain.frame_index],
-				StateBefore = dx.RESOURCE_STATE_PRESENT,
-				StateAfter = {.RENDER_TARGET},
-				Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
-			},
-		}
-
-		ct.cmdlist->ResourceBarrier(1, &to_render_target_barrier)
-	}
+	transition_resource(ct.tx_lighting_out.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.RENDER_TARGET})
 
 	transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
 
-
-	// Setting render targets. Clearing RTV.
+	// Setting render target (lighting out). Clearing RTV.
 	{
 		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
-			get_descriptor_heap_cpu_address(ct.swapchain.swapchain_rtv_descriptor_heap, ct.swapchain.frame_index),
+			get_descriptor_heap_cpu_address(ct.rtv_heap.heap, ct.tx_lighting_out.rtv_index),
 		}
 
 		ct.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
 
-		// clear backbuffer
-		clearcolor := [?]f32{0.05, 0.05, 0.05, 1.0}
+		// not clearing the lighting out. not needed.
+
+		// clear LIGHTING OUT
+		clearcolor := [?]f32{0, 0, 0, 1.0}
 		ct.cmdlist->ClearRenderTargetView(rtv_handles[0], &clearcolor, 0, nil)
 	}
 
@@ -1879,13 +1910,17 @@ pso_gizmos_render :: proc (pso: PSO) {
 		transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
 	}
 
-	rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
-		get_descriptor_heap_cpu_address(ct.swapchain.swapchain_rtv_descriptor_heap, ct.swapchain.frame_index),
+	// Setting render target (lighting out). Clearing RTV.
+	{
+		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
+			get_descriptor_heap_cpu_address(ct.rtv_heap.heap, ct.tx_lighting_out.rtv_index),
+		}
+
+		dsv_handle := texture_get_dsv_cpu_address(ct.depth_texture)
+
+		ct.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, &dsv_handle)
 	}
 
-	dsv_handle := texture_get_dsv_cpu_address(ct.depth_texture)
-
-	ct.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, &dsv_handle)
 	ct.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
 
 	// binding vertex buffer view and instance buffer view
