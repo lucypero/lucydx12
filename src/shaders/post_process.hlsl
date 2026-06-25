@@ -9,7 +9,7 @@
 // RWTexture2D means a Read-Write 2D Texture (Unordered Access View / UAV)
 RWTexture2D<float4> ResultTexture : register(u0);
 
-[numthreads(8, 8, 1)]
+[numthreads(1, 1, 1)]
 void CSMain(
 	// 3. SYSTEM VALUE INPUTS
 	uint3 groupID          : SV_GroupID,           // ID of the current thread group
@@ -17,8 +17,13 @@ void CSMain(
 	uint3 dispatchThreadID : SV_DispatchThreadID,  // Global pixel/data coordinate on the GPU
 	uint groupIndex        : SV_GroupIndex         // Flattened 1D index of thread within group
 ) {
+
+	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[cbv_index];
+	RWTexture2D<float4> result_texture = ResourceDescriptorHeap[general_constants.compute_out_idx];
+
 	// Get the dimensions of the bound texture resource
 	uint width, height;
-	ResultTexture.GetDimensions(width, height);
+	result_texture.GetDimensions(width, height);
 
+	result_texture[dispatchThreadID.xy] = float4(float(dispatchThreadID.x) / float(width), 1.0f, 0.0f, 1.0f);
 }
