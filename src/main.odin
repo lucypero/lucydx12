@@ -168,12 +168,10 @@ Context :: struct {
 
 	/// Shadowmap
 	tx_shadowmap: Texture,
-
-	// Lighting pass output. Post Process input.
-	tx_lighting_out: Texture,
-
-	// light 
 	sb_lights: StructuredBuffer,
+
+	tx_lighting_out: Texture,
+	tx_post_process_output: Texture,
 }
 
 ModelMatrixData :: struct {
@@ -410,8 +408,8 @@ cb_general_update :: proc() {
 		shadowmap_bias_min = g_config.shadowmap_settings.shadowmap_bias_min,
 		light_count = cast(i32)g_config.light_count,
 		light_sb_idx = cast(i32)g_dx_context.sb_lights.srv_index,
-		// compute_out_idx = cast(i32)g_dx_context.swapchain.frame_index.uav_index,
 		lighting_out_srv_idx = cast(i32)g_dx_context.tx_lighting_out.srv_index,
+		compute_out_idx = cast(i32)g_dx_context.tx_post_process_output.uav_index
 	}
 
 	// sending data to the cpu mapped memory that the gpu can read
@@ -878,6 +876,7 @@ init_dx_user :: proc() {
 			vertex_input = VertexData,
 			blend_state = .Off,
 			enable_depth = true,
+			depth_write = true,
 			rtv_count = 0,
 		}, render_proc = pso_shadowmap_render, pso_name = "Shadowmap pso")
 	}
@@ -894,6 +893,7 @@ init_dx_user :: proc() {
 		vertex_input = VertexData,
 		blend_state = .Off,
 		enable_depth = true,
+		depth_write = true,
 		rtv_count = GBUFFER_COUNT,
 		rtv_formats = gbuffer_rtv_formats,
 		// true because we flipped positions and normals in gltf to convert between coord systems.
@@ -913,6 +913,7 @@ init_dx_user :: proc() {
 		instance_vertex_input = typeid_of(InstanceData),
 		blend_state = .Off,
 		enable_depth = true,
+		depth_write = false,
 		fill_mode = .Wireframe,
 		rtv_count = 1,
 		rtv_formats = {0 = .R8G8B8A8_UNORM, 1 ..=7 = .UNKNOWN},
@@ -932,6 +933,9 @@ init_dx_user :: proc() {
 	// hr = ct.command_allocator->Reset(
 	// hr = ct.cmdlist->Reset(ct.command_allocator, nil)
 	create_depth_buffer()
+
+	ct.tx_post_process_output = texture_create(nil, WINDOW_WIDTH, WINDOW_HEIGHT, .R8G8B8A8_UNORM,
+		&g_resources_longterm, view_flags = {.UAV}, texture_name = "post process output")
 
 	// TODO: delete this?
 	close_and_execute_cmdlist()
@@ -1026,7 +1030,7 @@ create_swapchain :: proc(
 		Height = u32(WINDOW_HEIGHT),
 		Format = .R8G8B8A8_UNORM,
 		SampleDesc = {Count = 1, Quality = 0},
-		BufferUsage = {.RENDER_TARGET_OUTPUT, .UNORDERED_ACCESS},
+		BufferUsage = {.RENDER_TARGET_OUTPUT},
 		BufferCount = NUM_RENDERTARGETS,
 		Scaling = .NONE,
 		SwapEffect = .FLIP_DISCARD,
@@ -1056,17 +1060,12 @@ create_swapchain :: proc(
 			check(hr, "Failed getting render target")
 
 			tex.buffer->Release()
-
 			tex.rtv_index = create_rtv(tex.buffer)
-			tex.uav_index = create_uav(tex.buffer)
 		}
 	}
 
 	return
 }
-
-
-
 
 dx_log_callback :: proc "c" (
 	category: dx.MESSAGE_CATEGORY,
@@ -1319,6 +1318,31 @@ render :: proc() {
 
 	for pso in ct.psos {
 		pso.render_proc(pso)
+	}
+
+	// here u have to transition the swapchain buffer so it is a RT
+	{
+		to_render_target_barrier := dx.RESOURCE_BARRIER {
+			Type = .TRANSITION,
+			Flags = {},
+			Transition = {
+				pResource = g_dx_context.swapchain.targets[g_dx_context.swapchain.frame_index].buffer,
+				StateBefore = {.COPY_DEST},
+				StateAfter = {.RENDER_TARGET},
+				Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
+			},
+		}
+
+		ct.cmdlist->ResourceBarrier(1, &to_render_target_barrier)
+	}
+
+	// Setting swapchain as render target (for imgui drawing)
+	{
+		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
+			get_descriptor_heap_cpu_address(ct.rtv_heap.heap, ct.swapchain.targets[ct.swapchain.frame_index].rtv_index),
+		}
+
+		ct.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
 	}
 
 	render_imgui()
@@ -1688,46 +1712,23 @@ draw_scene_geometry :: proc() {
 pso_post_process_render :: proc(pso: PSO) {
 	ct := &g_dx_context
 
-	// Issue the compute stuff
-
 	render_common(pso, WINDOW_WIDTH, WINDOW_HEIGHT)
-
 	transition_resource(ct.tx_lighting_out.buffer, ct.cmdlist, {.RENDER_TARGET}, {.PIXEL_SHADER_RESOURCE})
-
-	// here u have to transition the swapchain buffer so it is a RT
-	{
-		to_render_target_barrier := dx.RESOURCE_BARRIER {
-			Type = .TRANSITION,
-			Flags = {},
-			Transition = {
-				pResource = g_dx_context.swapchain.targets[g_dx_context.swapchain.frame_index].buffer,
-				StateBefore = dx.RESOURCE_STATE_PRESENT,
-				StateAfter = {.RENDER_TARGET},
-				Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
-			},
-		}
-
-		ct.cmdlist->ResourceBarrier(1, &to_render_target_barrier)
-	}
-
-	// Setting render targets. Clearing RTV.
-	{
-
-
-		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
-			get_descriptor_heap_cpu_address(ct.rtv_heap.heap, ct.swapchain.targets[ct.swapchain.frame_index].rtv_index),
-		}
-
-		ct.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
-
-		// clear backbuffer
-		clearcolor := [?]f32{0.05, 0.05, 0.05, 1.0}
-		ct.cmdlist->ClearRenderTargetView(rtv_handles[0], &clearcolor, 0, nil)
-	}
-
-	// rendering
-	// you can use the same command list as everything else. it's fine.
 	ct.cmdlist->Dispatch(WINDOW_WIDTH, WINDOW_HEIGHT, 1)
+
+	// Copy Post Process OUT to the swapchain texture, to display the final image
+	{
+		copy_src := dx.TEXTURE_COPY_LOCATION {
+			pResource = ct.tx_post_process_output.buffer,
+			Type = .SUBRESOURCE_INDEX,
+			SubresourceIndex = 0
+		}
+
+		copy_dest := copy_src
+		copy_dest.pResource = ct.swapchain.targets[ct.swapchain.frame_index].buffer
+
+		ct.cmdlist->CopyTextureRegion(&copy_dest, 0, 0, 0, &copy_src, nil)
+	}
 }
 
 pso_gbuffer_render :: proc(pso: PSO) {
