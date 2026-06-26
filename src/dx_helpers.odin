@@ -117,6 +117,7 @@ PSOParameters :: struct {
 	blend_state: BlendState,
 	cull_mode: CullMode,
 	enable_depth: bool,
+	depth_write: bool,
 	root_signature: RootSignatureChoice,
 	front_counter_clockwise: bool,
 	rtv_count: int,
@@ -1489,14 +1490,14 @@ create_pso_dx :: proc(parameters: PSOParameters,
 		pipeline_state_desc.RasterizerState.CullMode = .NONE
 	}
 
-	if parameters.enable_depth {
-		pipeline_state_desc.DepthStencilState = {
-			DepthEnable = true, StencilEnable = false, DepthWriteMask = .ALL, DepthFunc = .LESS
-		}
-	} else {
-		pipeline_state_desc.DepthStencilState = {
-			DepthEnable = false, StencilEnable = false
-		}
+	pipeline_state_desc.DepthStencilState = {
+		DepthEnable = cast(dx.BOOL)parameters.enable_depth, StencilEnable = false, DepthWriteMask = .ALL, DepthFunc = .LESS
+	}
+
+	pipeline_state_desc.DepthStencilState.DepthWriteMask = parameters.depth_write ? .ALL : .ZERO
+
+	if parameters.depth_write && !parameters.enable_depth {
+		panic("depth needs to be enabled for depth write.")
 	}
 
 	pso_dx : ^dx.IPipelineState

@@ -1,5 +1,8 @@
-10.332
-10.346
+# pipeline refactoring - todo
+
+- helper procs for common operations in Render procs (like copy texture)
+- more swapchain encapsulation (swapchain procs)
+- imgui should prob render to tx_lighting_out and then just copy everything to the swapchain
 
 # AA - Anti-Aliasing
 
