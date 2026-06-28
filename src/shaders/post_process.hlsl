@@ -1,6 +1,19 @@
 // Post processing step. Compute shader.
 // FXAA test.
 
+// Including FXAA
+
+#define FXAA_PC 1
+#define FXAA_HLSL_5 1
+#define FXAA_QUALITY__PRESET 12
+
+// TODO(lucy): do not use green as luma. calculate luma and store it in in the alpha channel of the input texture. do this in the lighting pass, probably.
+#define FXAA_GREEN_AS_LUMA 1
+
+#include "src/shaders/FXAA3_11.hlsl"
+
+// Rest of shader
+
 #pragma pack_matrix(column_major)
 #include "src/shaders/shader_common.hlsl"
 
@@ -15,14 +28,40 @@ void CSMain(
 	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[cbv_index];
 	RWTexture2D<float4> result_texture = ResourceDescriptorHeap[general_constants.compute_out_idx];
 	// lighting pass output. we'll process this.
-	Texture2D<float3> in_texture = ResourceDescriptorHeap[general_constants.lighting_out_srv_idx];
+	Texture2D<float4> in_texture = ResourceDescriptorHeap[general_constants.lighting_out_srv_idx];
 
 	// Get the dimensions of the bound texture resource
 	uint width, height;
 	result_texture.GetDimensions(width, height);
 
-	float3 light_out_color = in_texture[dispatchThreadID.xy];
-
 	// do nothing
-	result_texture[dispatchThreadID.xy] = float4(light_out_color.r, light_out_color.g, light_out_color.b, 1.0f);
+	float2 pixel_pos = float2(float(dispatchThreadID.x) / float(width), float(dispatchThreadID.y) / float(height));
+
+	// lucyfmt bugs out here ( when u pass {}, it unindents once). fix it later.
+
+	FxaaTex fxaa_tex;
+	// TODO(lucy): Consider having a specific sampler for fxaa.
+	fxaa_tex.smpl = mySampler;
+	fxaa_tex.tex = in_texture;
+
+	FxaaFloat4 fxaa_out = FxaaPixelShader(
+		pixel_pos, // pos
+		0, // fxaaConsolePosPos
+		fxaa_tex, // tex
+		fxaa_tex, // fxaaConsole360TexExpBiasNegOne (not used)
+		fxaa_tex, // fxaaConsole360TexExpBiasNegTwo (not used)
+		float2(1.0 / float(width), 1.0 / float(height)), // fxaaQualityRcpFrame (probably used)
+		0, // fxaaConsoleRcpFrameOpt (not used)
+		0, // fxaaConsoleRcpFrameOpt2 (not used)
+		0, // fxaaConsole360RcpFrameOpt2 (not used)
+		1.00, // fxaaQualitySubpix (probably used)
+		0.166, // fxaaQualityEdgeThreshold (probably used)
+		0.0833, // fxaaQualityEdgeThresholdMin (probably used)
+		0, // fxaaConsoleEdgeSharpness (not used)
+		0, // fxaaConsoleEdgeThreshold (not used)
+		0, // fxaaConsoleEdgeThresholdMin (not used)
+		0 // fxaaConsole360ConstDir (not used)
+	);
+
+	result_texture[dispatchThreadID.xy] = fxaa_out;
 }
