@@ -35,31 +35,28 @@ void CSMain(
 	uint width, height;
 	result_texture.GetDimensions(width, height);
 
-	// do nothing
+	#ifdef FXAA_ENABLE
 	float2 pixel_pos = float2(float(dispatchThreadID.x) / float(width), float(dispatchThreadID.y) / float(height));
 
-	// lucyfmt bugs out here ( when u pass {}, it unindents once). fix it later.
-
-	#ifdef FXAA_ENABLE
-
 	FxaaTex fxaa_tex;
-	// TODO(lucy): Consider having a specific sampler for fxaa.
-	fxaa_tex.smpl = mySampler;
+	fxaa_tex.smpl = sampler_linear;
 	fxaa_tex.tex = in_texture;
 
+	// lucyfmt bugs out here ( when u pass {}, it unindents once). fix it later.
 	FxaaFloat4 fxaa_out = FxaaPixelShader(
 		pixel_pos, // pos
 		0, // fxaaConsolePosPos
 		fxaa_tex, // tex
 		fxaa_tex, // fxaaConsole360TexExpBiasNegOne (not used)
 		fxaa_tex, // fxaaConsole360TexExpBiasNegTwo (not used)
+		// TODO(lucy): Bake this into a constant
 		float2(1.0 / float(width), 1.0 / float(height)), // fxaaQualityRcpFrame (probably used)
 		0, // fxaaConsoleRcpFrameOpt (not used)
 		0, // fxaaConsoleRcpFrameOpt2 (not used)
 		0, // fxaaConsole360RcpFrameOpt2 (not used)
-		1.00, // fxaaQualitySubpix (probably used)
-		0.166, // fxaaQualityEdgeThreshold (probably used)
-		0.0833, // fxaaQualityEdgeThresholdMin (probably used)
+		0.75, // fxaaQualitySubpix (probably used)
+		0.125, // fxaaQualityEdgeThreshold (probably used)
+		0.0312, // fxaaQualityEdgeThresholdMin (probably used)
 		0, // fxaaConsoleEdgeSharpness (not used)
 		0, // fxaaConsoleEdgeThreshold (not used)
 		0, // fxaaConsoleEdgeThresholdMin (not used)

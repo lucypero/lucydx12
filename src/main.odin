@@ -798,6 +798,19 @@ create_root_signatures :: proc() {
 			RegisterSpace = 0,
 			ShaderVisibility = .ALL,
 		},
+		{
+			Filter = .MIN_MAG_MIP_LINEAR,
+			AddressU = .CLAMP,
+			AddressV = .CLAMP,
+			AddressW = .CLAMP,
+			MipLODBias = 0.0,
+			ComparisonFunc = .NEVER,
+			MinLOD = 0.0,
+			MaxLOD = dx.FLOAT32_MAX,
+			ShaderRegister = 2,
+			RegisterSpace = 0,
+			ShaderVisibility = .ALL,
+		},
 	}
 
 	desc := dx.VERSIONED_ROOT_SIGNATURE_DESC {
