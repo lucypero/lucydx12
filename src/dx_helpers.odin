@@ -275,7 +275,7 @@ transition_resource :: proc(res: ^dx.IResource, cmd_list: ^dx.IGraphicsCommandLi
 }
 
 
-include_handler : ^dxc.IIncludeHandler
+g_include_handler : ^dxc.IIncludeHandler
 
 dxc_init :: proc() -> ^dxc.ICompiler3 {
 	// todo here
@@ -285,7 +285,7 @@ dxc_init :: proc() -> ^dxc.ICompiler3 {
 	dxc.CreateInstance(dxc.Utils_CLSID, dxc.IUtils_UUID, (^rawptr)(&utils))
 	dxc.CreateInstance(dxc.Compiler_CLSID, dxc.ICompiler3_UUID, (^rawptr)(&compiler))
 
-	utils->CreateDefaultIncludeHandler(&include_handler)
+	utils->CreateDefaultIncludeHandler(&g_include_handler)
 
 	return compiler
 }
@@ -387,7 +387,7 @@ compile_individual_shader :: proc(shader_filename: string, source_buffer: ^dxc.B
 	}
 
 	results : ^dxc.IResult
-	compiler->Compile(source_buffer, &arguments_wide[0], cast(u32)len(arguments_wide), include_handler, dxc.IOperationResult_UUID, (^rawptr)(&results))
+	compiler->Compile(source_buffer, &arguments_wide[0], cast(u32)len(arguments_wide), g_include_handler, dxc.IOperationResult_UUID, (^rawptr)(&results))
 
 	errors : ^dxc.IBlobUtf8
 	results->GetOutput(.ERRORS, dxc.IBlobUtf8_UUID, (^rawptr)(&errors), nil)

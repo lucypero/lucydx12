@@ -782,7 +782,7 @@ create_root_signatures :: proc() {
 			MaxLOD = dx.FLOAT32_MAX,
 			ShaderRegister = 0,
 			RegisterSpace = 0,
-			ShaderVisibility = .PIXEL,
+			ShaderVisibility = .ALL,
 		},
 		{
 			Filter = .COMPARISON_MIN_MAG_LINEAR_MIP_POINT,
@@ -796,7 +796,7 @@ create_root_signatures :: proc() {
 			MaxLOD = dx.FLOAT32_MAX,
 			ShaderRegister = 1,
 			RegisterSpace = 0,
-			ShaderVisibility = .PIXEL,
+			ShaderVisibility = .ALL,
 		},
 	}
 
