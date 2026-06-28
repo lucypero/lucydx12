@@ -80,7 +80,7 @@ MODEL_FILEPATH_CHESS :: GLTF_SAMPLES_DIR + "/ABeautifulGame/glTF/ABeautifulGame.
 MODEL_FILEPATH_SHADOW_TEST :: "models/shadow_test.glb"
 
 @(rodata)
-g_scene_list := [?]string{MODEL_FILEPATH_SHADOW_TEST, MODEL_FILEPATH_SPONZA}
+g_scene_list := [?]string{MODEL_FILEPATH_SPONZA, MODEL_FILEPATH_SHADOW_TEST}
 
 VertexData :: struct {
 	pos: v3 `POSITION`,
@@ -1230,46 +1230,17 @@ do_imgui_ui :: proc() {
 	}
 
 	// AA Selection
-	{
-		current_aa : c.int = cast(c.int)g_config.aa_options
-		items := [?]cstring{"No AA", "FXAA"}
-		new_current_aa: c.int = current_aa
-		im.ComboChar("AA Selection", &new_current_aa, raw_data(&items), len(items))
-
-		if new_current_aa != current_aa {
-			g_config.aa_options = cast(AAOptions)new_current_aa
-
-			// Recompile PSO's.
-			for &pso in g_dx_context.psos {
-				pso_reload(&pso)
-			}
+	if do_imgui_enum("AA Selection", &g_config.aa_options) {
+		// Recompile PSO's.
+		for &pso in g_dx_context.psos {
+			pso_reload(&pso)
 		}
 	}
 
-
-
-	// const char* items[] = { "AAAA", "BBBB", "CCCC", "DDDD", "EEEE", "FFFF", "GGGG", "HHHH", "IIIIIII", "JJJJ", "KKKKKKK" };
-	//            static int item_current = 0;
-	//            ImGui::Combo("combo", &item_current, items, IM_ARRAYSIZE(items));
-
-	current_selected : c.int = cast(c.int)g_config.scene_pick
-
-	items := [?]cstring{"sponza", "something else"}
-	new_selected: c.int = current_selected
-	im.ComboChar("scene", &new_selected, raw_data(&items), len(items))
-
-	if current_selected != new_selected {
-		current_selected = new_selected
-		g_config.scene_pick = cast(int)current_selected
-		scene_swap(g_scene_list[current_selected])
+	// scene selection
+	if do_imgui_enum("scene", &g_config.scene_pick) {
+		scene_swap(g_scene_list[g_config.scene_pick])
 	}
-
-	if im.Button("switch scenes") {
-		current_selected = current_selected == 0 ? 1 : 0
-		g_config.scene_pick = cast(int)current_selected
-		scene_swap(g_scene_list[current_selected])
-	}
-
 
 	// tree example
 	// if im.TreeNode("hello") {
@@ -1295,6 +1266,11 @@ AAOptions :: enum {
 	FXAA
 }
 
+ScenePick :: enum {
+	Sponza,
+	SomethingElse
+}
+
 // This gets serialized
 RendererConfig :: struct {
 	cam_pos: v3,
@@ -1303,7 +1279,7 @@ RendererConfig :: struct {
 	show_shadowmap: bool,
 	light_count: int,
 	lights: [MAX_LIGHTS]Light,
-	scene_pick: int,
+	scene_pick: ScenePick,
 	shadowmap_settings: ShadowmapSettings,
 	aa_options: AAOptions,
 }

@@ -169,7 +169,7 @@ lights: [
 		]
 	}
 ]
-scene_pick: 1
+scene_pick: "Sponza"
 shadowmap_settings: {
 	lrbt: [
 		-11.00000000

@@ -22,6 +22,7 @@ import "core:fmt"
 import "base:runtime"
 import "core:math"
 import dxma "../libs/odin-d3d12ma"
+import im "../libs/odin-imgui"
 
 /*
 transition_resource_from_copy_to_read :: proc(res: ^dx.IResource, cmd_list: ^dx.IGraphicsCommandList) {
@@ -1707,4 +1708,26 @@ convert_struct_odin_to_hlsl :: proc(struct_type: typeid, allocator: runtime.Allo
 	}
 
 	return strings.to_string(sb)
+}
+
+
+// imgui helpers
+do_imgui_enum :: proc(imgui_field_name:string, enum_v: ^$T) -> (changed: bool) { 
+
+	current_val := cast(^c.int) enum_v
+
+	enum_type_info := type_info_of(T)
+	assert(reflect.is_enum(enum_type_info))
+
+	field_names := reflect.enum_field_names(T)
+
+	names_c := make([]cstring, len(field_names), allocator = context.temp_allocator)
+
+	for f_n, i in field_names {
+		names_c[i] = strings.clone_to_cstring(f_n, allocator = context.temp_allocator)
+	}
+
+	imgui_field_name_c := strings.clone_to_cstring(imgui_field_name, context.temp_allocator)
+
+	return im.ComboChar(imgui_field_name_c, current_val, raw_data(names_c), cast(i32)len(names_c))
 }
