@@ -5,7 +5,7 @@ cam_pos: [
 ]
 cam_yaw: -8.42976665
 cam_pitch: 0.17296675
-show_shadowmap: true
+show_shadowmap: false
 light_count: 2
 lights: [
 	{
@@ -182,3 +182,4 @@ shadowmap_settings: {
 	shadowmap_bias_min: 0.00181000
 	shadowmap_bias_max: 0.00417000
 }
+aa_options: "FXAA"

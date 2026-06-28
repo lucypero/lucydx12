@@ -3,14 +3,15 @@
 
 // Including FXAA
 
+#ifdef FXAA_ENABLE
+
 #define FXAA_PC 1
 #define FXAA_HLSL_5 1
 #define FXAA_QUALITY__PRESET 12
 
-// TODO(lucy): do not use green as luma. calculate luma and store it in in the alpha channel of the input texture. do this in the lighting pass, probably.
-#define FXAA_GREEN_AS_LUMA 1
-
 #include "src/shaders/FXAA3_11.hlsl"
+
+#endif
 
 // Rest of shader
 
@@ -39,6 +40,8 @@ void CSMain(
 
 	// lucyfmt bugs out here ( when u pass {}, it unindents once). fix it later.
 
+	#ifdef FXAA_ENABLE
+
 	FxaaTex fxaa_tex;
 	// TODO(lucy): Consider having a specific sampler for fxaa.
 	fxaa_tex.smpl = mySampler;
@@ -62,6 +65,11 @@ void CSMain(
 		0, // fxaaConsoleEdgeThresholdMin (not used)
 		0 // fxaaConsole360ConstDir (not used)
 	);
-
 	result_texture[dispatchThreadID.xy] = fxaa_out;
+
+	#else
+	float4 light_color_out = in_texture[dispatchThreadID.xy];
+	result_texture[dispatchThreadID.xy] = light_color_out;
+	result_texture[dispatchThreadID.xy].w = 1.0;
+	#endif
 }
