@@ -380,6 +380,12 @@ compile_individual_shader :: proc(shader_filename: string, source_buffer: ^dxc.B
 
 	}
 
+	switch g_config.aa_options {
+	case .NoAA:
+	case .FXAA:
+		append(&arguments, "-D", "FXAA_ENABLE")
+	}
+
 	arguments_wide := make([]windows.wstring, len(arguments), context.temp_allocator)
 
 	for arg, i in arguments {
@@ -1571,29 +1577,33 @@ pso_hotswap_watch :: proc(pso: ^PSO) {
 	}
 
 	if reload {
-		if pso.is_compute {
-			// handle releasing resources
-			cs, ok := compile_shader_compute(g_dx_context.dxc_compiler, pso.shader_filename)
-			if !ok {
-				lprintln("Could not compile new shader!! check logs")
-			} else {
-				// create the new PSO to be swapped later
-				pso.pso_swap = create_pso_compute_dx(pso.root_signature, cs, pso.pso_name)
-				cs->Release()
-				lprintfln("Shader reloaded successfully: %v", pso.shader_filename)
-			}
+		pso_reload(pso)
+	}
+}
+
+pso_reload :: proc(pso: ^PSO) {
+	if pso.is_compute {
+		// handle releasing resources
+		cs, ok := compile_shader_compute(g_dx_context.dxc_compiler, pso.shader_filename)
+		if !ok {
+			lprintln("Could not compile new shader!! check logs")
 		} else {
-			// handle releasing resources
-			vs, ps, ok := compile_shader(g_dx_context.dxc_compiler, pso.shader_filename)
-			if !ok {
-				lprintln("Could not compile new shader!! check logs")
-			} else {
-				// create the new PSO to be swapped later
-				pso.pso_swap = create_pso_dx(pso.parameters, pso.root_signature, vs, ps, pso.pso_name)
-				vs->Release()
-				ps->Release()
-				lprintfln("Shader reloaded successfully: %v", pso.shader_filename)
-			}
+			// create the new PSO to be swapped later
+			pso.pso_swap = create_pso_compute_dx(pso.root_signature, cs, pso.pso_name)
+			cs->Release()
+			lprintfln("Shader reloaded successfully: %v", pso.shader_filename)
+		}
+	} else {
+		// handle releasing resources
+		vs, ps, ok := compile_shader(g_dx_context.dxc_compiler, pso.shader_filename)
+		if !ok {
+			lprintln("Could not compile new shader!! check logs")
+		} else {
+			// create the new PSO to be swapped later
+			pso.pso_swap = create_pso_dx(pso.parameters, pso.root_signature, vs, ps, pso.pso_name)
+			vs->Release()
+			ps->Release()
+			lprintfln("Shader reloaded successfully: %v", pso.shader_filename)
 		}
 	}
 }

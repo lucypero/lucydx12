@@ -246,6 +246,11 @@ float3 ComputePointLight(Light light, float3 worldPosition, float3 norm, float3 
 	return (diffuse + specular) * albedoColor;
 };
 
+// A simple Reinhard tonemap for demonstration
+float3 ToneMap(float3 hdrColor)
+{
+	return hdrColor / (hdrColor + 1.0);
+}
 
 //  / helper code
 
@@ -294,7 +299,7 @@ float4 PSMain(PSInput input) : SV_TARGET
 
 	// Calculate all lights
 
-	float3 result = 0;
+	float4 result = 0;
 
 	StructuredBuffer<Light> lights = ResourceDescriptorHeap[general_constants.light_sb_idx];
 
@@ -305,7 +310,7 @@ float4 PSMain(PSInput input) : SV_TARGET
 		ambient = float3(amb_val, amb_val, amb_val);
 	}
 
-	result = ambient;
+	result.xyz = ambient;
 
 	Texture2D<float> shadowmap = ResourceDescriptorHeap[general_constants.shadowmap_idx];
 
@@ -315,10 +320,10 @@ float4 PSMain(PSInput input) : SV_TARGET
 
 		switch(light.type) {
 		case Directional:
-			result += ComputeDirectionalLight(light, worldPosition, norm, albedoColor, aoRoughMetalColor, general_constants, worldPosition, shadowmap);
+			result.xyz += ComputeDirectionalLight(light, worldPosition, norm, albedoColor, aoRoughMetalColor, general_constants, worldPosition, shadowmap);
 			break;
 		case Point:
-			result += ComputePointLight(light, worldPosition, norm, albedoColor, aoRoughMetalColor, general_constants.view_pos);
+			result.xyz += ComputePointLight(light, worldPosition, norm, albedoColor, aoRoughMetalColor, general_constants.view_pos);
 			break;
 		}
 	}
@@ -356,10 +361,22 @@ float4 PSMain(PSInput input) : SV_TARGET
 		// result = lerp(result, minimapColor, minimapColor.a);
 
 		// Alternatively, if your texture has no alpha channel and you just want to overwrite:
-		result = minimapColor.xxx;
+		result.xyz = minimapColor.xxx;
 
 	}
 
+
+	// compute luma
+
+	// result.rgb = ToneMap(result.rgb);
+	// result.rgb = sqrt(result.rgb);
+
+	// clamp hdr to ldr
+	result.rgb = saturate(result.rgb);
+
+	// Luma
+	result.a = dot(result.rgb, float3(0.299, 0.587, 0.114));
+
 	// return float4(0.0, 1.0, 0.0, 1.0);
-	return float4(result, 1.0);
+	return result;
 }

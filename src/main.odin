@@ -1216,6 +1216,25 @@ do_imgui_ui :: proc() {
 		im.Text(dt_cstring)
 	}
 
+	// AA Selection
+	{
+		current_aa : c.int = cast(c.int)g_config.aa_options
+		items := [?]cstring{"No AA", "FXAA"}
+		new_current_aa: c.int = current_aa
+		im.ComboChar("AA Selection", &new_current_aa, raw_data(&items), len(items))
+
+		if new_current_aa != current_aa {
+			g_config.aa_options = cast(AAOptions)new_current_aa
+
+			// Recompile PSO's.
+			for &pso in g_dx_context.psos {
+				pso_reload(&pso)
+			}
+		}
+	}
+
+
+
 	// const char* items[] = { "AAAA", "BBBB", "CCCC", "DDDD", "EEEE", "FFFF", "GGGG", "HHHH", "IIIIIII", "JJJJ", "KKKKKKK" };
 	//            static int item_current = 0;
 	//            ImGui::Combo("combo", &item_current, items, IM_ARRAYSIZE(items));
@@ -1245,7 +1264,7 @@ do_imgui_ui :: proc() {
 	// 	im.TreePop()
 	// }
 
-	im.ShowDemoWindow()
+	// im.ShowDemoWindow()
 
 	if im.Button("Save Settings") {
 		lprintfln("save here")
@@ -1258,6 +1277,11 @@ config_filename :: "config.json"
 
 JSON_SPEC :: json.Specification.Bitsquid
 
+AAOptions :: enum {
+	NoAA,
+	FXAA
+}
+
 // This gets serialized
 RendererConfig :: struct {
 	cam_pos: v3,
@@ -1267,7 +1291,8 @@ RendererConfig :: struct {
 	light_count: int,
 	lights: [MAX_LIGHTS]Light,
 	scene_pick: int,
-	shadowmap_settings: ShadowmapSettings
+	shadowmap_settings: ShadowmapSettings,
+	aa_options: AAOptions,
 }
 
 save_settings :: proc() {
