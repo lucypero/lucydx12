@@ -54,9 +54,13 @@ ui_shader_filename :: "src/shaders/ui.hlsl"
 text_shader_filename :: "src/shaders/text.hlsl"
 post_process_shader_filename :: "src/shaders/post_process.hlsl"
 
+
+INITIAL_WINDOW_WIDTH :: 2000
+INITIAL_WINDOW_HEIGHT :: 1000
+
 // window dimensions
-WINDOW_WIDTH :: 2000
-WINDOW_HEIGHT :: 1000
+WINDOW_WIDTH : int = 2000
+WINDOW_HEIGHT : int = 1000
 
 GBUFFER_COUNT :: len(GBufferUnitName)
 
@@ -558,8 +562,8 @@ main :: proc() {
 		"lucydx12",
 		sdl.WINDOWPOS_UNDEFINED,
 		sdl.WINDOWPOS_UNDEFINED,
-		WINDOW_WIDTH,
-		WINDOW_HEIGHT,
+		cast(i32)WINDOW_WIDTH,
+		cast(i32)WINDOW_HEIGHT,
 		{.ALLOW_HIGHDPI, .SHOWN, .RESIZABLE},
 	)
 
@@ -940,14 +944,14 @@ init_dx_user :: proc() {
 		Color = v4{0, 0, 0, 1}
 	}
 
-	ct.tx_lighting_out = texture_create(nil, WINDOW_WIDTH, WINDOW_HEIGHT, .R8G8B8A8_UNORM,
+	ct.tx_lighting_out = texture_create(nil, cast(u64)WINDOW_WIDTH, cast(u32)WINDOW_HEIGHT, .R8G8B8A8_UNORM,
 		&g_resources_longterm, view_flags = {.RTV, .SRV}, texture_name = "lighting pass output", opt_clear_value = &lighting_out_clear_value)
 
 	// hr = ct.command_allocator->Reset(
 	// hr = ct.cmdlist->Reset(ct.command_allocator, nil)
 	create_depth_buffer()
 
-	ct.tx_post_process_output = texture_create(nil, WINDOW_WIDTH, WINDOW_HEIGHT, .R8G8B8A8_UNORM,
+	ct.tx_post_process_output = texture_create(nil, cast(u64)WINDOW_WIDTH, cast(u32)WINDOW_HEIGHT, .R8G8B8A8_UNORM,
 		&g_resources_longterm, view_flags = {.UAV}, texture_name = "post process output")
 
 	// TODO: delete this?
@@ -1000,8 +1004,11 @@ do_main_loop :: proc() {
 			case .QUIT:
 				break main_loop
 			case .WINDOWEVENT:
-				if e.window.event == .CLOSE {
+				#partial switch e.window.event {
+				case .CLOSE:
 					break main_loop
+				case .RESIZED:
+					lprintfln("resized window to %v %v", e.window.data1, e.window.data2)
 				}
 			}
 		}
@@ -1131,6 +1138,7 @@ update :: proc() {
 	c := &g_dx_context
 
 	sdl.PumpEvents()
+
 	keyboard := sdl.GetKeyboardStateAsSlice()
 
 	if keyboard[sdl.Scancode.ESCAPE] == 1 {
@@ -1728,7 +1736,7 @@ pso_post_process_render :: proc(pso: PSO) {
 
 	render_common(pso, WINDOW_WIDTH, WINDOW_HEIGHT)
 	transition_resource(ct.tx_lighting_out.buffer, ct.cmdlist, {.RENDER_TARGET}, {.PIXEL_SHADER_RESOURCE})
-	ct.cmdlist->Dispatch(WINDOW_WIDTH, WINDOW_HEIGHT, 1)
+	ct.cmdlist->Dispatch(cast(u32)WINDOW_WIDTH, cast(u32)WINDOW_HEIGHT, 1)
 
 	// Copy Post Process OUT to the swapchain texture, to display the final image
 	{
