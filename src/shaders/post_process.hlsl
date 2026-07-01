@@ -36,7 +36,10 @@ void CSMain(
 	result_texture.GetDimensions(width, height);
 
 	#ifdef FXAA_ENABLE
-	float2 pixel_pos = float2(float(dispatchThreadID.x) / float(width), float(dispatchThreadID.y) / float(height));
+
+	float2 inverse_screen_size = float2(1 / float(width), 1 / float(height));
+	// adding offset to land on the center of the pixel
+	float2 pixel_pos = (float2(dispatchThreadID.xy) + 0.5f) * inverse_screen_size;
 
 	FxaaTex fxaa_tex;
 	fxaa_tex.smpl = sampler_linear;
