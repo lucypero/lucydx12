@@ -43,6 +43,7 @@ TURNS_TO_RAD :: math.PI * 2
 v2 :: linalg.Vector2f32
 v3 :: linalg.Vector3f32
 v4 :: linalg.Vector4f32
+v2i :: [2]int
 
 dxm :: matrix[4, 4]f32
 
@@ -164,7 +165,7 @@ Context :: struct {
 	dxma_allocator: ^dxma.Allocator,
 	// descriptor heap for the render target view
 	swapchain: Swapchain,
-	depth_texture: Texture,
+	tx_depth: Texture,
 	gbuffer: GBuffer,
 	root_signatures: [RootSignatureChoice]^dx.IRootSignature,
 	psos: [PSOName]PSO,
@@ -176,6 +177,7 @@ Context :: struct {
 
 	tx_lighting_out: Texture,
 	tx_post_process_output: Texture,
+	resize_wanted: Maybe(v2i)
 }
 
 ModelMatrixData :: struct {
@@ -405,7 +407,7 @@ cb_general_update :: proc() {
 		g_buffer_color_idx = cast(i32)g_dx_context.gbuffer[.Albedo].srv_index,
 		g_buffer_normal_idx = cast(i32)g_dx_context.gbuffer[.Normal].srv_index,
 		g_buffer_ao_rough_metal_idx = cast(i32)g_dx_context.gbuffer[.AO_Rough_Metal].srv_index,
-		depth_idx = cast(i32)g_dx_context.depth_texture.srv_index,
+		depth_idx = cast(i32)g_dx_context.tx_depth.srv_index,
 		draw_shadowmap = cast(b32)g_config.show_shadowmap,
 		shadowmap_idx = cast(i32)g_dx_context.tx_shadowmap.srv_index,
 		shadowmap_bias_max = g_config.shadowmap_settings.shadowmap_bias_max,
@@ -1008,7 +1010,7 @@ do_main_loop :: proc() {
 				case .CLOSE:
 					break main_loop
 				case .RESIZED:
-					lprintfln("resized window to %v %v", e.window.data1, e.window.data2)
+					g_dx_context.resize_wanted = v2i{cast(int)e.window.data1, cast(int)e.window.data2}
 				}
 			}
 		}
@@ -1033,6 +1035,8 @@ do_main_loop :: proc() {
 	}
 }
 
+SWAPCHAIN_FORMAT :: dxgi.FORMAT.R8G8B8A8_UNORM
+
 // Create the swapchain, it's the thing that contains render targets that we draw into.
 //  It has NUM_RENDERTARGETS render targets, giving us double buffering (if it's 2 NUM_RENDERTARGETS).
 create_swapchain :: proc(
@@ -1048,7 +1052,7 @@ create_swapchain :: proc(
 	desc := dxgi.SWAP_CHAIN_DESC1 {
 		Width = u32(WINDOW_WIDTH),
 		Height = u32(WINDOW_HEIGHT),
-		Format = .R8G8B8A8_UNORM,
+		Format = SWAPCHAIN_FORMAT,
 		SampleDesc = {Count = 1, Quality = 0},
 		BufferUsage = {.RENDER_TARGET_OUTPUT},
 		BufferCount = NUM_RENDERTARGETS,
@@ -1410,31 +1414,70 @@ render :: proc() {
 
 		ct.swapchain.frame_index = cast(int)ct.swapchain.swapchain->GetCurrentBackBufferIndex()
 		check(ct.command_allocator->Reset())
+	}
 
-		// swap PSO here if needed (hot reload of shaders)
+	// swap PSO here if needed (hot reload of shaders)
 
-		// destroy scenes queued for deletion (only of another scene is ready)
+	// destroy scenes queued for deletion (only of another scene is ready)
 
-		is_a_scene_ready : bool
+	is_a_scene_ready : bool
 
+	for &scene in g_scenes {
+		if scene_status_load(&scene.status) == .Ready {
+			is_a_scene_ready = true
+			break
+		}
+	}
+
+	if is_a_scene_ready {
 		for &scene in g_scenes {
-			if scene_status_load(&scene.status) == .Ready {
-				is_a_scene_ready = true
-				break
+			if scene_status_load(&scene.status) == .QueuedForDeletion {
+				scene_destroy(&scene)
 			}
 		}
+	}
 
-		if is_a_scene_ready {
-			for &scene in g_scenes {
-				if scene_status_load(&scene.status) == .QueuedForDeletion {
-					scene_destroy(&scene)
-				}
-			}
-		}
+	// hot swap handling
+	for &pso in ct.psos {
+		pso_hotswap_swap(&pso)
+	}
 
-		// hot swap handling
-		for &pso in ct.psos {
-			pso_hotswap_swap(&pso)
+	// handle window resizing
+	if new_res, ok := ct.resize_wanted.?; ok {
+		lprintfln("resize to %v", new_res)
+		resize_window(new_res)
+		ct.resize_wanted = nil
+	}
+}
+
+resize_window :: proc(new_res: v2i) {
+	ct := &g_dx_context
+	swapchain := &ct.swapchain
+
+	// Releasing old textures
+	// NOTE(lucy): (probsbly u don't need to do this because you already release the buffers at swapchain creation)
+	// for swapchain_texture in swapchain.targets {
+	// 	swapchain_texture.buffer->Release()
+	// }
+
+	hr := swapchain.swapchain->ResizeBuffers(
+		NUM_RENDERTARGETS, cast(u32)new_res.x, cast(u32)new_res.y, SWAPCHAIN_FORMAT, {}
+	)
+	check(hr, "failed at resizing")
+
+	// Acquiring new textures
+	{
+		for i: u32 = 0; i < NUM_RENDERTARGETS; i += 1 {
+
+			tex := &swapchain.targets[i]
+
+			hr = swapchain.swapchain->GetBuffer(i, dx.IResource_UUID, (^rawptr)(&tex.buffer))
+			check(hr, "Failed getting render target")
+
+			tex.buffer->Release()
+
+			// creating new rtv in the same place as the old one
+			create_rtv_at(tex.buffer, tex.rtv_index)
 		}
 	}
 }
@@ -1448,7 +1491,7 @@ create_depth_buffer :: proc() {
 		DepthStencil = {Depth = 1.0, Stencil = 0},
 	}
 
-	ct.depth_texture = texture_create(nil,
+	ct.tx_depth = texture_create(nil,
 		u64(WINDOW_WIDTH), u32(WINDOW_HEIGHT), .R32_TYPELESS, &g_resources_longterm,
 		{.DSV, .SRV}, opt_clear_value = &opt_clear)
 }
@@ -1669,7 +1712,7 @@ render_common :: proc(pso: PSO, viewport_width, viewport_height: int) {
 pso_shadowmap_render :: proc(pso: PSO) {
 	ct := &g_dx_context
 
-	transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
+	transition_resource(ct.tx_depth.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
 	transition_resource(ct.tx_shadowmap.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
 
 	render_common(pso, ct.tx_shadowmap.width, ct.tx_shadowmap.height)
@@ -1757,7 +1800,7 @@ pso_gbuffer_render :: proc(pso: PSO) {
 
 	ct := &g_dx_context
 
-	render_common(pso, ct.depth_texture.width, ct.depth_texture.height)
+	render_common(pso, ct.tx_depth.width, ct.tx_depth.height)
 
 	// Transitioning gbuffers from SRVs to render target
 	transition_gbuffers(true)
@@ -1769,7 +1812,7 @@ pso_gbuffer_render :: proc(pso: PSO) {
 			texture_get_rtv_cpu_address(g_dx_context.gbuffer[.Normal]),
 			texture_get_rtv_cpu_address(g_dx_context.gbuffer[.AO_Rough_Metal]),
 		}
-		dsv_handle := texture_get_dsv_cpu_address(ct.depth_texture)
+		dsv_handle := texture_get_dsv_cpu_address(ct.tx_depth)
 
 		// setting depth buffer
 		ct.cmdlist->OMSetRenderTargets(GBUFFER_COUNT, &rtv_handles[0], false, &dsv_handle)
@@ -1824,7 +1867,7 @@ pso_lighting_render :: proc(pso: PSO) {
 
 	ct := &g_dx_context
 
-	render_common(pso, ct.depth_texture.width, ct.depth_texture.height)
+	render_common(pso, ct.tx_depth.width, ct.tx_depth.height)
 
 	transition_resource(ct.tx_shadowmap.buffer, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
 
@@ -1833,7 +1876,7 @@ pso_lighting_render :: proc(pso: PSO) {
 
 	transition_resource(ct.tx_lighting_out.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.RENDER_TARGET})
 
-	transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
+	transition_resource(ct.tx_depth.buffer, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
 
 	// Setting render target (lighting out). Clearing RTV.
 	{
@@ -1867,7 +1910,7 @@ pso_gizmos_render :: proc (pso: PSO) {
 
 	ct := &g_dx_context
 
-	render_common(pso, ct.depth_texture.width, ct.depth_texture.height)
+	render_common(pso, ct.tx_depth.width, ct.tx_depth.height)
 
 	// updating gizmo data (looking at lights)
 	gizmos_count : u32 = cast(u32)g_config.light_count
@@ -1904,9 +1947,9 @@ pso_gizmos_render :: proc (pso: PSO) {
 	}
 
 	// setting rtv and dsv
-	transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
+	transition_resource(ct.tx_depth.buffer, ct.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
 	defer {
-		transition_resource(ct.depth_texture.buffer, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
+		transition_resource(ct.tx_depth.buffer, ct.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
 	}
 
 	// Setting render target (lighting out). Clearing RTV.
@@ -1915,7 +1958,7 @@ pso_gizmos_render :: proc (pso: PSO) {
 			get_descriptor_heap_cpu_address(ct.rtv_heap.heap, ct.tx_lighting_out.rtv_index),
 		}
 
-		dsv_handle := texture_get_dsv_cpu_address(ct.depth_texture)
+		dsv_handle := texture_get_dsv_cpu_address(ct.tx_depth)
 
 		ct.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, &dsv_handle)
 	}

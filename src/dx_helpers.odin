@@ -690,6 +690,11 @@ create_rtv :: proc(res: ^dx.IResource) -> (rtv_index: int) {
 	return ct.rtv_heap.next_descriptor_index - 1
 }
 
+create_rtv_at :: proc(res: ^dx.IResource, new_rtv_index: int) {
+	ct := &g_dx_context
+	ct.device->CreateRenderTargetView(res, nil, get_descriptor_heap_cpu_address(ct.rtv_heap.heap, new_rtv_index))
+}
+
 close_and_execute_cmdlist :: proc() {
 	ct := &g_dx_context
 	ct.cmdlist->Close()
