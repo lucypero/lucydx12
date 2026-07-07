@@ -455,6 +455,8 @@ Texture :: struct {
 	uav_index: int,
 	width: int,
 	height: int,
+	initial_view_flags: BufferViewFlags,
+	opt_clear_value: Maybe(dx.CLEAR_VALUE)
 }
 
 StructuredBuffer :: struct {
@@ -500,7 +502,7 @@ texture_create :: proc(
 	view_flags: BufferViewFlags = {},
 	mip_levels: int = 1,
 	texture_name : string = "",
-	opt_clear_value: ^dx.CLEAR_VALUE = nil,
+	opt_clear_value: Maybe(dx.CLEAR_VALUE) = nil,
 ) -> Texture {
 
 	ct := &g_dx_context
@@ -531,13 +533,20 @@ texture_create :: proc(
 		Flags = res_flags
 	}
 
+
+	clear_val_param : ^dx.CLEAR_VALUE = nil
+
+	if val, ok := opt_clear_value.?; ok {
+		clear_val_param = &val
+	}
+
 	allocation : ^dxma.Allocation
 	dxma.Allocator_CreateResource(
 		pSelf = ct.dxma_allocator,
 		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
 		pResourceDesc = &texture_desc,
 		InitialResourceState = dx.RESOURCE_STATE_COMMON, // upload queue promotes the resource implicitly, so we set it here as common
-		pOptimizedClearValue = opt_clear_value,
+		pOptimizedClearValue = clear_val_param,
 		ppAllocation = &allocation,
 		riidResource = nil,
 		ppvResource = nil
@@ -615,9 +624,26 @@ texture_create :: proc(
 		uav_index = .UAV in view_flags ? create_uav(res) : -1,
 		rtv_index = .RTV in view_flags ? create_rtv(res) : -1,
 		width = cast(int)width,
-		height = cast(int)height
+		height = cast(int)height,
+		opt_clear_value = opt_clear_value,
+		initial_view_flags = view_flags
 	}
+}
 
+texture_resize :: proc(tex: ^Texture, new_size: v2i) {
+
+	tex.buffer->Release()
+
+	tex.width = new_size.x
+	tex.height = new_size.y
+
+	tex_desc : dx.RESOURCE_DESC
+	tex.buffer->GetDesc(&tex_desc)
+
+	// texture_create(nil, new_size.x, new_size.y, tex.format, g_resources_longterm,
+
+
+	// )
 }
 
 is_typeless :: proc(format: dxgi.FORMAT) -> bool {
