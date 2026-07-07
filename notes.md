@@ -1,10 +1,10 @@
 # buffers to resize
 
-- swapchain (it has a resize method)
-- all gbuffers
-- tx_depth
-- tx_lighting_out
-- tx_post_process_output
+- [x] swapchain (it has a resize method)
+- [ ] all gbuffers
+- [ ] tx_depth
+- [ ] tx_lighting_out
+- [ ] tx_post_process_output
 
 # pipeline refactoring - todo
 

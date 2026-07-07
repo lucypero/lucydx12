@@ -889,7 +889,7 @@ init_dx_user :: proc() {
 		SHADOWMAP_RES :: 2048
 
 		ct.tx_shadowmap = texture_create(nil, SHADOWMAP_RES, SHADOWMAP_RES, .R32_TYPELESS,
-			&g_resources_longterm, view_flags = {.DSV, .SRV}, texture_name = "shadowmap", opt_clear_value = &opt_clear)
+			&g_resources_longterm, view_flags = {.DSV, .SRV}, texture_name = "shadowmap", opt_clear_value = opt_clear)
 
 		ct.psos[.Shadowmap] = pso_create("src/shaders/shadowmap.hlsl", PSOParameters {
 			vertex_input = VertexData,
@@ -947,7 +947,7 @@ init_dx_user :: proc() {
 	}
 
 	ct.tx_lighting_out = texture_create(nil, cast(u64)WINDOW_WIDTH, cast(u32)WINDOW_HEIGHT, .R8G8B8A8_UNORM,
-		&g_resources_longterm, view_flags = {.RTV, .SRV}, texture_name = "lighting pass output", opt_clear_value = &lighting_out_clear_value)
+		&g_resources_longterm, view_flags = {.RTV, .SRV}, texture_name = "lighting pass output", opt_clear_value = lighting_out_clear_value)
 
 	// hr = ct.command_allocator->Reset(
 	// hr = ct.cmdlist->Reset(ct.command_allocator, nil)
@@ -1480,6 +1480,9 @@ resize_window :: proc(new_res: v2i) {
 			create_rtv_at(tex.buffer, tex.rtv_index)
 		}
 	}
+
+	// resizing POST PROCESS OUTPUT
+	texture_resize(&ct.tx_post_process_output, new_res)
 }
 
 create_depth_buffer :: proc() {
@@ -1493,7 +1496,7 @@ create_depth_buffer :: proc() {
 
 	ct.tx_depth = texture_create(nil,
 		u64(WINDOW_WIDTH), u32(WINDOW_HEIGHT), .R32_TYPELESS, &g_resources_longterm,
-		{.DSV, .SRV}, opt_clear_value = &opt_clear)
+		{.DSV, .SRV}, opt_clear_value = opt_clear)
 }
 
 imgui_init :: proc() {
@@ -1676,7 +1679,7 @@ create_gbuffer_unit :: proc(format: dxgi.FORMAT, debug_name: string) -> Texture 
 
 	return texture_create(nil, u64(WINDOW_WIDTH), u32(WINDOW_HEIGHT),
 		format, &g_resources_longterm, {.SRV, .RTV}, texture_name = debug_name, 
-		opt_clear_value = &opt_clear_value)
+		opt_clear_value = opt_clear_value)
 }
 
 create_gbuffer :: proc() -> GBuffer {
