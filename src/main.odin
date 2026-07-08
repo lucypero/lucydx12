@@ -1483,6 +1483,14 @@ resize_window :: proc(new_res: v2i) {
 
 	// resizing POST PROCESS OUTPUT
 	texture_resize(&ct.tx_post_process_output, new_res)
+
+	for &gbuffer in ct.gbuffer {
+		texture_resize(&gbuffer, new_res)
+	}
+
+	texture_resize(&ct.tx_depth, new_res)
+	texture_resize(&ct.tx_lighting_out, new_res)
+	texture_resize(&ct.tx_post_process_output, new_res)
 }
 
 create_depth_buffer :: proc() {
