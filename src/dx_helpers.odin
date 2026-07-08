@@ -1,5 +1,6 @@
 package main
 
+import "core:text/regex"
 import "core:time"
 import "core:c"
 import img "vendor:stb/image"
@@ -449,6 +450,7 @@ DDSFile :: struct {
 Texture :: struct {
 	buffer: ^dx.IResource,
 	format: dxgi.FORMAT,
+	name: string,
 	srv_index: int,
 	dsv_index: int,
 	rtv_index: int,
@@ -503,6 +505,7 @@ texture_create :: proc(
 	mip_levels: int = 1,
 	texture_name : string = "",
 	opt_clear_value: Maybe(dx.CLEAR_VALUE) = nil,
+	tex_reuse: ^Texture = nil // reuse texture's view indices
 ) -> Texture {
 
 	ct := &g_dx_context
@@ -599,7 +602,12 @@ texture_create :: proc(
 			}
 		}
 
-		srv_index = create_srv(res, &srv_desc)
+		if tex_reuse == nil {
+			srv_index = create_srv(res, &srv_desc)
+		} else {
+			srv_index = tex_reuse.srv_index
+			create_srv_at(res, &srv_desc, tex_reuse.srv_index)
+		}
 	}
 
 	dsv_index : int = -1
@@ -613,20 +621,47 @@ texture_create :: proc(
 			panic("format for dsv not supported")
 		}
 
-		dsv_index = create_dsv(res, dsv_format)
+		if tex_reuse == nil {
+			dsv_index = create_dsv(res, dsv_format)
+		} else {
+			dsv_index = tex_reuse.dsv_index
+			create_dsv_at(res, dsv_format, tex_reuse.dsv_index)
+		}
+	}
+
+	uav_index : int = -1
+
+	if .UAV in view_flags {
+		if tex_reuse == nil {
+			uav_index = create_uav(res)
+		} else {
+			uav_index = tex_reuse.uav_index
+			create_uav_at(res, tex_reuse.uav_index)
+		}
+	}
+
+	rtv_index : int = -1
+	if .RTV in view_flags {
+		if tex_reuse == nil {
+			rtv_index = create_rtv(res)
+		} else {
+			rtv_index = tex_reuse.rtv_index
+			create_rtv_at(res, tex_reuse.rtv_index)
+		}
 	}
 
 	return Texture {
 		buffer = res,
 		format = format,
+		name = texture_name,
 		srv_index = srv_index,
 		dsv_index = dsv_index,
-		uav_index = .UAV in view_flags ? create_uav(res) : -1,
-		rtv_index = .RTV in view_flags ? create_rtv(res) : -1,
+		uav_index = uav_index,
+		rtv_index = rtv_index,
 		width = cast(int)width,
 		height = cast(int)height,
+		initial_view_flags = view_flags,
 		opt_clear_value = opt_clear_value,
-		initial_view_flags = view_flags
 	}
 }
 
@@ -640,10 +675,11 @@ texture_resize :: proc(tex: ^Texture, new_size: v2i) {
 	tex_desc : dx.RESOURCE_DESC
 	tex.buffer->GetDesc(&tex_desc)
 
-	// texture_create(nil, new_size.x, new_size.y, tex.format, g_resources_longterm,
+	texture_create(nil, cast(u64)new_size.x, cast(u32)new_size.y, tex.format,
+		&g_resources_longterm, tex.initial_view_flags, cast(int)tex_desc.MipLevels, tex.name, tex.opt_clear_value)
 
-
-	// )
+	tex.width = new_size.x
+	tex.height = new_size.y
 }
 
 is_typeless :: proc(format: dxgi.FORMAT) -> bool {
@@ -672,7 +708,7 @@ copy_to_buffer_already_mapped_value :: proc(gpu_data: rawptr, data: ^$T){
 }
 
 // creates a SRV for the resource on the uber SRV heap
-// use this after creeating the uber heap
+// use this after creating the uber heap
 create_srv :: proc(res : ^dx.IResource, srv_desc : ^dx.SHADER_RESOURCE_VIEW_DESC = nil) -> (srv_index: int){
 	ct := &g_dx_context
 	ct.device->CreateShaderResourceView(res, srv_desc, uber_heap_get_next_cpu_addr(ct.cbv_srv_uav_heap))
@@ -680,13 +716,23 @@ create_srv :: proc(res : ^dx.IResource, srv_desc : ^dx.SHADER_RESOURCE_VIEW_DESC
 	return ct.cbv_srv_uav_heap.next_descriptor_index - 1
 }
 
+create_srv_at :: proc(res : ^dx.IResource, srv_desc : ^dx.SHADER_RESOURCE_VIEW_DESC = nil, new_srv_index: int) {
+	ct := &g_dx_context
+	ct.device->CreateShaderResourceView(res, srv_desc, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap.heap, new_srv_index))
+}
+
 // creates a UAV for the resource on the uber SRV heap
-// use this after creeating the uber heap
-create_uav :: proc(res : ^dx.IResource) -> (srv_index: int) {
+// use this after creating the uber heap
+create_uav :: proc(res : ^dx.IResource) -> (uav_index: int) {
 	ct := &g_dx_context
 	ct.device->CreateUnorderedAccessView(res, nil, nil, uber_heap_get_next_cpu_addr(ct.cbv_srv_uav_heap))
 	uber_heap_count(&ct.cbv_srv_uav_heap)
 	return ct.cbv_srv_uav_heap.next_descriptor_index - 1
+}
+
+create_uav_at :: proc(res : ^dx.IResource, new_uav_index: int) {
+	ct := &g_dx_context
+	ct.device->CreateUnorderedAccessView(res, nil, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap.heap, new_uav_index))
 }
 
 create_cbv :: proc(cbv_desc : ^dx.CONSTANT_BUFFER_VIEW_DESC) -> (srv_index: int) {
@@ -707,6 +753,17 @@ create_dsv :: proc(res: ^dx.IResource, format: dxgi.FORMAT) -> (dsv_index: int) 
 	ct.device->CreateDepthStencilView(res, &dsv_desc, uber_heap_get_next_cpu_addr(ct.dsv_heap))
 	uber_heap_count(&ct.dsv_heap)
 	return ct.dsv_heap.next_descriptor_index - 1
+}
+
+create_dsv_at :: proc(res: ^dx.IResource, format: dxgi.FORMAT, dsv_index: int) {
+
+	ct := &g_dx_context
+	dsv_desc := dx.DEPTH_STENCIL_VIEW_DESC {
+		ViewDimension = .TEXTURE2D,
+		Format = format,
+	}
+
+	ct.device->CreateDepthStencilView(res, &dsv_desc, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap.heap, dsv_index))
 }
 
 create_rtv :: proc(res: ^dx.IResource) -> (rtv_index: int) {
