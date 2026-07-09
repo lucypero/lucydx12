@@ -471,15 +471,15 @@ StructuredBuffer :: struct {
 }
 
 texture_get_srv_cpu_address :: proc(tex: Texture) -> dx.CPU_DESCRIPTOR_HANDLE {
-	return uber_heap_get_cpu_addr(g_dx_context.cbv_srv_uav_heap, tex.srv_index)
+	return uber_heap_get_cpu_addr(g_dx_context.heap_cbv_srv_uav, tex.srv_index)
 }
 
 texture_get_dsv_cpu_address :: proc(tex: Texture) -> dx.CPU_DESCRIPTOR_HANDLE {
-	return uber_heap_get_cpu_addr(g_dx_context.dsv_heap, tex.dsv_index)
+	return uber_heap_get_cpu_addr(g_dx_context.heap_dsv, tex.dsv_index)
 }
 
 texture_get_rtv_cpu_address :: proc(tex: Texture) -> dx.CPU_DESCRIPTOR_HANDLE {
-	return uber_heap_get_cpu_addr(g_dx_context.rtv_heap, tex.rtv_index)
+	return uber_heap_get_cpu_addr(g_dx_context.heap_rtv, tex.rtv_index)
 }
 
 TextureViewFlag :: enum {
@@ -505,7 +505,7 @@ texture_create :: proc(
 	mip_levels: int = 1,
 	texture_name : string = "",
 	opt_clear_value: Maybe(dx.CLEAR_VALUE) = nil,
-	tex_reuse: ^Texture = nil // reuse texture's view indices
+	tex_reuse: ^Texture = nil // reuse texture's view indices.
 ) -> Texture {
 
 	ct := &g_dx_context
@@ -666,20 +666,16 @@ texture_create :: proc(
 }
 
 texture_resize :: proc(tex: ^Texture, new_size: v2i) {
-
-	tex.buffer->Release()
-
 	tex.width = new_size.x
 	tex.height = new_size.y
 
 	tex_desc : dx.RESOURCE_DESC
 	tex.buffer->GetDesc(&tex_desc)
+	tex.buffer->Release()
 
-	texture_create(nil, cast(u64)new_size.x, cast(u32)new_size.y, tex.format,
-		&g_resources_longterm, tex.initial_view_flags, cast(int)tex_desc.MipLevels, tex.name, tex.opt_clear_value)
-
-	tex.width = new_size.x
-	tex.height = new_size.y
+	tex^ = texture_create(nil, cast(u64)new_size.x, cast(u32)new_size.y, tex.format,
+		&g_resources_longterm, tex.initial_view_flags, cast(int)tex_desc.MipLevels, tex.name, tex.opt_clear_value,
+		tex_reuse = tex)
 }
 
 is_typeless :: proc(format: dxgi.FORMAT) -> bool {
@@ -711,35 +707,35 @@ copy_to_buffer_already_mapped_value :: proc(gpu_data: rawptr, data: ^$T){
 // use this after creating the uber heap
 create_srv :: proc(res : ^dx.IResource, srv_desc : ^dx.SHADER_RESOURCE_VIEW_DESC = nil) -> (srv_index: int){
 	ct := &g_dx_context
-	ct.device->CreateShaderResourceView(res, srv_desc, uber_heap_get_next_cpu_addr(ct.cbv_srv_uav_heap))
-	uber_heap_count(&ct.cbv_srv_uav_heap)
-	return ct.cbv_srv_uav_heap.next_descriptor_index - 1
+	ct.device->CreateShaderResourceView(res, srv_desc, uber_heap_get_next_cpu_addr(ct.heap_cbv_srv_uav))
+	uber_heap_count(&ct.heap_cbv_srv_uav)
+	return ct.heap_cbv_srv_uav.next_descriptor_index - 1
 }
 
 create_srv_at :: proc(res : ^dx.IResource, srv_desc : ^dx.SHADER_RESOURCE_VIEW_DESC = nil, new_srv_index: int) {
 	ct := &g_dx_context
-	ct.device->CreateShaderResourceView(res, srv_desc, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap.heap, new_srv_index))
+	ct.device->CreateShaderResourceView(res, srv_desc, get_descriptor_heap_cpu_address(ct.heap_cbv_srv_uav.heap, new_srv_index))
 }
 
 // creates a UAV for the resource on the uber SRV heap
 // use this after creating the uber heap
 create_uav :: proc(res : ^dx.IResource) -> (uav_index: int) {
 	ct := &g_dx_context
-	ct.device->CreateUnorderedAccessView(res, nil, nil, uber_heap_get_next_cpu_addr(ct.cbv_srv_uav_heap))
-	uber_heap_count(&ct.cbv_srv_uav_heap)
-	return ct.cbv_srv_uav_heap.next_descriptor_index - 1
+	ct.device->CreateUnorderedAccessView(res, nil, nil, uber_heap_get_next_cpu_addr(ct.heap_cbv_srv_uav))
+	uber_heap_count(&ct.heap_cbv_srv_uav)
+	return ct.heap_cbv_srv_uav.next_descriptor_index - 1
 }
 
 create_uav_at :: proc(res : ^dx.IResource, new_uav_index: int) {
 	ct := &g_dx_context
-	ct.device->CreateUnorderedAccessView(res, nil, nil, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap.heap, new_uav_index))
+	ct.device->CreateUnorderedAccessView(res, nil, nil, get_descriptor_heap_cpu_address(ct.heap_cbv_srv_uav.heap, new_uav_index))
 }
 
 create_cbv :: proc(cbv_desc : ^dx.CONSTANT_BUFFER_VIEW_DESC) -> (srv_index: int) {
 	ct := &g_dx_context
-	ct.device->CreateConstantBufferView(cbv_desc, uber_heap_get_next_cpu_addr(ct.cbv_srv_uav_heap))
-	uber_heap_count(&ct.cbv_srv_uav_heap)
-	return ct.cbv_srv_uav_heap.next_descriptor_index - 1
+	ct.device->CreateConstantBufferView(cbv_desc, uber_heap_get_next_cpu_addr(ct.heap_cbv_srv_uav))
+	uber_heap_count(&ct.heap_cbv_srv_uav)
+	return ct.heap_cbv_srv_uav.next_descriptor_index - 1
 }
 
 create_dsv :: proc(res: ^dx.IResource, format: dxgi.FORMAT) -> (dsv_index: int) {
@@ -750,9 +746,9 @@ create_dsv :: proc(res: ^dx.IResource, format: dxgi.FORMAT) -> (dsv_index: int) 
 		Format = format,
 	}
 
-	ct.device->CreateDepthStencilView(res, &dsv_desc, uber_heap_get_next_cpu_addr(ct.dsv_heap))
-	uber_heap_count(&ct.dsv_heap)
-	return ct.dsv_heap.next_descriptor_index - 1
+	ct.device->CreateDepthStencilView(res, &dsv_desc, uber_heap_get_next_cpu_addr(ct.heap_dsv))
+	uber_heap_count(&ct.heap_dsv)
+	return ct.heap_dsv.next_descriptor_index - 1
 }
 
 create_dsv_at :: proc(res: ^dx.IResource, format: dxgi.FORMAT, dsv_index: int) {
@@ -763,19 +759,19 @@ create_dsv_at :: proc(res: ^dx.IResource, format: dxgi.FORMAT, dsv_index: int) {
 		Format = format,
 	}
 
-	ct.device->CreateDepthStencilView(res, &dsv_desc, get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap.heap, dsv_index))
+	ct.device->CreateDepthStencilView(res, &dsv_desc, get_descriptor_heap_cpu_address(ct.heap_dsv.heap, dsv_index))
 }
 
 create_rtv :: proc(res: ^dx.IResource) -> (rtv_index: int) {
 	ct := &g_dx_context
-	ct.device->CreateRenderTargetView(res, nil, uber_heap_get_next_cpu_addr(ct.rtv_heap))
-	uber_heap_count(&ct.rtv_heap)
-	return ct.rtv_heap.next_descriptor_index - 1
+	ct.device->CreateRenderTargetView(res, nil, uber_heap_get_next_cpu_addr(ct.heap_rtv))
+	uber_heap_count(&ct.heap_rtv)
+	return ct.heap_rtv.next_descriptor_index - 1
 }
 
 create_rtv_at :: proc(res: ^dx.IResource, new_rtv_index: int) {
 	ct := &g_dx_context
-	ct.device->CreateRenderTargetView(res, nil, get_descriptor_heap_cpu_address(ct.rtv_heap.heap, new_rtv_index))
+	ct.device->CreateRenderTargetView(res, nil, get_descriptor_heap_cpu_address(ct.heap_rtv.heap, new_rtv_index))
 }
 
 close_and_execute_cmdlist :: proc() {
@@ -1298,7 +1294,7 @@ load_white_texture :: proc() {
 		&g_resources_longterm, {}, texture_name = "white")
 
 	// creating srv on uber heap
-	cpu_addr := get_descriptor_heap_cpu_address(ct.cbv_srv_uav_heap.heap, TEXTURE_WHITE_INDEX)
+	cpu_addr := get_descriptor_heap_cpu_address(ct.heap_cbv_srv_uav.heap, TEXTURE_WHITE_INDEX)
 	ct.device->CreateShaderResourceView(texture.buffer, nil, cpu_addr)
 }
 
