@@ -1,5 +1,6 @@
 package main
 
+import "core:container/pool"
 import "core:thread"
 import "core:mem/virtual"
 import "core:debug/trace"
@@ -151,9 +152,9 @@ Context :: struct {
 	fence_event: windows.HANDLE,
 
 	/// descriptor heap for ALL our resources
-	cbv_srv_uav_heap: UberDescriptorHeap,
-	dsv_heap: UberDescriptorHeap,
-	rtv_heap: UberDescriptorHeap,
+	heap_cbv_srv_uav: UberDescriptorHeap,
+	heap_dsv: UberDescriptorHeap,
+	heap_rtv: UberDescriptorHeap,
 
 	/// Other
 	device: ^dx.IDevice,
@@ -333,6 +334,7 @@ InstanceData :: struct #align (256) {
 
 @(private="package") g_is_app_shutting_down: bool
 @(private="package") g_dx_context: Context
+@(private="package") g_resources_resizing: DXResourcePool  // pool for resources tied to a current window size (they get released when window size changes)
 @(private="package") g_resources_longterm: DXResourcePool
 @(private="package") g_scenes: [3]Scene
 
@@ -522,8 +524,11 @@ main :: proc() {
 	upload_thread := thread.create_and_start(upload_thread_start)
 
 
-	// setting up long term resource pool
+	// setting up resource pool for buffers tied to window size
+	g_resources_resizing = make([dynamic]^dx.IUnknown)
+	defer delete(g_resources_resizing)
 
+	// setting up long term resource pool
 	g_resources_longterm = make([dynamic]^dx.IUnknown)
 	defer delete(g_resources_longterm)
 
@@ -599,9 +604,8 @@ main :: proc() {
 			if (st == .Ready || st == .QueuedForDeletion) do scene_destroy(&scene)
 		}
 
-		#reverse for &i in g_resources_longterm {
-			i->Release()
-		}
+		resource_pool_release(g_resources_resizing)
+		resource_pool_release(g_resources_longterm)
 
 		// this does nothing
 		sdl.DestroyWindow(ct.window)
@@ -747,9 +751,9 @@ init_dx :: proc() {
 
 	// Creating all uber descriptor heaps. So far, SRV and DSV uber heaps.
 	{
-		ct.cbv_srv_uav_heap = uber_heap_create(.CBV_SRV_UAV, &g_resources_longterm)
-		ct.dsv_heap = uber_heap_create(.DSV, &g_resources_longterm)
-		ct.rtv_heap = uber_heap_create(.RTV, &g_resources_longterm)
+		ct.heap_cbv_srv_uav = uber_heap_create(.CBV_SRV_UAV, &g_resources_longterm)
+		ct.heap_dsv = uber_heap_create(.DSV, &g_resources_longterm)
+		ct.heap_rtv = uber_heap_create(.RTV, &g_resources_longterm)
 	}
 
 	ct.swapchain = create_swapchain(ct.factory, ct.queue, ct.window)
@@ -947,14 +951,14 @@ init_dx_user :: proc() {
 	}
 
 	ct.tx_lighting_out = texture_create(nil, cast(u64)WINDOW_WIDTH, cast(u32)WINDOW_HEIGHT, .R8G8B8A8_UNORM,
-		&g_resources_longterm, view_flags = {.RTV, .SRV}, texture_name = "lighting pass output", opt_clear_value = lighting_out_clear_value)
+		&g_resources_resizing, view_flags = {.RTV, .SRV}, texture_name = "lighting pass output", opt_clear_value = lighting_out_clear_value)
 
 	// hr = ct.command_allocator->Reset(
 	// hr = ct.cmdlist->Reset(ct.command_allocator, nil)
 	create_depth_buffer()
 
 	ct.tx_post_process_output = texture_create(nil, cast(u64)WINDOW_WIDTH, cast(u32)WINDOW_HEIGHT, .R8G8B8A8_UNORM,
-		&g_resources_longterm, view_flags = {.UAV}, texture_name = "post process output")
+		&g_resources_resizing, view_flags = {.UAV}, texture_name = "post process output")
 
 	// TODO: delete this?
 	close_and_execute_cmdlist()
@@ -1365,7 +1369,7 @@ render :: proc() {
 	// Setting swapchain as render target (for imgui drawing)
 	{
 		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
-			get_descriptor_heap_cpu_address(ct.rtv_heap.heap, ct.swapchain.targets[ct.swapchain.frame_index].rtv_index),
+			get_descriptor_heap_cpu_address(ct.heap_rtv.heap, ct.swapchain.targets[ct.swapchain.frame_index].rtv_index),
 		}
 
 		ct.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
@@ -1454,6 +1458,9 @@ resize_window :: proc(new_res: v2i) {
 	ct := &g_dx_context
 	swapchain := &ct.swapchain
 
+	// Clearing resizing resources pool
+	clear(&g_resources_resizing)
+
 	// Releasing old textures
 	// NOTE(lucy): (probsbly u don't need to do this because you already release the buffers at swapchain creation)
 	// for swapchain_texture in swapchain.targets {
@@ -1481,8 +1488,8 @@ resize_window :: proc(new_res: v2i) {
 		}
 	}
 
-	// resizing POST PROCESS OUTPUT
-	texture_resize(&ct.tx_post_process_output, new_res)
+	// Updating frame index (it gets reset when resizing)
+	ct.swapchain.frame_index = cast(int)ct.swapchain.swapchain->GetCurrentBackBufferIndex()
 
 	for &gbuffer in ct.gbuffer {
 		texture_resize(&gbuffer, new_res)
@@ -1491,6 +1498,10 @@ resize_window :: proc(new_res: v2i) {
 	texture_resize(&ct.tx_depth, new_res)
 	texture_resize(&ct.tx_lighting_out, new_res)
 	texture_resize(&ct.tx_post_process_output, new_res)
+
+	// setting new width and height
+	WINDOW_WIDTH = new_res.x
+	WINDOW_HEIGHT = new_res.y
 }
 
 create_depth_buffer :: proc() {
@@ -1503,7 +1514,7 @@ create_depth_buffer :: proc() {
 	}
 
 	ct.tx_depth = texture_create(nil,
-		u64(WINDOW_WIDTH), u32(WINDOW_HEIGHT), .R32_TYPELESS, &g_resources_longterm,
+		u64(WINDOW_WIDTH), u32(WINDOW_HEIGHT), .R32_TYPELESS, &g_resources_resizing,
 		{.DSV, .SRV}, opt_clear_value = opt_clear)
 }
 
@@ -1686,7 +1697,7 @@ create_gbuffer_unit :: proc(format: dxgi.FORMAT, debug_name: string) -> Texture 
 	}
 
 	return texture_create(nil, u64(WINDOW_WIDTH), u32(WINDOW_HEIGHT),
-		format, &g_resources_longterm, {.SRV, .RTV}, texture_name = debug_name, 
+		format, &g_resources_resizing, {.SRV, .RTV}, texture_name = debug_name, 
 		opt_clear_value = opt_clear_value)
 }
 
@@ -1708,7 +1719,7 @@ render_common :: proc(pso: PSO, viewport_width, viewport_height: int) {
 	ct := &g_dx_context
 
 	ct.cmdlist->SetPipelineState(pso.pipeline_state)
-	ct.cmdlist->SetDescriptorHeaps(1, &ct.cbv_srv_uav_heap.heap)
+	ct.cmdlist->SetDescriptorHeaps(1, &ct.heap_cbv_srv_uav.heap)
 
 	if pso.is_compute {
 		ct.cmdlist->SetComputeRootSignature(pso.root_signature)
@@ -1892,7 +1903,7 @@ pso_lighting_render :: proc(pso: PSO) {
 	// Setting render target (lighting out). Clearing RTV.
 	{
 		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
-			get_descriptor_heap_cpu_address(ct.rtv_heap.heap, ct.tx_lighting_out.rtv_index),
+			get_descriptor_heap_cpu_address(ct.heap_rtv.heap, ct.tx_lighting_out.rtv_index),
 		}
 
 		ct.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
@@ -1966,7 +1977,7 @@ pso_gizmos_render :: proc (pso: PSO) {
 	// Setting render target (lighting out). Clearing RTV.
 	{
 		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
-			get_descriptor_heap_cpu_address(ct.rtv_heap.heap, ct.tx_lighting_out.rtv_index),
+			get_descriptor_heap_cpu_address(ct.heap_rtv.heap, ct.tx_lighting_out.rtv_index),
 		}
 
 		dsv_handle := texture_get_dsv_cpu_address(ct.tx_depth)
@@ -2059,4 +2070,10 @@ get_first_active_scene :: proc() -> (scene: ^Scene, ok: bool) {
 		}
 	}
 	return nil, false
+}
+
+resource_pool_release :: proc(pool : DXResourcePool) {
+	#reverse for &res in pool {
+		res->Release()
+	}
 }
