@@ -596,18 +596,14 @@ main :: proc() {
 
 		thread.destroy(upload_thread)
 
-		// TODO destroy scenes ( wait for all gpu to be done) (actually we already are.)
-		// scene_destroy(&g_scene)
-
 		for &scene in g_scenes {
 			st := scene_status_load(&scene.status)
 			if (st == .Ready || st == .QueuedForDeletion) do scene_destroy(&scene)
 		}
 
-		resource_pool_release(g_resources_resizing)
-		resource_pool_release(g_resources_longterm)
+		resource_pool_release(&g_resources_resizing)
+		resource_pool_release(&g_resources_longterm)
 
-		// this does nothing
 		sdl.DestroyWindow(ct.window)
 
 		when ODIN_DEBUG {
@@ -1459,7 +1455,7 @@ resize_window :: proc(new_res: v2i) {
 	swapchain := &ct.swapchain
 
 	// Clearing resizing resources pool
-	clear(&g_resources_resizing)
+	resource_pool_release(&g_resources_resizing)
 
 	// Releasing old textures
 	// NOTE(lucy): (probsbly u don't need to do this because you already release the buffers at swapchain creation)
@@ -1492,12 +1488,12 @@ resize_window :: proc(new_res: v2i) {
 	ct.swapchain.frame_index = cast(int)ct.swapchain.swapchain->GetCurrentBackBufferIndex()
 
 	for &gbuffer in ct.gbuffer {
-		texture_resize(&gbuffer, new_res)
+		texture_resize(&gbuffer, new_res, &g_resources_resizing)
 	}
 
-	texture_resize(&ct.tx_depth, new_res)
-	texture_resize(&ct.tx_lighting_out, new_res)
-	texture_resize(&ct.tx_post_process_output, new_res)
+	texture_resize(&ct.tx_depth, new_res, &g_resources_resizing)
+	texture_resize(&ct.tx_lighting_out, new_res, &g_resources_resizing)
+	texture_resize(&ct.tx_post_process_output, new_res, &g_resources_resizing)
 
 	// setting new width and height
 	WINDOW_WIDTH = new_res.x
@@ -2072,8 +2068,10 @@ get_first_active_scene :: proc() -> (scene: ^Scene, ok: bool) {
 	return nil, false
 }
 
-resource_pool_release :: proc(pool : DXResourcePool) {
+resource_pool_release :: proc(pool : ^DXResourcePool) {
 	#reverse for &res in pool {
 		res->Release()
 	}
+
+	clear(pool)
 }

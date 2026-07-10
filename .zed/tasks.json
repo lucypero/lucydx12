@@ -1,7 +1,7 @@
 [
 	{
 		"label": "A - build debug",
-		"command": "odin build src -debug -out:lucydx12.exe -linker:radlink -vet-packages:main,sluggish_generator -vet-unused-variables -vet-shadowing -vet-using-stmt -vet-cast",
+		"command": "raddbg.exe --ipc kill_all && odin build src -debug -out:lucydx12.exe -linker:radlink -vet-packages:main,sluggish_generator -vet-unused-variables -vet-shadowing -vet-using-stmt -vet-cast && raddbg --ipc run",
 		"use_new_terminal": false,
 		"allow_concurrent_runs": false,
 		"reveal": "always",
