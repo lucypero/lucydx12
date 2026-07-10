@@ -458,7 +458,8 @@ Texture :: struct {
 	width: int,
 	height: int,
 	initial_view_flags: BufferViewFlags,
-	opt_clear_value: Maybe(dx.CLEAR_VALUE)
+	opt_clear_value: Maybe(dx.CLEAR_VALUE),
+	mip_levels: int,
 }
 
 StructuredBuffer :: struct {
@@ -662,19 +663,13 @@ texture_create :: proc(
 		height = cast(int)height,
 		initial_view_flags = view_flags,
 		opt_clear_value = opt_clear_value,
+		mip_levels = mip_levels
 	}
 }
 
-texture_resize :: proc(tex: ^Texture, new_size: v2i) {
-	tex.width = new_size.x
-	tex.height = new_size.y
-
-	tex_desc : dx.RESOURCE_DESC
-	tex.buffer->GetDesc(&tex_desc)
-	tex.buffer->Release()
-
+texture_resize :: proc(tex: ^Texture, new_size: v2i, pool: ^DXResourcePool) {
 	tex^ = texture_create(nil, cast(u64)new_size.x, cast(u32)new_size.y, tex.format,
-		&g_resources_longterm, tex.initial_view_flags, cast(int)tex_desc.MipLevels, tex.name, tex.opt_clear_value,
+		pool, tex.initial_view_flags, tex.mip_levels, tex.name, tex.opt_clear_value,
 		tex_reuse = tex)
 }
 
