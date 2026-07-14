@@ -1810,3 +1810,50 @@ do_imgui_enum :: proc(imgui_field_name:string, enum_v: ^$T) -> (changed: bool) {
 
 	return im.ComboChar(imgui_field_name_c, current_val, raw_data(names_c), cast(i32)len(names_c))
 }
+
+do_imgui_enum_array :: proc(imgui_field_name:string, arr: []string, index: ^int) -> (changed: bool) { 
+
+	names_c := make([]cstring, len(arr), allocator = context.temp_allocator)
+
+	for arr_v, i in arr {
+		names_c[i] = strings.clone_to_cstring(arr_v, allocator = context.temp_allocator)
+	}
+
+	imgui_field_name_c := strings.clone_to_cstring(imgui_field_name, context.temp_allocator)
+
+	return im.ComboChar(imgui_field_name_c, cast(^i32)index, raw_data(names_c), cast(i32)len(names_c))
+}
+
+
+search_for_files_with_ext :: proc(base_path: string, ext: string, files_out: ^[dynamic]string, string_allocator : mem.Allocator) {
+	search_pattern := fmt.tprintf("%s\\*", base_path)
+	wide_pattern := windows.utf8_to_wstring(search_pattern)
+
+	find_data: windows.WIN32_FIND_DATAW
+	hfind := windows.FindFirstFileExW(wide_pattern, .FindExInfoBasic, &find_data, .FindExSearchNameMatch, nil, windows.FIND_FIRST_EX_LARGE_FETCH)
+
+	if hfind == windows.INVALID_HANDLE_VALUE {
+		return
+	}
+	defer windows.FindClose(hfind)
+
+	for {
+		file_wstring : windows.wstring = windows.wstring(raw_data(find_data.cFileName[:]))
+		file_name, _ := windows.wstring_to_utf8_alloc(file_wstring, -1, context.temp_allocator)
+
+		if file_name != "." && file_name != ".." {
+			full_path := fmt.tprintf("%s\\%s", base_path, file_name)
+			if (find_data.dwFileAttributes & windows.FILE_ATTRIBUTE_DIRECTORY) != 0 {
+				search_for_files_with_ext(full_path, ext, files_out, string_allocator)
+			} else {
+				if strings.has_suffix(file_name, ext) {
+					append(files_out, strings.clone(full_path, string_allocator))
+				}
+			}
+		}
+
+		if !windows.FindNextFileW(hfind, &find_data) {
+			break
+		}
+	}
+}
