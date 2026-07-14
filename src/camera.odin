@@ -22,6 +22,8 @@ Camera :: struct {
 	yaw: f32, // rad
 	speed: f32,
 	cruising_speed: f32,
+	near: f32,
+	far: f32,
 }
 
 camera_init :: proc() -> Camera {
@@ -32,12 +34,7 @@ camera_init :: proc() -> Camera {
 	g_cur_cam_mode = .FPS
 	camera_toggle_mode()
 
-	return Camera{
-		pos = g_config.cam_pos,
-		pitch = g_config.cam_pitch,
-		yaw = g_config.cam_yaw,
-		speed = 0.030
-	}
+	return g_config.cam
 }
 
 camera_toggle_mode :: proc() {
@@ -159,7 +156,7 @@ get_view_projection :: proc(cam: Camera) -> (dxm, dxm) {
 
 	// this function is supposedly more correct
 	// has correct depth values
-	proj := matrix4_perspective_z0_f32(fov, aspect, 0.1, 100)
+	proj := matrix4_perspective_z0_f32(fov, aspect, cam.near, cam.far)
 
 	return view, proj
 	// return view * proj

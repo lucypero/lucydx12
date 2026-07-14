@@ -1,6 +1,7 @@
 #+private file 
 package main
 
+import "core:text/regex/common"
 import "core:math/linalg"
 import "core:path/filepath"
 import "core:mem"
@@ -158,8 +159,10 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 					if !ok do fmt.eprintln("Error reading gltf tangent")
 				}
 
-				ok = cgltf.accessor_read_float(attr_texcoord[0].data, i, &vertex.uv[0], 2)
-				if !ok do fmt.eprintln("Error reading gltf texcoord")
+				if textcoord_count > 0 {
+					ok = cgltf.accessor_read_float(attr_texcoord[0].data, i, &vertex.uv[0], 2)
+					if !ok do fmt.eprintln("Error reading gltf texcoord")
+				}
 
 				if textcoord_count > 1 {
 					ok = cgltf.accessor_read_float(attr_texcoord[1].data, i, &vertex.uv_2[0], 2)
