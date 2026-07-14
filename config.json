@@ -1,10 +1,16 @@
-cam_pos: [
-	-2.21284103
-	4.95233250
-	-0.18663418
-]
-cam_yaw: -8.42976665
-cam_pitch: 0.17296675
+cam: {
+	pos: [
+		-0.01840528
+		0.00590516
+		0.02190242
+	]
+	pitch: 0.30796561
+	yaw: 8.57003307
+	speed: 0.00100000
+	cruising_speed: 0.00000000
+	near: 0.00100000
+	far: 200.00000000
+}
 show_shadowmap: false
 light_count: 2
 lights: [
@@ -18,8 +24,8 @@ lights: [
 		radius: 0.00000000
 		direction: [
 			0.00000000
-			-1.00000000
-			0.21200000
+			-0.22499999
+			-0.45500001
 		]
 		intensity: 1.20000005
 		color: [
@@ -169,7 +175,7 @@ lights: [
 		]
 	}
 ]
-scene_pick: 0
+scene_pick: 19
 shadowmap_settings: {
 	lrbt: [
 		-11.00000000

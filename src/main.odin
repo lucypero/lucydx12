@@ -1229,8 +1229,16 @@ do_imgui_ui :: proc() {
 
 	im.Checkbox("draw light gizmos", &g_light_draw_gizmos)
 	im.Checkbox("draw lightmap", &g_config.show_shadowmap)
+
+	// Camera
+
 	im.DragFloat("cam speed", &g_cur_cam.speed, 0.0001, 0, 20)
 	im.DragFloat("cam cruise speed", &g_cur_cam.cruising_speed, 0.0001, 0, 20)
+	im.DragFloat("cam near plane", &g_cur_cam.near, 0.0001, 0, 1)
+	im.DragFloat("cam far plane", &g_cur_cam.far, 0.0001, 0, 500)
+	if im.Button("reset camera pos") {
+		g_cur_cam.pos = {}
+	}
 
 	// Drawing delta time
 	{
@@ -1287,9 +1295,8 @@ AAOptions :: enum {
 
 // This gets serialized
 RendererConfig :: struct {
-	cam_pos: v3,
-	cam_yaw: f32,
-	cam_pitch: f32,
+	cam: Camera,
+
 	show_shadowmap: bool,
 	light_count: int,
 	lights: [MAX_LIGHTS]Light,
@@ -1301,9 +1308,7 @@ RendererConfig :: struct {
 save_settings :: proc() {
 
 	// syncing g_config with some some stuff
-	g_config.cam_pos = g_cur_cam.pos
-	g_config.cam_yaw = g_cur_cam.yaw
-	g_config.cam_pitch = g_cur_cam.pitch
+	g_config.cam = g_cur_cam
 
 	// marshalling
 
