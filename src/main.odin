@@ -70,6 +70,8 @@ TEXTURE_WHITE_INDEX :: TEXTURE_INDEX_BASE - 1
 TEXTURE_INDEX_BASE :: 400
 
 MODEL_FILEPATH_TEAPOT :: "models/teapot.glb"
+
+MODEL_BASEDIR :: "models"
 // model_filepath :: "models/main_sponza/NewSponza_Main_glTF_003.gltf"
 MODEL_FILEPATH_TEST_SCENE :: "models/test_scene.glb"
 // model_filepath :: "models/main_sponza/sponza_blender.glb"
@@ -84,9 +86,6 @@ MODEL_FILEPATH_SUZANNE :: GLTF_SAMPLES_DIR + "/Suzanne/glTF/Suzanne.gltf"
 MODEL_FILEPATH_FLIGHTHELMET :: GLTF_SAMPLES_DIR + "/FlightHelmet/glTF/FlightHelmet.gltf"
 MODEL_FILEPATH_CHESS :: GLTF_SAMPLES_DIR + "/ABeautifulGame/glTF/ABeautifulGame.gltf"
 MODEL_FILEPATH_SHADOW_TEST :: "models/shadow_test.glb"
-
-@(rodata)
-g_scene_list := [?]string{MODEL_FILEPATH_SPONZA, MODEL_FILEPATH_SHADOW_TEST}
 
 VertexData :: struct {
 	pos: v3 `POSITION`,
@@ -139,6 +138,10 @@ Swapchain :: struct {
 }
 
 Context :: struct {
+
+	// Scene list
+	scene_list: [dynamic]string,
+
 	/// SDL stuff
 	window: ^sdl.Window,
 
@@ -973,7 +976,11 @@ init_dx_user :: proc() {
 		scene.allocator = arena_new()
 	}
 
-	scene_schedule_load(&g_scenes[0], g_scene_list[g_config.scene_pick])
+	ct.scene_list = init_scene_list(context.allocator)
+
+	lprintfln("Loading scene: %v", ct.scene_list[g_config.scene_pick])
+
+	scene_schedule_load(&g_scenes[0], ct.scene_list[g_config.scene_pick])
 
 	// This fence is used to wait for frames to finish
 	{
@@ -1250,8 +1257,8 @@ do_imgui_ui :: proc() {
 	}
 
 	// scene selection
-	if do_imgui_enum("scene", &g_config.scene_pick) {
-		scene_swap(g_scene_list[g_config.scene_pick])
+	if do_imgui_enum_array("scene", g_dx_context.scene_list[:], &g_config.scene_pick) {
+		scene_swap(g_dx_context.scene_list[g_config.scene_pick])
 	}
 
 	// tree example
@@ -1278,11 +1285,6 @@ AAOptions :: enum {
 	FXAA
 }
 
-ScenePick :: enum {
-	Sponza,
-	SomethingElse
-}
-
 // This gets serialized
 RendererConfig :: struct {
 	cam_pos: v3,
@@ -1291,7 +1293,7 @@ RendererConfig :: struct {
 	show_shadowmap: bool,
 	light_count: int,
 	lights: [MAX_LIGHTS]Light,
-	scene_pick: ScenePick,
+	scene_pick: int,
 	shadowmap_settings: ShadowmapSettings,
 	aa_options: AAOptions,
 }
@@ -2074,4 +2076,10 @@ resource_pool_release :: proc(pool : ^DXResourcePool) {
 	}
 
 	clear(pool)
+}
+
+init_scene_list :: proc(allocator: mem.Allocator) -> (scene_list : [dynamic]string) {
+	scene_list = make([dynamic]string, 0, 20, allocator)
+	search_for_files_with_ext(MODEL_BASEDIR, ".gltf", &scene_list, allocator)
+	return
 }
