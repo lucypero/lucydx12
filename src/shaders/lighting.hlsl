@@ -362,7 +362,6 @@ float4 PSMain(PSInput input) : SV_TARGET
 
 		// Alternatively, if your texture has no alpha channel and you just want to overwrite:
 		result.xyz = minimapColor.xxx;
-
 	}
 
 
@@ -378,5 +377,9 @@ float4 PSMain(PSInput input) : SV_TARGET
 	result.a = dot(result.rgb, float3(0.299, 0.587, 0.114));
 
 	// return float4(0.0, 1.0, 0.0, 1.0);
+
+	// return normal
+	// return float4(norm, 1.0f);
+
 	return result;
 }
