@@ -1,3 +1,11 @@
+# current task
+
+- Update the bindings to this so you can generate normals. make a PR:
+
+it uses karl's binding generator. should be straight forward!!
+
+https://github.com/GloriousPtr/odin-meshoptimizer/tree/main
+
 # pipeline refactoring - todo
 
 - helper procs for common operations in Render procs (like copy texture)

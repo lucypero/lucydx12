@@ -155,7 +155,7 @@ PSOutput PSMain(PSInput input) {
 		output.normalRT = normalColor;
 
 		// uncomment to skip normal map
-		// output.normalRT = float4(N * 0.5 + 0.5, 1.0);
+		output.normalRT = float4(N * 0.5 + 0.5, 1.0);
 	}
 
 	// AO + Rough + Metalness map
