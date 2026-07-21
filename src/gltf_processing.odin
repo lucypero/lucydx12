@@ -314,8 +314,25 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 		primitives = sphere_primitive
 	}
 
-	// VERTEXDATA
 
+	// Here, you reconstruct the entire vertex and index buffers, with tangents injected in
+
+	// generate tangents no matter if they were already in there, i don't care
+
+
+
+
+	// Finally, we upload the data to the GPU and set up the scene struct with this data
+	upload_vertex_data(vertices[:], indices[:], scene)
+}
+
+// Sets up vertex and index buffers and uploads them to the GPU
+// Sets up the vertex and index buffers and views in the given Scene
+upload_vertex_data :: proc(vertices: []Vertex, indices: []u32, scene_out: ^Scene) {
+
+	// TODO: this could be way simpler and standardized. look into it
+
+	// VERTEXDATA
 	vertex_buffer_size := len(vertices) * size_of(vertices[0])
 
 	resource_desc := dx.RESOURCE_DESC {
@@ -343,20 +360,20 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 		ppvResource = nil
 	)
 
-	check(hr, "failed creating upload texture")
-	scene.vertex_buffer = dxma.Allocation_GetResource(vb_allocation)
+	check(hr, "failed creating vertex buffer")
+	scene_out.vertex_buffer = dxma.Allocation_GetResource(vb_allocation)
 	// todo this is wrong
-	append(&scene.resource_pool, cast(^dx.IUnknown)vb_allocation)
+	append(&scene_out.resource_pool, cast(^dx.IUnknown)vb_allocation)
 
-	scene.vertex_buffer->SetName("vertex buffer")
+	scene_out.vertex_buffer->SetName("vertex buffer")
 
-	scene.vertex_buffer_view = dx.VERTEX_BUFFER_VIEW {
-		BufferLocation = scene.vertex_buffer->GetGPUVirtualAddress(),
+	scene_out.vertex_buffer_view = dx.VERTEX_BUFFER_VIEW {
+		BufferLocation = scene_out.vertex_buffer->GetGPUVirtualAddress(),
 		StrideInBytes = u32(vertex_buffer_size) / cast(u32)len(vertices),
 		SizeInBytes = u32(vertex_buffer_size),
 	}
 
-	dx_upload_trigger(&g_upload_service, scene.vertex_buffer, slice.to_bytes(vertices[:]))
+	dx_upload_trigger(&g_upload_service, scene_out.vertex_buffer, slice.to_bytes(vertices[:]))
 
 	// creating index buffer resource
 
@@ -376,18 +393,18 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 		riidResource = nil,
 		ppvResource = nil
 	)
-	check(hr, "failed creating upload texture")
-	scene.index_buffer = dxma.Allocation_GetResource(upload_allocation_2)
-	append(&scene.resource_pool, cast(^dx.IUnknown)upload_allocation_2)
-	scene.index_buffer->SetName("lucy's index buffer")
+	check(hr, "failed creating index buffer")
+	scene_out.index_buffer = dxma.Allocation_GetResource(upload_allocation_2)
+	append(&scene_out.resource_pool, cast(^dx.IUnknown)upload_allocation_2)
+	scene_out.index_buffer->SetName("lucy's index buffer")
 
-	scene.index_buffer_view = dx.INDEX_BUFFER_VIEW {
-		BufferLocation = scene.index_buffer->GetGPUVirtualAddress(),
+	scene_out.index_buffer_view = dx.INDEX_BUFFER_VIEW {
+		BufferLocation = scene_out.index_buffer->GetGPUVirtualAddress(),
 		SizeInBytes = u32(index_buffer_size),
 		Format = .R32_UINT,
 	}
 
-	dx_upload_trigger(&g_upload_service, scene.index_buffer, slice.to_bytes(indices[:]))
+	dx_upload_trigger(&g_upload_service, scene_out.index_buffer, slice.to_bytes(indices[:]))
 }
 
 gltf_load_nodes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
