@@ -20,6 +20,7 @@ import "base:runtime"
 import "core:mem/virtual"
 import dxma "../libs/odin-d3d12ma"
 import "core:prof/spall"
+import "../../third_party/meshopt"
 
 @(private="package")
 scene_from_gltf :: proc(scene: ^Scene) {
@@ -100,19 +101,24 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 
 	TEMP_GUARD()
 
-	vertices := make([dynamic]VertexData, context.temp_allocator)
+	vertices := make([dynamic]Vertex, context.temp_allocator)
 	indices := make([dynamic]u32, context.temp_allocator)
 
 	scene_allocator := virtual.arena_allocator(&scene.allocator)
 
 	the_meshes := make_slice([]Mesh, len(data.meshes), scene_allocator)
-	index_count: u32
+
+	// Count of vertices so we know when to offset the indices of the next primitive
+	vertex_count: u32
+
 	index_count_total: u32 = 0
 
+	// Iterating Meshes
 	for mesh, i in data.meshes {
 
 		the_meshes[i].primitives = make_slice([]Primitive, len(mesh.primitives), scene_allocator)
 
+		// Iterating mesh primitives
 		for prim, prim_i in mesh.primitives {
 
 			// process material here material
@@ -124,6 +130,8 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 
 			textcoord_count := 0
 
+			vertices_test := make([dynamic]Vertex, context.temp_allocator)
+			indices_test := make([dynamic]u32, context.temp_allocator)
 
 			for attribute in prim.attributes {
 				#partial switch attribute.type {
@@ -144,8 +152,10 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 			}
 
 
+			gen_tangents: bool
+
 			for i in 0 ..< attr_position.data.count {
-				vertex: VertexData
+				vertex: Vertex
 				ok: b32
 
 				ok = cgltf.accessor_read_float(attr_position.data, i, &vertex.pos[0], 3)
@@ -157,6 +167,9 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 				if attr_tangent.type != .invalid {
 					ok = cgltf.accessor_read_float(attr_tangent.data, i, &vertex.tangent[0], 4)
 					if !ok do fmt.eprintln("Error reading gltf tangent")
+				} else {
+					// generate tangents
+					gen_tangents = true
 				}
 
 				if textcoord_count > 0 {
@@ -179,14 +192,84 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 				vertex.tangent.x *= -1
 
 				append(&vertices, vertex)
+				append(&vertices_test, vertex)
 				// vertices[i] = vertex
 			}
 
 			for i in 0 ..< prim.indices.count {
-				append(&indices, u32(cgltf.accessor_read_index(prim.indices, i)) + u32(index_count))
+				append(&indices, u32(cgltf.accessor_read_index(prim.indices, i)) + u32(vertex_count))
+				append(&indices_test, u32(cgltf.accessor_read_index(prim.indices, i)))
 			}
 
-			index_count += u32(attr_position.data.count)
+			vertex_count += u32(attr_position.data.count)
+
+			// generate primitiv's tangents
+			if gen_tangents {
+				lprintfln("generating tangents")
+
+				res := meshopt.quantizeFloat(2, 2)
+				lprintfln("meshopt test: %v", res)
+
+				// meshopt.generateTangents()
+
+
+				tangents_data := make([]v4, len(indices_test))
+
+				the_stride := cast(uint)size_of(type_of(vertices[0]))
+
+				meshopt.generateTangents(
+					result = &tangents_data[0][0],
+					indices = &indices_test[0], index_count = len(indices_test),
+					vertex_positions = &vertices[0].pos.x, vertex_count = len(vertices_test),
+
+					vertex_normals = &vertices[0].normal.x,
+					vertex_uvs = &vertices[0].uv.x,
+
+					vertex_positions_stride = the_stride,
+					vertex_normals_stride = the_stride,
+					vertex_uvs_stride = the_stride,
+
+					options = 0
+				)
+
+
+				// Unroll vertex buffer
+
+				vertices_test_unrolled := make([]Vertex, len(indices_test))
+
+				for &vertex, i_v in vertices_test_unrolled {
+					original_index := indices_test[i_v]
+
+					vertex = vertices_test[original_index]
+
+					// injecting generated tangents
+					vertex.tangent = tangents_data[i_v]
+				}
+
+				// remap table and remapping everything
+
+				remap_table := make([]u32, len(vertices_test_unrolled))
+
+				remap_new_vertex_count := meshopt.generateVertexRemap(raw_data(remap_table), nil, len(vertices_test_unrolled),
+					raw_data(vertices_test_unrolled), len(vertices_test_unrolled), the_stride)
+
+				vertices_test_new := make([]Vertex, remap_new_vertex_count)
+
+				meshopt.remapVertexBuffer(raw_data(vertices_test_new), raw_data(vertices_test), len(vertices_test),
+					the_stride, raw_data(remap_table))
+
+				indices_test_new := make([]u32, len(indices_test))
+
+				meshopt.remapIndexBuffer(raw_data(indices_test_new), nil, 0, raw_data(remap_table))
+
+				// meshopt.generateTangents(result: ^f32,
+				// 	indices: ^u32, index_count: c.size_t,
+				// 	vertex_positions: ^f32, vertex_count: c.size_t,
+				// 	vertex_positions_stride: c.size_t,
+				// 	vertex_normals: ^f32, vertex_normals_stride: c.size_t, 
+				// 	vertex_uvs: ^f32, vertex_uvs_stride: c.size_t,
+				// 	options: u32)
+			}
 
 			the_meshes[i].primitives[prim_i] = Primitive {
 				index_offset = u32(index_count_total),
@@ -212,7 +295,7 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	sphere_verts_base, sphere_indices := generate_uv_sphere(32, 32, context.temp_allocator)
 
 	for v in sphere_verts_base {
-		append(&vertices, VertexData {
+		append(&vertices, Vertex {
 			pos = v
 		})
 	}
@@ -230,8 +313,6 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	scene.uv_sphere_mesh = Mesh {
 		primitives = sphere_primitive
 	}
-
-	vertex_count := u32(len(vertices))
 
 	// VERTEXDATA
 
@@ -271,7 +352,7 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 
 	scene.vertex_buffer_view = dx.VERTEX_BUFFER_VIEW {
 		BufferLocation = scene.vertex_buffer->GetGPUVirtualAddress(),
-		StrideInBytes = u32(vertex_buffer_size) / vertex_count,
+		StrideInBytes = u32(vertex_buffer_size) / cast(u32)len(vertices),
 		SizeInBytes = u32(vertex_buffer_size),
 	}
 

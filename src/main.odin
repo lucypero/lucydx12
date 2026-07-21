@@ -25,6 +25,8 @@ import "core:prof/spall"
 import dxma "../libs/odin-d3d12ma"
 import "core:encoding/json"
 
+import "../../third_party/meshopt"
+
 // imgui
 import im "../libs/odin-imgui"
 // imgui sdl2 implementation
@@ -87,7 +89,7 @@ MODEL_FILEPATH_FLIGHTHELMET :: GLTF_SAMPLES_DIR + "/FlightHelmet/glTF/FlightHelm
 MODEL_FILEPATH_CHESS :: GLTF_SAMPLES_DIR + "/ABeautifulGame/glTF/ABeautifulGame.gltf"
 MODEL_FILEPATH_SHADOW_TEST :: "models/shadow_test.glb"
 
-VertexData :: struct {
+Vertex :: struct {
 	pos: v3 `POSITION`,
 	normal: v3 `NORMAL`,
 	tangent: v4 `TANGENT`,
@@ -521,6 +523,7 @@ main :: proc() {
 	}
 
 	// /set up memory
+
 	load_settings()
 
 	// setting up upload thread
@@ -895,7 +898,7 @@ init_dx_user :: proc() {
 			&g_resources_longterm, view_flags = {.DSV, .SRV}, texture_name = "shadowmap", opt_clear_value = opt_clear)
 
 		ct.psos[.Shadowmap] = pso_create("src/shaders/shadowmap.hlsl", PSOParameters {
-			vertex_input = VertexData,
+			vertex_input = Vertex,
 			blend_state = .Off,
 			enable_depth = true,
 			depth_write = true,
@@ -912,7 +915,7 @@ init_dx_user :: proc() {
 	}
 
 	ct.psos[.GBuffer_Pass] = pso_create(gbuffer_shader_filename, PSOParameters {
-		vertex_input = VertexData,
+		vertex_input = Vertex,
 		blend_state = .Off,
 		enable_depth = true,
 		depth_write = true,
@@ -1275,7 +1278,7 @@ do_imgui_ui :: proc() {
 	// 	im.TreePop()
 	// }
 
-	// im.ShowDemoWindow()
+	im.ShowDemoWindow()
 
 	if im.Button("Save Settings") {
 		lprintfln("save here")
