@@ -130,9 +130,6 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 
 			textcoord_count := 0
 
-			vertices_test := make([dynamic]Vertex, context.temp_allocator)
-			indices_test := make([dynamic]u32, context.temp_allocator)
-
 			for attribute in prim.attributes {
 				#partial switch attribute.type {
 				case .position:
@@ -192,84 +189,13 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 				vertex.tangent.x *= -1
 
 				append(&vertices, vertex)
-				append(&vertices_test, vertex)
-				// vertices[i] = vertex
 			}
 
 			for i in 0 ..< prim.indices.count {
 				append(&indices, u32(cgltf.accessor_read_index(prim.indices, i)) + u32(vertex_count))
-				append(&indices_test, u32(cgltf.accessor_read_index(prim.indices, i)))
 			}
 
 			vertex_count += u32(attr_position.data.count)
-
-			// generate primitiv's tangents
-			if gen_tangents {
-				lprintfln("generating tangents")
-
-				res := meshopt.quantizeFloat(2, 2)
-				lprintfln("meshopt test: %v", res)
-
-				// meshopt.generateTangents()
-
-
-				tangents_data := make([]v4, len(indices_test))
-
-				the_stride := cast(uint)size_of(type_of(vertices[0]))
-
-				meshopt.generateTangents(
-					result = &tangents_data[0][0],
-					indices = &indices_test[0], index_count = len(indices_test),
-					vertex_positions = &vertices[0].pos.x, vertex_count = len(vertices_test),
-
-					vertex_normals = &vertices[0].normal.x,
-					vertex_uvs = &vertices[0].uv.x,
-
-					vertex_positions_stride = the_stride,
-					vertex_normals_stride = the_stride,
-					vertex_uvs_stride = the_stride,
-
-					options = 0
-				)
-
-
-				// Unroll vertex buffer
-
-				vertices_test_unrolled := make([]Vertex, len(indices_test))
-
-				for &vertex, i_v in vertices_test_unrolled {
-					original_index := indices_test[i_v]
-
-					vertex = vertices_test[original_index]
-
-					// injecting generated tangents
-					vertex.tangent = tangents_data[i_v]
-				}
-
-				// remap table and remapping everything
-
-				remap_table := make([]u32, len(vertices_test_unrolled))
-
-				remap_new_vertex_count := meshopt.generateVertexRemap(raw_data(remap_table), nil, len(vertices_test_unrolled),
-					raw_data(vertices_test_unrolled), len(vertices_test_unrolled), the_stride)
-
-				vertices_test_new := make([]Vertex, remap_new_vertex_count)
-
-				meshopt.remapVertexBuffer(raw_data(vertices_test_new), raw_data(vertices_test), len(vertices_test),
-					the_stride, raw_data(remap_table))
-
-				indices_test_new := make([]u32, len(indices_test))
-
-				meshopt.remapIndexBuffer(raw_data(indices_test_new), nil, 0, raw_data(remap_table))
-
-				// meshopt.generateTangents(result: ^f32,
-				// 	indices: ^u32, index_count: c.size_t,
-				// 	vertex_positions: ^f32, vertex_count: c.size_t,
-				// 	vertex_positions_stride: c.size_t,
-				// 	vertex_normals: ^f32, vertex_normals_stride: c.size_t, 
-				// 	vertex_uvs: ^f32, vertex_uvs_stride: c.size_t,
-				// 	options: u32)
-			}
 
 			the_meshes[i].primitives[prim_i] = Primitive {
 				index_offset = u32(index_count_total),
@@ -314,16 +240,67 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 		primitives = sphere_primitive
 	}
 
-
 	// Here, you reconstruct the entire vertex and index buffers, with tangents injected in
-
-	// generate tangents no matter if they were already in there, i don't care
-
-
-
+	vertices_optimized, indices_optimized := optimize_mesh(vertices[:], indices[:], context.temp_allocator)
 
 	// Finally, we upload the data to the GPU and set up the scene struct with this data
-	upload_vertex_data(vertices[:], indices[:], scene)
+	upload_vertex_data(vertices_optimized, indices_optimized, scene)
+}
+
+// optimizes the mesh. Generates Tangent data if it wasn't there before.
+optimize_mesh :: proc(vertices: []Vertex, indices: []u32, allocator: mem.Allocator) -> (vertices_out: []Vertex, indices_out: []u32) {
+
+	// Generating tangents
+
+	tangents_data := make([]v4, len(indices), context.temp_allocator)
+
+	the_stride := cast(uint)size_of(type_of(vertices[0]))
+
+	meshopt.generateTangents(
+		result = &tangents_data[0][0],
+		indices = &indices[0], index_count = len(indices),
+		vertex_positions = &vertices[0].pos.x, vertex_count = len(vertices),
+
+		vertex_normals = &vertices[0].normal.x,
+		vertex_uvs = &vertices[0].uv.x,
+
+		vertex_positions_stride = the_stride,
+		vertex_normals_stride = the_stride,
+		vertex_uvs_stride = the_stride,
+
+		options = 0
+	)
+
+	// Unroll vertex buffer
+
+	vertices_unrolled := make([]Vertex, len(indices), context.temp_allocator)
+
+	for &vertex, i_v in vertices_unrolled {
+		original_index := indices[i_v]
+
+		vertex = vertices[original_index]
+
+		// injecting generated tangents
+		vertex.tangent = tangents_data[i_v]
+	}
+
+	// remap table and remapping everything
+
+	remap_table := make([]u32, len(vertices_unrolled), context.temp_allocator)
+
+	remap_new_vertex_count := meshopt.generateVertexRemap(raw_data(remap_table), nil, len(indices),
+		raw_data(vertices_unrolled), len(vertices_unrolled), the_stride)
+
+	vertices_out = make([]Vertex, remap_new_vertex_count, allocator)
+
+	meshopt.remapVertexBuffer(raw_data(vertices_out), raw_data(vertices_unrolled), len(vertices_unrolled),
+		the_stride, raw_data(remap_table))
+
+	indices_out = make([]u32, len(indices), allocator)
+
+	meshopt.remapIndexBuffer(raw_data(indices_out), nil, len(indices), raw_data(remap_table))
+
+	return
 }
 
 // Sets up vertex and index buffers and uploads them to the GPU
