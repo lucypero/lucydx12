@@ -1268,8 +1268,40 @@ do_imgui_ui :: proc() {
 	}
 
 	// scene selection
-	if do_imgui_enum_array("scene", g_dx_context.scene_list[:], &g_config.scene_pick) {
-		scene_swap(g_dx_context.scene_list[g_config.scene_pick])
+	im.Text("Scene:")
+	@(static) scene_filter_buf: [256]u8
+	im.InputTextWithHint("##scene_filter", "Search scene...", cstring(raw_data(scene_filter_buf[:])), cast(c.size_t)len(scene_filter_buf))
+
+	filter_text := string(cstring(raw_data(scene_filter_buf[:])))
+	filter_lower := strings.to_lower(filter_text, context.temp_allocator)
+
+	item_height := im.GetTextLineHeightWithSpacing()
+	listbox_size := im.Vec2{0, item_height * 5.0}
+
+	if im.BeginListBox("##scene_listbox", listbox_size) {
+		for scene_name, i in g_dx_context.scene_list {
+			if len(filter_lower) > 0 {
+				scene_lower := strings.to_lower(scene_name, context.temp_allocator)
+				if !strings.contains(scene_lower, filter_lower) {
+					continue
+				}
+			}
+
+			is_selected := (i == g_config.scene_pick)
+			scene_cstr := strings.clone_to_cstring(scene_name, context.temp_allocator)
+
+			if im.Selectable(scene_cstr, is_selected) {
+				if g_config.scene_pick != i {
+					g_config.scene_pick = i
+					scene_swap(g_dx_context.scene_list[g_config.scene_pick])
+				}
+			}
+
+			if is_selected {
+				im.SetItemDefaultFocus()
+			}
+		}
+		im.EndListBox()
 	}
 
 	// tree example
