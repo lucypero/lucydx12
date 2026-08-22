@@ -1,26 +1,20 @@
 #+private file 
 package main
 
-import "core:text/regex/common"
-import "core:math/linalg"
-import "core:path/filepath"
 import "core:mem"
-import "core:c"
-import img "vendor:stb/image"
 import "core:os"
-import "core:crypto/hash"
-import base64 "core:encoding/base64"
 import "core:fmt"
 import "vendor:cgltf"
 import "core:strings"
 import dx "vendor:directx/d3d12"
 import "core:slice"
 import dxgi "vendor:directx/dxgi"
-import "base:runtime"
 import "core:mem/virtual"
 import dxma "../libs/odin-d3d12ma"
-import "core:prof/spall"
 import "../../third_party/meshopt"
+
+import "core:prof/spall"
+_ :: spall // To make the vet go away
 
 @(private="package")
 scene_from_gltf :: proc(scene: ^Scene) {

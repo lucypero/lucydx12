@@ -1,6 +1,5 @@
 package main
 
-import "core:container/pool"
 import "core:thread"
 import "core:mem/virtual"
 import "core:debug/trace"
@@ -19,13 +18,11 @@ import "core:c"
 import "core:math"
 import "core:math/linalg"
 import "base:runtime"
-import "core:sync"
 import dxc "vendor:directx/dxc"
 import "core:prof/spall"
+_ :: spall
 import dxma "../libs/odin-d3d12ma"
 import "core:encoding/json"
-
-import "../../third_party/meshopt"
 
 // imgui
 import im "../libs/odin-imgui"

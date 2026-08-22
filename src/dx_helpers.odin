@@ -1,6 +1,5 @@
 package main
 
-import "core:text/regex"
 import "core:time"
 import "core:c"
 import img "vendor:stb/image"
