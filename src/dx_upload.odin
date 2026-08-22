@@ -1,27 +1,14 @@
 #+private file
 package main
 
-import "vendor:portmidi"
-import "core:reflect"
 import "core:thread"
 import "core:mem/virtual"
 
-import "core:path/filepath"
-import "core:encoding/endian"
 import "core:mem"
 import dx "vendor:directx/d3d12"
-import dxgi "vendor:directx/dxgi"
-import dxc "vendor:directx/dxc"
-import "core:strings"
-import "core:os"
-import "core:sys/windows"
-import "core:fmt"
-import "base:runtime"
-import "core:math"
 import "core:slice"
 import dxma "../libs/odin-d3d12ma"
 import "core:sync"
-import "core:time"
 
 UPLOAD_BUFFER_SIZE :: mem.Gigabyte * 1
 

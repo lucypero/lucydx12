@@ -80,4 +80,32 @@
 		"reveal": "never",
 		"hide": "always",
 	},
+	{
+		"label": "GAME - Run debug",
+		"command": "odin run hookin -debug -out:hookin.exe -linker:radlink -keep-executable -vet",
+		"use_new_terminal": false,
+		"allow_concurrent_runs": false,
+		"reveal": "always",
+		"hide": "never",
+		"shell": {
+			"program": "cmd",
+		},
+		"show_summary": true,
+		"show_command": true,
+		"save": "all",
+	},
+	{
+		"label": "GAME - Build debug",
+		"command": "odin build hookin -debug -out:hookin.exe -linker:radlink -keep-executable -vet",
+		"use_new_terminal": false,
+		"allow_concurrent_runs": false,
+		"reveal": "always",
+		"hide": "never",
+		"shell": {
+			"program": "cmd",
+		},
+		"show_summary": true,
+		"show_command": true,
+		"save": "all",
+	},
 ]
