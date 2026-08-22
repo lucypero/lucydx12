@@ -1267,6 +1267,9 @@ do_imgui_ui :: proc() {
 		}
 	}
 
+	// Clear Color
+	im.ColorEdit4("Clear Color", &g_config.clear_color)
+
 	// scene selection
 	im.Text("Scene:")
 	@(static) scene_filter_buf: [256]u8
@@ -1338,6 +1341,7 @@ RendererConfig :: struct {
 	scene_pick: int,
 	shadowmap_settings: ShadowmapSettings,
 	aa_options: AAOptions,
+	clear_color: v4,
 }
 
 save_settings :: proc() {
@@ -1361,6 +1365,7 @@ save_settings :: proc() {
 load_settings :: proc() {
 	data, read_err := os.read_entire_file(config_filename, context.temp_allocator)
 	if read_err == os.General_Error.Not_Exist {
+		g_config.clear_color = v4{0, 0, 0, 1.0}
 		save_settings()
 		return
 	}
@@ -1370,6 +1375,10 @@ load_settings :: proc() {
 	// todo watch out about allocations here
 	unmarshal_err := json.unmarshal(data, &g_config, JSON_SPEC)
 	assert(unmarshal_err == nil)
+
+	if g_config.clear_color.w == 0.0 && g_config.clear_color.xyz == {} {
+		g_config.clear_color = v4{0, 0, 0, 1.0}
+	}
 }
 
 render :: proc() {
@@ -1946,11 +1955,8 @@ pso_lighting_render :: proc(pso: PSO) {
 
 		ct.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
 
-		// not clearing the lighting out. not needed.
-
 		// clear LIGHTING OUT
-		clearcolor := [?]f32{0, 0, 0, 1.0}
-		ct.cmdlist->ClearRenderTargetView(rtv_handles[0], &clearcolor, 0, nil)
+		ct.cmdlist->ClearRenderTargetView(rtv_handles[0], &g_config.clear_color, 0, nil)
 	}
 
 	// draw call
