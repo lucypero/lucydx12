@@ -1,3 +1,7 @@
+# clear color
+
+- don't clear tx lighting out. instead try clearing albedo g buffer. see if that's enough.
+
 # current task
 
 - Update the bindings to this so you can generate normals. make a PR:
