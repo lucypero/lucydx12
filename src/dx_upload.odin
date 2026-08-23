@@ -54,21 +54,21 @@ DXUploadOutput :: struct {
 }
 
 @(private="package")
-dx_upload_init :: proc() {
+dx_upload_init :: proc(pool: ^DXResourcePool) {
 
-	ct := &g_dx_context
+	ct := &g_dx_core
 
 	ct.device->CreateFence(0, {}, dx.IFence_UUID, (^rawptr)(&g_upload_service.fence))
-	append(&g_resources_longterm, g_upload_service.fence)
+	append(pool, g_upload_service.fence)
 	g_upload_service.fence->SetName("Upload Fence")
 
 	// copy command queue and allocator
 	check(ct.device->CreateCommandQueue(&{Type = .COPY}, dx.ICommandQueue_UUID, (^rawptr)(&g_upload_service.queue_copy)))
-	append(&g_resources_longterm, g_upload_service.queue_copy)
+	append(pool, g_upload_service.queue_copy)
 	g_upload_service.queue_copy->SetName("Upload command queue")
 
 	check(ct.device->CreateCommandAllocator(.COPY, dx.ICommandAllocator_UUID, (^rawptr)(&g_upload_service.command_allocator_copy)))
-	append(&g_resources_longterm, g_upload_service.command_allocator_copy)
+	append(pool, g_upload_service.command_allocator_copy)
 	g_upload_service.command_allocator_copy->SetName("Upload command allocator")
 
 
@@ -80,7 +80,7 @@ dx_upload_init :: proc() {
 		dx.ICommandList_UUID,
 		(^rawptr)(&g_upload_service.cmdlist_copy),
 	))
-	append(&g_resources_longterm, g_upload_service.cmdlist_copy)
+	append(pool, g_upload_service.cmdlist_copy)
 	g_upload_service.cmdlist_copy->SetName("Upload command list")
 
 	g_upload_service.cmdlist_copy->Close()
@@ -102,7 +102,7 @@ dx_upload_init :: proc() {
 			Layout = .ROW_MAJOR
 		}, nil, nil, &g_upload_service.allocation, dx.IResource_UUID, nil
 	))
-	append(&g_resources_longterm, cast(^dx.IUnknown)g_upload_service.allocation)
+	append(pool, cast(^dx.IUnknown)g_upload_service.allocation)
 	g_upload_service.resource = dxma.Allocation_GetResource(g_upload_service.allocation)
 
 	texture_map_start: ^byte
@@ -152,7 +152,7 @@ dx_upload_texture_trigger :: proc(up_service: ^DXUploadService, resource_dest : 
 	row_size := make([]u64, mip_levels, context.temp_allocator)
 	text_bytes: u64
 
-	g_dx_context.device->GetCopyableFootprints(texture_desc, 0, cast(u32)mip_levels, 0, &text_footprint[0], &num_rows[0], 
+	g_dx_core.device->GetCopyableFootprints(texture_desc, 0, cast(u32)mip_levels, 0, &text_footprint[0], &num_rows[0], 
 		&row_size[0], &text_bytes)
 
 	if up_service.next_allocation_pt + text_bytes > cast(u64)len(up_service.allocation_dest) {

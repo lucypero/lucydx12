@@ -10,13 +10,6 @@ WINDOW_WIDTH :: 400
 WINDOW_HEIGHT :: 400
 
 main :: proc() {
-	fmt.println("hello hookin")
-
-	// using camera?
-	cam : ldx.Camera
-
-	fmt.println(cam)
-
 	ldx.window_new("hookin", WINDOW_WIDTH, WINDOW_HEIGHT)
 
 	// Loop

@@ -321,7 +321,7 @@ upload_vertex_data :: proc(vertices: []Vertex, indices: []u32, scene_out: ^Scene
 
 	vb_allocation : ^dxma.Allocation
 	hr := dxma.Allocator_CreateResource(
-		pSelf = g_dx_context.dxma_allocator,
+		pSelf = g_dx_core.dxma_allocator,
 		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT},
 		pResourceDesc = &resource_desc,
 		InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
@@ -355,7 +355,7 @@ upload_vertex_data :: proc(vertices: []Vertex, indices: []u32, scene_out: ^Scene
 
 	upload_allocation_2 : ^dxma.Allocation
 	hr = dxma.Allocator_CreateResource(
-		pSelf = g_dx_context.dxma_allocator,
+		pSelf = g_dx_core.dxma_allocator,
 		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT},
 		pResourceDesc = &resource_desc,
 		InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
