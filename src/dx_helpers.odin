@@ -1300,6 +1300,10 @@ arena_new :: proc() -> virtual.Arena {
 	return arena
 }
 
+arena_destroy :: proc(arena: ^virtual.Arena) {
+	virtual.arena_destroy(arena)
+}
+
 get_node_world_matrix :: proc(node: Node, scene: Scene) -> dxm {
 
 	res: dxm = 1

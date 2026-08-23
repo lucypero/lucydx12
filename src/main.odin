@@ -524,8 +524,7 @@ main :: proc() {
 	load_settings()
 
 	// setting up upload thread
-	upload_thread := thread.create_and_start(upload_thread_start)
-
+	upload_thread := thread.create_and_start(lucydx12_upload_thread_start)
 
 	// setting up resource pool for buffers tied to window size
 	g_resources_resizing = make([dynamic]^dx.IUnknown)
@@ -583,7 +582,6 @@ main :: proc() {
 	}
 
 	defer sdl.DestroyWindow(ct.window)
-
 
 	init_dx()
 	init_dx_user()
@@ -1146,7 +1144,7 @@ dx_log_callback :: proc "c" (
 
 update :: proc() {
 
-	c := &g_dx_context
+	ct := &g_dx_context
 
 	sdl.PumpEvents()
 
@@ -1156,7 +1154,7 @@ update :: proc() {
 		g_exit_app = true
 	}
 
-	for &pso in c.psos {
+	for &pso in ct.psos {
 		pso_hotswap_watch(&pso)
 	}
 

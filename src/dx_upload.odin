@@ -210,7 +210,7 @@ dx_upload_texture_trigger :: proc(up_service: ^DXUploadService, resource_dest : 
 }
 
 @(private="package")
-upload_thread_start :: proc() {
+lucydx12_upload_thread_start :: proc() {
 
 	context.allocator = mem.tracking_allocator(&g_track)
 
