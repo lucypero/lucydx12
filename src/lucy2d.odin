@@ -62,19 +62,6 @@ window_new :: proc(window_name:string, width, height: int) {
 	init_dx(&g_lct.resources_longterm, ct.window)
 }
 
-// returns 
-// factory
-// device
-// dxc compiler
-// dxma allocator
-// command queue
-// command allocator
-// command list 
-
-// the uberheaps
-
-// swapchain
-
 window_cleanup :: proc() {
 	ct := &g_lct
 	trace.destroy(&g_lct.trace_ctx)
