@@ -23,12 +23,33 @@ import "base:runtime"
 import "core:math"
 import dxma "../libs/odin-d3d12ma"
 import im "../libs/odin-imgui"
+import sdl "vendor:sdl2"
 
 /*
 transition_resource_from_copy_to_read :: proc(res: ^dx.IResource, cmd_list: ^dx.IGraphicsCommandList) {
 	transition_resource(res, cmd_list, {.COPY_DEST}, dx.RESOURCE_STATE_GENERIC_READ)
 }
 */
+
+DX_Core :: struct {
+	device: ^dx.IDevice,
+	factory: ^dxgi.IFactory4,
+	dxc_compiler: ^dxc.ICompiler3,
+	dxma_allocator: ^dxma.Allocator,
+	queue: ^dx.ICommandQueue,
+	command_allocator: ^dx.ICommandAllocator,
+	cmdlist: ^dx.IGraphicsCommandList,
+	swapchain: Swapchain,
+
+	// descriptor heap for ALL our resources
+	heap_cbv_srv_uav: UberDescriptorHeap,
+	heap_dsv: UberDescriptorHeap,
+	heap_rtv: UberDescriptorHeap,
+}
+
+g_dx_core : DX_Core
+
+DXResourcePool :: [dynamic]^dx.IUnknown
 
 UberDescriptorHeap :: struct {
 	heap: ^dx.IDescriptorHeap,
@@ -37,7 +58,7 @@ UberDescriptorHeap :: struct {
 
 uber_heap_create :: proc(type: dx.DESCRIPTOR_HEAP_TYPE, pool: ^DXResourcePool) -> UberDescriptorHeap {
 
-	ct := &g_dx_context
+	ct := &g_dx_core
 
 	num_descriptors :: 1000000
 	heap : ^dx.IDescriptorHeap
@@ -225,9 +246,8 @@ get_dx_vertex_input :: proc(input_layout_vertex: typeid, input_layout_instance: 
 	return res[:]
 }
 
-
-pso_create :: proc(shader_filename: string, parameters: PSOParameters, render_proc: proc(pso:PSO), pso_name: string = "") -> PSO {
-	ct := &g_dx_context
+pso_create :: proc(shader_filename: string, root_signatures: ^[RootSignatureChoice]^dx.IRootSignature, pool: ^DXResourcePool, parameters: PSOParameters, render_proc: proc(pso:PSO), pso_name: string = "") -> PSO {
+	ct := &g_dx_core
 	vs, ps, ok := compile_shader(ct.dxc_compiler, shader_filename)
 	assert(ok, "could not compile shader!! check logs")
 
@@ -237,13 +257,13 @@ pso_create :: proc(shader_filename: string, parameters: PSOParameters, render_pr
 	}
 
 	assert(parameters.root_signature == .Standard, "custom root signatures are not supported")
-	root_signature := ct.root_signatures[parameters.root_signature]
+	root_signature := root_signatures[parameters.root_signature]
 
 	// Creating the actual PSO
 	pso_dx: ^dx.IPipelineState = create_pso_dx(parameters, root_signature, vs, ps, pso_name)
 
-	pso_index := len(g_resources_longterm)
-	append(&g_resources_longterm, pso_dx)
+	pso_index := len(pool^)
+	append(pool, pso_dx)
 
 	pso := PSO {
 		pipeline_state = pso_dx,
@@ -471,15 +491,15 @@ StructuredBuffer :: struct {
 }
 
 texture_get_srv_cpu_address :: proc(tex: Texture) -> dx.CPU_DESCRIPTOR_HANDLE {
-	return uber_heap_get_cpu_addr(g_dx_context.heap_cbv_srv_uav, tex.srv_index)
+	return uber_heap_get_cpu_addr(g_dx_core.heap_cbv_srv_uav, tex.srv_index)
 }
 
 texture_get_dsv_cpu_address :: proc(tex: Texture) -> dx.CPU_DESCRIPTOR_HANDLE {
-	return uber_heap_get_cpu_addr(g_dx_context.heap_dsv, tex.dsv_index)
+	return uber_heap_get_cpu_addr(g_dx_core.heap_dsv, tex.dsv_index)
 }
 
 texture_get_rtv_cpu_address :: proc(tex: Texture) -> dx.CPU_DESCRIPTOR_HANDLE {
-	return uber_heap_get_cpu_addr(g_dx_context.heap_rtv, tex.rtv_index)
+	return uber_heap_get_cpu_addr(g_dx_core.heap_rtv, tex.rtv_index)
 }
 
 TextureViewFlag :: enum {
@@ -507,8 +527,6 @@ texture_create :: proc(
 	opt_clear_value: Maybe(dx.CLEAR_VALUE) = nil,
 	tex_reuse: ^Texture = nil // reuse texture's view indices.
 ) -> Texture {
-
-	ct := &g_dx_context
 
 	res_flags: dx.RESOURCE_FLAGS = {}
 
@@ -545,7 +563,7 @@ texture_create :: proc(
 
 	allocation : ^dxma.Allocation
 	dxma.Allocator_CreateResource(
-		pSelf = ct.dxma_allocator,
+		pSelf = g_dx_core.dxma_allocator,
 		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
 		pResourceDesc = &texture_desc,
 		InitialResourceState = dx.RESOURCE_STATE_COMMON, // upload queue promotes the resource implicitly, so we set it here as common
@@ -700,33 +718,33 @@ copy_to_buffer_already_mapped_value :: proc(gpu_data: rawptr, data: ^$T){
 // creates a SRV for the resource on the uber SRV heap
 // use this after creating the uber heap
 create_srv :: proc(res : ^dx.IResource, srv_desc : ^dx.SHADER_RESOURCE_VIEW_DESC = nil) -> (srv_index: int){
-	ct := &g_dx_context
+	ct := &g_dx_core
 	ct.device->CreateShaderResourceView(res, srv_desc, uber_heap_get_next_cpu_addr(ct.heap_cbv_srv_uav))
 	uber_heap_count(&ct.heap_cbv_srv_uav)
 	return ct.heap_cbv_srv_uav.next_descriptor_index - 1
 }
 
 create_srv_at :: proc(res : ^dx.IResource, srv_desc : ^dx.SHADER_RESOURCE_VIEW_DESC = nil, new_srv_index: int) {
-	ct := &g_dx_context
+	ct := &g_dx_core
 	ct.device->CreateShaderResourceView(res, srv_desc, get_descriptor_heap_cpu_address(ct.heap_cbv_srv_uav.heap, new_srv_index))
 }
 
 // creates a UAV for the resource on the uber SRV heap
 // use this after creating the uber heap
 create_uav :: proc(res : ^dx.IResource) -> (uav_index: int) {
-	ct := &g_dx_context
+	ct := &g_dx_core
 	ct.device->CreateUnorderedAccessView(res, nil, nil, uber_heap_get_next_cpu_addr(ct.heap_cbv_srv_uav))
 	uber_heap_count(&ct.heap_cbv_srv_uav)
 	return ct.heap_cbv_srv_uav.next_descriptor_index - 1
 }
 
 create_uav_at :: proc(res : ^dx.IResource, new_uav_index: int) {
-	ct := &g_dx_context
+	ct := &g_dx_core
 	ct.device->CreateUnorderedAccessView(res, nil, nil, get_descriptor_heap_cpu_address(ct.heap_cbv_srv_uav.heap, new_uav_index))
 }
 
 create_cbv :: proc(cbv_desc : ^dx.CONSTANT_BUFFER_VIEW_DESC) -> (srv_index: int) {
-	ct := &g_dx_context
+	ct := &g_dx_core
 	ct.device->CreateConstantBufferView(cbv_desc, uber_heap_get_next_cpu_addr(ct.heap_cbv_srv_uav))
 	uber_heap_count(&ct.heap_cbv_srv_uav)
 	return ct.heap_cbv_srv_uav.next_descriptor_index - 1
@@ -734,7 +752,7 @@ create_cbv :: proc(cbv_desc : ^dx.CONSTANT_BUFFER_VIEW_DESC) -> (srv_index: int)
 
 create_dsv :: proc(res: ^dx.IResource, format: dxgi.FORMAT) -> (dsv_index: int) {
 
-	ct := &g_dx_context
+	ct := &g_dx_core
 	dsv_desc := dx.DEPTH_STENCIL_VIEW_DESC {
 		ViewDimension = .TEXTURE2D,
 		Format = format,
@@ -747,7 +765,7 @@ create_dsv :: proc(res: ^dx.IResource, format: dxgi.FORMAT) -> (dsv_index: int) 
 
 create_dsv_at :: proc(res: ^dx.IResource, format: dxgi.FORMAT, dsv_index: int) {
 
-	ct := &g_dx_context
+	ct := &g_dx_core
 	dsv_desc := dx.DEPTH_STENCIL_VIEW_DESC {
 		ViewDimension = .TEXTURE2D,
 		Format = format,
@@ -757,22 +775,22 @@ create_dsv_at :: proc(res: ^dx.IResource, format: dxgi.FORMAT, dsv_index: int) {
 }
 
 create_rtv :: proc(res: ^dx.IResource) -> (rtv_index: int) {
-	ct := &g_dx_context
+	ct := &g_dx_core
 	ct.device->CreateRenderTargetView(res, nil, uber_heap_get_next_cpu_addr(ct.heap_rtv))
 	uber_heap_count(&ct.heap_rtv)
 	return ct.heap_rtv.next_descriptor_index - 1
 }
 
 create_rtv_at :: proc(res: ^dx.IResource, new_rtv_index: int) {
-	ct := &g_dx_context
+	ct := &g_dx_core
 	ct.device->CreateRenderTargetView(res, nil, get_descriptor_heap_cpu_address(ct.heap_rtv.heap, new_rtv_index))
 }
 
 close_and_execute_cmdlist :: proc() {
-	ct := &g_dx_context
+	ct := &g_dx_core
 	ct.cmdlist->Close()
 	cmdlists := [?]^dx.IGraphicsCommandList{ct.cmdlist}
-	g_dx_context.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
+	g_dx_core.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
 }
 
 // it's a vertex buffer in the upload heap.
@@ -800,7 +818,7 @@ create_vertex_buffer_upload :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^
 
 	allocation : ^dxma.Allocation
 	hr := dxma.Allocator_CreateResource(
-		pSelf = g_dx_context.dxma_allocator,
+		pSelf = g_dx_core.dxma_allocator,
 		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .UPLOAD},
 		pResourceDesc = &resource_desc,
 		InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
@@ -855,7 +873,7 @@ cb_upload_create :: proc(size_in_bytes: u32, pool: ^DXResourcePool, name: string
 
 	allocation : ^dxma.Allocation
 	hr := dxma.Allocator_CreateResource(
-		pSelf = g_dx_context.dxma_allocator,
+		pSelf = g_dx_core.dxma_allocator,
 		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .UPLOAD, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
 		pResourceDesc = &resource_desc,
 		InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
@@ -1200,7 +1218,7 @@ get_descriptor_heap_cpu_address :: proc(
 	heap->GetCPUDescriptorHandleForHeapStart(&cpu_descriptor_handle)
 	desc: dx.DESCRIPTOR_HEAP_DESC
 	heap->GetDesc(&desc)
-	increment := g_dx_context.device->GetDescriptorHandleIncrementSize(desc.Type)
+	increment := g_dx_core.device->GetDescriptorHandleIncrementSize(desc.Type)
 	cpu_descriptor_handle.ptr += uint(cast(uint)offset * cast(uint)increment)
 	return
 }
@@ -1273,8 +1291,8 @@ scene_walk :: proc(scene: Scene, data: rawptr, thing_to_do: proc_walk) {
 	}
 }
 
-load_white_texture :: proc() {
-	ct := g_dx_context
+load_white_texture :: proc(pool: ^DXResourcePool) {
+	ct := g_dx_core
 
 	w, h, channels : c.int
 	image_data := img.load("white.png", &w, &h, &channels, 4)
@@ -1285,7 +1303,7 @@ load_white_texture :: proc() {
 	img_data_mipmaps[0] = slice.clone(slice.from_ptr(image_data, cast(int)(w * h * channels)), context.temp_allocator)
 
 	texture := texture_create(img_data_mipmaps[:], u64(w), u32(h), .R8G8B8A8_UNORM, 
-		&g_resources_longterm, {}, texture_name = "white")
+		pool, {}, texture_name = "white")
 
 	// creating srv on uber heap
 	cpu_addr := get_descriptor_heap_cpu_address(ct.heap_cbv_srv_uav.heap, TEXTURE_WHITE_INDEX)
@@ -1370,7 +1388,7 @@ structured_buffer_create :: proc(
 	heap_type: dx.HEAP_TYPE = .DEFAULT
 ) -> StructuredBuffer {
 
-	ct := &g_dx_context
+	ct := &g_dx_core
 
 	buffer_desc := dx.RESOURCE_DESC {
 		Width = cast(u64)(reflect.size_of_typeid(buffer_type) * count),
@@ -1446,7 +1464,7 @@ structured_buffer_create :: proc(
 }
 
 set_viewport_stuff :: proc(viewport_width, viewport_height: int) {
-	ct := &g_dx_context
+	ct := &g_dx_core
 
 	viewport := dx.VIEWPORT {
 		Width = f32(viewport_width),
@@ -1590,7 +1608,7 @@ create_pso_dx :: proc(parameters: PSOParameters,
 	}
 
 	pso_dx : ^dx.IPipelineState
-	hr := g_dx_context.device->CreateGraphicsPipelineState(&pipeline_state_desc, dx.IPipelineState_UUID, (^rawptr)(&pso_dx))
+	hr := g_dx_core.device->CreateGraphicsPipelineState(&pipeline_state_desc, dx.IPipelineState_UUID, (^rawptr)(&pso_dx))
 	check(hr, "Pipeline creation failed")
 	if pso_name != "" {
 		pso_name_wide := windows.utf8_to_wstring_alloc(pso_name, allocator = context.temp_allocator)
@@ -1601,7 +1619,7 @@ create_pso_dx :: proc(parameters: PSOParameters,
 
 create_pso_compute_dx :: proc(root_signature: ^dx.IRootSignature, cs: ^dxc.IBlob, pso_name: string = "") -> ^dx.IPipelineState {
 
-	ct := &g_dx_context
+	ct := &g_dx_core
 
 	desc := dx.COMPUTE_PIPELINE_STATE_DESC {
 		pRootSignature = root_signature,
@@ -1620,21 +1638,21 @@ create_pso_compute_dx :: proc(root_signature: ^dx.IRootSignature, cs: ^dxc.IBlob
 	return compute_pso_dx
 }
 
-pso_compute_create :: proc(shader_filename: string, render_proc: proc(pso:PSO), pso_name: string = "") -> PSO {
+pso_compute_create :: proc(shader_filename: string, root_signatures: [RootSignatureChoice]^dx.IRootSignature, pool: ^DXResourcePool, render_proc: proc(pso:PSO), pso_name: string = "") -> PSO {
 
-	ct := &g_dx_context
+	ct := &g_dx_core
 
 	cs, ok := compile_shader_compute(ct.dxc_compiler, shader_filename)
 	assert(ok, "could not compile compute shader")
 	defer cs->Release()
 
-	compute_pso_dx := create_pso_compute_dx(ct.root_signatures[.Standard], cs, pso_name)
-	pso_index := len(g_resources_longterm)
-	append(&g_resources_longterm, compute_pso_dx)
+	compute_pso_dx := create_pso_compute_dx(root_signatures[.Standard], cs, pso_name)
+	pso_index := len(pool^)
+	append(pool, compute_pso_dx)
 
 	pso := PSO {
 		pipeline_state = compute_pso_dx,
-		root_signature = ct.root_signatures[.Standard],
+		root_signature = root_signatures[.Standard],
 		shader_filename = shader_filename,
 		pso_index = pso_index,
 		pso_name = pso_name,
@@ -1667,7 +1685,7 @@ pso_hotswap_watch :: proc(pso: ^PSO) {
 pso_reload :: proc(pso: ^PSO) {
 	if pso.is_compute {
 		// handle releasing resources
-		cs, ok := compile_shader_compute(g_dx_context.dxc_compiler, pso.shader_filename)
+		cs, ok := compile_shader_compute(g_dx_core.dxc_compiler, pso.shader_filename)
 		if !ok {
 			lprintln("Could not compile new shader!! check logs")
 		} else {
@@ -1678,7 +1696,7 @@ pso_reload :: proc(pso: ^PSO) {
 		}
 	} else {
 		// handle releasing resources
-		vs, ps, ok := compile_shader(g_dx_context.dxc_compiler, pso.shader_filename)
+		vs, ps, ok := compile_shader(g_dx_core.dxc_compiler, pso.shader_filename)
 		if !ok {
 			lprintln("Could not compile new shader!! check logs")
 		} else {
@@ -1698,12 +1716,12 @@ pso_hotswap_init :: proc(pso : ^PSO) {
 	}
 }
 
-pso_hotswap_swap :: proc(pso: ^PSO) {
+pso_hotswap_swap :: proc(pso: ^PSO, pool: ^DXResourcePool) {
 	if pso.pso_swap != nil {
 		pso.pipeline_state->Release()
 		pso.pipeline_state = pso.pso_swap
 		// replace pointer from freeing queue
-		pso_pointer := &g_resources_longterm[pso.pso_index]
+		pso_pointer := pool[pso.pso_index]
 		pso_pointer^ = pso.pipeline_state
 		pso.pso_swap = nil
 	}
@@ -1853,4 +1871,200 @@ search_for_files_with_ext :: proc(base_path: string, ext: string, files_out: ^[d
 			}
 		}
 	}
+}
+
+// inits all basic dx resources in g_dx_core.
+init_dx :: proc(pool: ^DXResourcePool, window: ^sdl.Window) {
+
+	ct := &g_dx_core
+
+	hr: dx.HRESULT
+
+	// Init DXGI factory. DXGI is the link between the window and DirectX
+	factory: ^dxgi.IFactory4
+
+	{
+		flags: dxgi.CREATE_FACTORY
+
+		when ODIN_DEBUG {
+		flags += {.DEBUG}
+		}
+
+		hr = dxgi.CreateDXGIFactory2(flags, dxgi.IFactory4_UUID, cast(^rawptr)&factory)
+		check(hr, "Failed creating factory")
+		append(pool, factory)
+	}
+
+	ct.factory = factory
+
+	// Find the DXGI adapter (GPU)
+	adapter: ^dxgi.IAdapter1
+	error_not_found := dxgi.HRESULT(-142213123)
+
+	// Debug layer
+	when ODIN_DEBUG {
+	debug_controller: ^dx.IDebug
+	// continue here
+	hr = dx.GetDebugInterface(dx.IDebug_UUID, (^rawptr)(&debug_controller))
+	check(hr, "failed getting debug interface")
+
+	debug_controller->EnableDebugLayer()
+	debug_controller->Release()
+	}
+
+	for i: u32 = 0; factory->EnumAdapters1(i, &adapter) != error_not_found; i += 1 {
+		desc: dxgi.ADAPTER_DESC1
+		adapter->GetDesc1(&desc)
+		append(pool, adapter)
+		if .SOFTWARE in desc.Flags {
+			continue
+		}
+
+		device: ^dx.IDevice
+		hr = dx.CreateDevice((^dxgi.IUnknown)(adapter), ._12_0, dx.IDevice_UUID, (^rawptr)(&device))
+
+		if hr >= 0 {
+			ct.device = device
+			break
+		} else {
+			fmt.eprintfln("Failed to create device, err: %X", hr) // -2147467262
+			// E_NOINTERFACE
+			// no such interface supported
+			return
+		}
+	}
+
+	if adapter == nil {
+		fmt.eprintln("Could not find hardware adapter")
+		return
+	}
+
+	feature_data: dx.FEATURE_DATA_OPTIONS16
+
+	check(ct.device->CheckFeatureSupport(.OPTIONS16, &feature_data, size_of(feature_data)))
+
+	if feature_data.GPUUploadHeapSupported {
+		lprintfln("GPU UPLOAD is supported!")
+	} else {
+		lprintfln("GPU UPLOAD is NOT supported. You poor girl")
+	}
+
+	// set up logging callback
+	when ODIN_DEBUG {
+	info_queue: ^dx.IInfoQueue1
+	ct.device->QueryInterface(dx.IInfoQueue1_UUID, (^rawptr)(&info_queue))
+	cb_cookie: u32
+	hr = info_queue->RegisterMessageCallback(dx_log_callback, {.IGNORE_FILTERS}, nil, &cb_cookie)
+	info_queue->SetMuteDebugOutput(true)
+	check(hr, "failed to register")
+	info_queue->Release()
+	}
+
+	ct.dxc_compiler = dxc_init()
+
+	// create dxma allocator
+	{
+		allocator_desc := dxma.ALLOCATOR_DESC {
+			pDevice = ct.device,
+			pAdapter = adapter,
+			Flags = .NONE
+		}
+
+		check(dxma.CreateAllocator(&allocator_desc, &ct.dxma_allocator))
+		append(pool, cast(^dxgi.IUnknown)ct.dxma_allocator)
+	}
+
+	// Create command queue and allocator and list
+	{
+		check(ct.device->CreateCommandQueue(&{Type = .DIRECT}, dx.ICommandQueue_UUID, (^rawptr)(&ct.queue)))
+		append(pool, ct.queue)
+
+		// The command allocator is used to create the commandlist that is used to tell the GPU what to draw
+		check(ct.device->CreateCommandAllocator(.DIRECT, dx.ICommandAllocator_UUID, (^rawptr)(&ct.command_allocator)))
+		append(pool, ct.command_allocator)
+
+		check(ct.device->CreateCommandList(
+			0,
+			.DIRECT,
+			ct.command_allocator,
+			nil,
+			dx.ICommandList_UUID,
+			(^rawptr)(&ct.cmdlist),
+		))
+		append(pool, ct.cmdlist)
+	}
+
+	dx_upload_init(pool)
+
+	// Creating all uber descriptor heaps. So far, SRV and DSV uber heaps.
+	{
+		ct.heap_cbv_srv_uav = uber_heap_create(.CBV_SRV_UAV, pool)
+		ct.heap_dsv = uber_heap_create(.DSV, pool)
+		ct.heap_rtv = uber_heap_create(.RTV, pool)
+	}
+
+	ct.swapchain = create_swapchain(ct.factory, ct.queue, pool, window)
+}
+
+resource_pool_release :: proc(pool : ^DXResourcePool) {
+	#reverse for &res in pool {
+		res->Release()
+	}
+
+	clear(pool)
+}
+
+// Create the swapchain, it's the thing that contains render targets that we draw into.
+//  It has NUM_RENDERTARGETS render targets, giving us double buffering (if it's 2 NUM_RENDERTARGETS).
+create_swapchain :: proc(
+	factory: ^dxgi.IFactory4,
+	queue: ^dx.ICommandQueue,
+	pool : ^DXResourcePool,
+	window: ^sdl.Window) -> (swapchain: Swapchain) {
+
+	// Get the window handle from SDL
+	window_info: sdl.SysWMinfo
+	sdl.GetWindowWMInfo(window, &window_info)
+	window_handle := dxgi.HWND(window_info.info.win.window)
+
+	desc := dxgi.SWAP_CHAIN_DESC1 {
+		Width = u32(WINDOW_WIDTH),
+		Height = u32(WINDOW_HEIGHT),
+		Format = SWAPCHAIN_FORMAT,
+		SampleDesc = {Count = 1, Quality = 0},
+		BufferUsage = {.RENDER_TARGET_OUTPUT},
+		BufferCount = NUM_RENDERTARGETS,
+		Scaling = .NONE,
+		SwapEffect = .FLIP_DISCARD,
+		AlphaMode = .UNSPECIFIED,
+	}
+
+	hr := factory->CreateSwapChainForHwnd(
+		(^dxgi.IUnknown)(queue),
+		window_handle,
+		&desc,
+		nil,
+		nil,
+		(^^dxgi.ISwapChain1)(&swapchain.swapchain),
+	)
+	check(hr, "Failed to create swap chain")
+	append(pool, swapchain.swapchain)
+
+	swapchain.frame_index = cast(int)swapchain.swapchain->GetCurrentBackBufferIndex()
+
+	// Fetch the two render targets from the swapchain
+	{
+		for i: u32 = 0; i < NUM_RENDERTARGETS; i += 1 {
+
+			tex := &swapchain.targets[i]
+
+			hr = swapchain.swapchain->GetBuffer(i, dx.IResource_UUID, (^rawptr)(&tex.buffer))
+			check(hr, "Failed getting render target")
+
+			tex.buffer->Release()
+			tex.rtv_index = create_rtv(tex.buffer)
+		}
+	}
+
+	return
 }

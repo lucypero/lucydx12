@@ -1,3 +1,9 @@
+# LUCY2D - Todo
+
+- it's clear you need to start separating the engine as a LIBRARY, and the engine as an APP.
+- basically, src/main.odin has to be a separate package. just like lucy2d perhaps.
+- maybe you need to break up the pool for all your dx resouces. maybe have DX CORE have its own pool. Etc.
+
 # clear color
 
 - don't clear tx lighting out. instead try clearing albedo g buffer. see if that's enough.

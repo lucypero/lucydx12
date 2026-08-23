@@ -2,6 +2,7 @@ package main
 
 import "core:thread"
 import dx "vendor:directx/d3d12"
+import dxgi "vendor:directx/dxgi"
 import "core:debug/trace"
 import sdl "vendor:sdl2"
 import "core:strings"
@@ -57,17 +58,52 @@ window_new :: proc(window_name:string, width, height: int) {
 		fmt.eprintln(sdl.GetError())
 		return
 	}
+
+	init_dx(&g_lct.resources_longterm, ct.window)
 }
+
+// returns 
+// factory
+// device
+// dxc compiler
+// dxma allocator
+// command queue
+// command allocator
+// command list 
+
+// the uberheaps
+
+// swapchain
 
 window_cleanup :: proc() {
 	ct := &g_lct
-	delete(g_lct.resources_resizing)
-	delete(g_lct.resources_longterm)
 	trace.destroy(&g_lct.trace_ctx)
 	thread.destroy(g_lct.upload_thread)
 	sdl.DestroyWindow(ct.window)
 	sdl.Quit()
+
+	resource_pool_release(&g_lct.resources_longterm)
+	resource_pool_release(&g_lct.resources_resizing)
+
+	delete(g_lct.resources_resizing)
+	delete(g_lct.resources_longterm)
+
+	when ODIN_DEBUG {
+	debug_device: ^dx.IDebugDevice2
+	g_dx_core.device->QueryInterface(dx.IDebugDevice2_UUID, (^rawptr)(&debug_device))
+	// Finally, release the device (it is not in any pool)
+	// The device will be freed after we release the debug device
+	g_dx_core.device->Release()
+	debug_device->ReportLiveDeviceObjects({.DETAIL, .IGNORE_INTERNAL})
+	debug_device->Release()
+
+	// DXGI report
+	dxgi_debug: ^dxgi.IDebug1
+	dxgi.GetDebugInterface1(0, dxgi.IDebug1_UUID, (^rawptr)(&dxgi_debug))
+	dxgi_debug->ReportLiveObjects(dxgi.DEBUG_ALL, {})
+	}
 }
+
 
 // clears the window with a color
 window_clear :: proc(color: Color) {
