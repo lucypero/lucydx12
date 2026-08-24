@@ -326,7 +326,6 @@ InstanceData :: struct #align (256) {
 
 g_config : RendererConfig
 
-g_global_trace_ctx: trace.Context
 g_frame_dt : f64 = 0.2 // in ms
 g_mesh_drawn_count: int = 0
 g_start_time: time.Time
@@ -520,9 +519,6 @@ main :: proc() {
 
 	// destroy stray meshes (gizmo sphere)
 	// (it's now in g_scene)
-
-	trace.init(&g_global_trace_ctx)
-	defer trace.destroy(&g_global_trace_ctx)
 
 	ct := &g_dx_context
 
@@ -927,22 +923,24 @@ dx_log_callback :: proc "c" (
 	lprintfln("%v: (%v) %v", severity_string, cat, msg)
 
 	// printing stack trace
-	if !trace.in_resolve(&g_global_trace_ctx) {
-		buf: [64]trace.Frame
-		max_frames_display :: 3
-		frames := trace.frames(&g_global_trace_ctx, 1, buf[:])
+	// TODO: replace with new debug/trace library
 
-		// filtering by frames where we actually have info
-		real_counter := 0
+	// if !trace.in_resolve(&g_global_trace_ctx) {
+	// 	buf: [64]trace.Frame
+	// 	max_frames_display :: 3
+	// 	frames := trace.frames(&g_global_trace_ctx, 1, buf[:])
 
-		for f in frames {
-			fl := trace.resolve(&g_global_trace_ctx, f, context.temp_allocator)
-			if fl.loc.file_path == "" && fl.loc.line == 0 do continue
-			if real_counter == 0 do lprintfln("At:")
-			real_counter += 1
-			if real_counter <= max_frames_display do lprintfln("--- %v - Frame %v", fl.loc, real_counter)
-		}
-	}
+	// 	// filtering by frames where we actually have info
+	// 	real_counter := 0
+
+	// 	for f in frames {
+	// 		fl := trace.resolve(&g_global_trace_ctx, f, context.temp_allocator)
+	// 		if fl.loc.file_path == "" && fl.loc.line == 0 do continue
+	// 		if real_counter == 0 do lprintfln("At:")
+	// 		real_counter += 1
+	// 		if real_counter <= max_frames_display do lprintfln("--- %v - Frame %v", fl.loc, real_counter)
+	// 	}
+	// }
 }
 
 update :: proc() {
