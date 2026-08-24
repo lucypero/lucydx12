@@ -16,7 +16,6 @@ Lucy2DContext :: struct {
 	upload_thread : ^thread.Thread,
 	resources_resizing : [dynamic]^dx.IUnknown,
 	resources_longterm : [dynamic]^dx.IUnknown,
-	trace_ctx : trace.Context,
 	window : ^sdl.Window
 }
 
@@ -33,8 +32,6 @@ window_new :: proc(window_name:string, width, height: int) {
 	// setting up resource pool for buffers tied to window size
 	g_lct.resources_resizing = make([dynamic]^dx.IUnknown)
 	g_lct.resources_longterm = make([dynamic]^dx.IUnknown)
-
-	trace.init(&g_lct.trace_ctx)
 
 	ct := &g_lct
 
@@ -77,7 +74,8 @@ window_new :: proc(window_name:string, width, height: int) {
 
 window_cleanup :: proc() {
 	ct := &g_lct
-	trace.destroy(&g_lct.trace_ctx)
+	delete(g_lct.resources_resizing)
+	delete(g_lct.resources_longterm)
 	thread.destroy(g_lct.upload_thread)
 	sdl.DestroyWindow(ct.window)
 	sdl.Quit()
