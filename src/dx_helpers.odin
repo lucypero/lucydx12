@@ -1850,7 +1850,7 @@ search_for_files_with_ext :: proc(base_path: string, ext: string, files_out: ^[d
 	wide_pattern := windows.utf8_to_wstring(search_pattern)
 
 	find_data: windows.WIN32_FIND_DATAW
-	hfind := windows.FindFirstFileExW(wide_pattern, .FindExInfoBasic, &find_data, .FindExSearchNameMatch, nil, windows.FIND_FIRST_EX_LARGE_FETCH)
+	hfind := windows.FindFirstFileW(wide_pattern, &find_data)
 
 	if hfind == windows.INVALID_HANDLE_VALUE do return
 	defer windows.FindClose(hfind)
