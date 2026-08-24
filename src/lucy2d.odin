@@ -1,5 +1,6 @@
 package main
 
+import "core:slice"
 import "core:thread"
 import dx "vendor:directx/d3d12"
 import dxgi "vendor:directx/dxgi"
@@ -15,13 +16,22 @@ PSOName :: enum {
 }
 
 Lucy2DContext :: struct {
-
 	upload_thread : ^thread.Thread,
 	resources_resizing : [dynamic]^dx.IUnknown,
 	resources_longterm : [dynamic]^dx.IUnknown,
 	window : ^sdl.Window,
 	root_signatures: [RootSignatureChoice]^dx.IRootSignature,
-	psos: [PSOName]PSO
+	psos: [PSOName]PSO,
+	sb_sprites: StructuredBuffer,
+	sprites_to_render: [dynamic]Sprite
+}
+
+SPRITE_MAX_COUNT :: 100
+
+// TODO: do the reflection thing that copies your structs to hlsl
+Sprite :: struct #align (16) {
+	pos: v2,
+	size: v2
 }
 
 g_lct : Lucy2DContext
@@ -67,6 +77,9 @@ window_new :: proc(window_name:string, width, height: int) {
 	g_lct.root_signatures = create_root_signatures(&g_lct.resources_longterm)
 
 	// Creating a Constant buffer?? if needed
+
+	// Creating Sprite Structured buffer
+	g_lct.sb_sprites = structured_buffer_create("Sprite buffer", &g_lct.resources_longterm, Sprite, SPRITE_MAX_COUNT, heap_type = .UPLOAD)
 
 	// Creating PSO's
 	g_lct.psos[.Quad] = pso_create("src/shaders/quads.hlsl", &ct.root_signatures, &ct.resources_longterm, PSOParameters {
@@ -227,7 +240,7 @@ present :: proc() {
 	}
 
 	// Setting things up for the next frame
-
+	clear(&ct.sprites_to_render)
 	sdl.PumpEvents()
 }
 
@@ -256,4 +269,11 @@ lucy2d_upload_thread_start :: proc() {
 
 pso_quad_render :: proc(pso: PSO) {
 
+	ct := &g_lct
+
+	lprintfln("rendering sprites...")
+
+	copy_to_buffer_already_mapped(ct.sb_sprites.gpu_pointer, slice.to_bytes(ct.sprites_to_render[:]))
+
+	// here do the draw call
 }

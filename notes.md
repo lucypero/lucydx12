@@ -1,5 +1,7 @@
 # LUCY2D - Todo
 
+- write the shader for vertex pulling.
+
 - it's clear you need to start separating the engine as a LIBRARY, and the engine showcase as an APP.
 - basically, src/main.odin has to be a separate package. just like lucy2d perhaps.
 - maybe you need to break up the pool for all your dx resouces. maybe have DX CORE have its own pool. Etc.
