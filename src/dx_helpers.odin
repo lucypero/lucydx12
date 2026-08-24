@@ -1722,7 +1722,7 @@ pso_hotswap_swap :: proc(pso: ^PSO, pool: ^DXResourcePool) {
 		pso.pipeline_state = pso.pso_swap
 		// replace pointer from freeing queue
 		pso_pointer := pool[pso.pso_index]
-		pso_pointer^ = pso.pipeline_state
+		pso_pointer^ = pso.pipeline_state.id3d12pageable.id3d12object.iunknown
 		pso.pso_swap = nil
 	}
 }
