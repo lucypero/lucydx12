@@ -1716,13 +1716,13 @@ pso_hotswap_init :: proc(pso : ^PSO) {
 	}
 }
 
-pso_hotswap_swap :: proc(pso: ^PSO, pool: ^DXResourcePool) {
+pso_hotswap_swap :: proc(pso: ^PSO) {
 	if pso.pso_swap != nil {
 		pso.pipeline_state->Release()
 		pso.pipeline_state = pso.pso_swap
 		// replace pointer from freeing queue
-		pso_pointer := pool[pso.pso_index]
-		pso_pointer^ = pso.pipeline_state
+		// pso_pointer := pool[pso.pso_index]
+		// pso_pointer^ = pso.pipeline_state
 		pso.pso_swap = nil
 	}
 }

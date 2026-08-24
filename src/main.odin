@@ -1264,7 +1264,7 @@ render :: proc() {
 
 	// hot swap handling
 	for &pso in ct.psos {
-		pso_hotswap_swap(&pso, &g_resources_longterm)
+		pso_hotswap_swap(&pso)
 	}
 
 	// handle window resizing
