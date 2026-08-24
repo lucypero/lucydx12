@@ -11,13 +11,19 @@ import "core:mem/virtual"
 
 Color :: v4
 
+PSOName :: enum {
+	Quad
+}
+
 Lucy2DContext :: struct {
 
 	upload_thread : ^thread.Thread,
 	resources_resizing : [dynamic]^dx.IUnknown,
 	resources_longterm : [dynamic]^dx.IUnknown,
 	trace_ctx : trace.Context,
-	window : ^sdl.Window
+	window : ^sdl.Window,
+	root_signatures: [RootSignatureChoice]^dx.IRootSignature,
+	psos: [PSOName]PSO
 }
 
 g_lct : Lucy2DContext
@@ -60,6 +66,118 @@ window_new :: proc(window_name:string, width, height: int) {
 	}
 
 	init_dx(&g_lct.resources_longterm, ct.window)
+
+	// Creating all root signatures
+	g_lct.root_signatures = create_root_signatures(&g_lct.resources_longterm)
+
+	// Creating a Constant buffer?? if needed
+
+	// Creating PSO's
+	g_lct.psos[.Quad] = pso_create("src/shaders/quads.hlsl", &ct.root_signatures, &ct.resources_longterm, PSOParameters {
+		vertex_input = struct{},
+		blend_state = .Normal,
+		cull_mode = .None,
+		enable_depth = false,
+		depth_write = true,
+		root_signature = .Standard,
+		rtv_count = 1,
+		rtv_formats = {0 = .R8G8B8A8_UNORM, 1 ..=7 = .UNKNOWN},
+	}, render_proc = pso_quad_render, pso_name = "Quad PSO")
+}
+
+create_root_signatures :: proc(pool : ^DXResourcePool) -> (root_signatures : [RootSignatureChoice]^dx.IRootSignature){
+	ct := &g_dx_core
+	hr : dx.HRESULT
+
+	root_parameters:= [2]dx.ROOT_PARAMETER {
+		// This is the index of the CBV on the srv heap
+		{
+			ParameterType = ._32BIT_CONSTANTS,
+			Constants = {ShaderRegister = 0, Num32BitValues = 1},
+			ShaderVisibility = .ALL
+		},
+		// This is the DrawConstants for the mesh drawing
+		{
+			ParameterType = ._32BIT_CONSTANTS,
+			Constants = {ShaderRegister = 1, Num32BitValues = 2},
+			ShaderVisibility = .ALL
+		}
+	}
+
+	sampler_descs := [?]dx.STATIC_SAMPLER_DESC { 
+		{
+			Filter = .ANISOTROPIC,
+			AddressU = .WRAP,
+			AddressV = .WRAP,
+			AddressW = .WRAP,
+			MipLODBias = 0.0,
+			MaxAnisotropy = 16,
+			ComparisonFunc = .NEVER,
+			MinLOD = 0.0,
+			MaxLOD = dx.FLOAT32_MAX,
+			ShaderRegister = 0,
+			RegisterSpace = 0,
+			ShaderVisibility = .ALL,
+		},
+		{
+			Filter = .COMPARISON_MIN_MAG_LINEAR_MIP_POINT,
+			AddressU = .BORDER,
+			AddressV = .BORDER,
+			AddressW = .BORDER,
+			MipLODBias = 0.0,
+			ComparisonFunc = .LESS_EQUAL,
+			BorderColor = .OPAQUE_WHITE,
+			MinLOD = 0.0,
+			MaxLOD = dx.FLOAT32_MAX,
+			ShaderRegister = 1,
+			RegisterSpace = 0,
+			ShaderVisibility = .ALL,
+		},
+		{
+			Filter = .MIN_MAG_MIP_LINEAR,
+			AddressU = .CLAMP,
+			AddressV = .CLAMP,
+			AddressW = .CLAMP,
+			MipLODBias = 0.0,
+			ComparisonFunc = .NEVER,
+			MinLOD = 0.0,
+			MaxLOD = dx.FLOAT32_MAX,
+			ShaderRegister = 2,
+			RegisterSpace = 0,
+			ShaderVisibility = .ALL,
+		},
+	}
+
+	desc := dx.VERSIONED_ROOT_SIGNATURE_DESC {
+		Version = ._1_0,
+		Desc_1_0 = {
+			NumParameters = len(root_parameters),
+			pParameters = &root_parameters[0],
+			NumStaticSamplers = len(sampler_descs),
+			pStaticSamplers = &sampler_descs[0],
+		},
+	}
+
+	// BINDLESS MODE: ACTIVATED!!!!!
+	desc.Desc_1_0.Flags = {.CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED, .ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT}
+
+	serialized_desc: ^dx.IBlob
+	hr = dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
+	check(hr, "Failed to serialize root signature")
+	hr = ct.device->CreateRootSignature(
+		0,
+		serialized_desc->GetBufferPointer(),
+		serialized_desc->GetBufferSize(),
+		dx.IRootSignature_UUID,
+		(^rawptr)(&root_signatures[.Standard]),
+	)
+	check(hr, "Failed creating root signature")
+	append(pool, root_signatures[.Standard])
+	serialized_desc->Release()
+
+	// creating other root signatrues here when needed
+
+	return
 }
 
 window_cleanup :: proc() {
@@ -91,7 +209,6 @@ window_cleanup :: proc() {
 	}
 }
 
-
 // clears the window with a color
 window_clear :: proc(color: Color) {
 
@@ -103,6 +220,19 @@ draw_sprite :: proc(pos, size: v2) {
 
 // draws all the stuff, and resets frame state
 present :: proc() {
+
+	ctd := &g_dx_core
+	ct := &g_lct
+
+	// Rendering everything
+	g_dx_core.cmdlist->Reset(ctd.command_allocator, nil)
+
+	for pso in ct.psos {
+		pso.render_proc(pso)
+	}
+
+	// Setting things up for the next frame
+
 	sdl.PumpEvents()
 }
 
@@ -127,4 +257,8 @@ lucy2d_upload_thread_start :: proc() {
 
 	// ending...
 	arena_destroy(&upload_temp_arena)
+}
+
+pso_quad_render :: proc(pso: PSO) {
+
 }
