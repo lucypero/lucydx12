@@ -352,6 +352,8 @@ Gizmos_Vertex_IA :: struct {
 
 // All our PSO's
 // The ORDER of these items matter a lot. it's the order in which the PSO's are rendered.
+
+@(private="file")
 PSOName :: enum {
 	Shadowmap,
 	GBuffer_Pass,
@@ -607,7 +609,9 @@ main :: proc() {
 }
 
 
+@(private="file")
 create_root_signatures :: proc() {
+
 
 	ct := &g_dx_core
 	hr : dx.HRESULT
@@ -701,6 +705,7 @@ create_root_signatures :: proc() {
 	// creating other root signatrues here when needed
 }
 
+@(private="file")
 init_dx_user :: proc() {
 	ct := &g_dx_context
 	hr : dx.HRESULT

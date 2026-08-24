@@ -71,7 +71,6 @@ dx_upload_init :: proc(pool: ^DXResourcePool) {
 	append(pool, g_upload_service.command_allocator_copy)
 	g_upload_service.command_allocator_copy->SetName("Upload command allocator")
 
-
 	check(ct.device->CreateCommandList(
 		0,
 		.COPY,
