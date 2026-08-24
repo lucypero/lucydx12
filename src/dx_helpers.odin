@@ -1381,7 +1381,7 @@ string_append :: proc(the_strs: ..string, allocator: mem.Allocator = context.all
 structured_buffer_create :: proc(
 	buffer_name: string,
 	pool_resource : ^DXResourcePool,
-	buffer_type: typeid,
+	buffer_type: typeid, // must be #align (16)
 	count: int,
 	buffer_data : Maybe([]byte) = nil, // nil for no initial data
 	view_flags: BufferViewFlags = {.SRV},
@@ -1722,7 +1722,9 @@ pso_hotswap_swap :: proc(pso: ^PSO, pool: ^DXResourcePool) {
 		pso.pipeline_state = pso.pso_swap
 		// replace pointer from freeing queue
 		pso_pointer := pool[pso.pso_index]
-		pso_pointer^ = pso.pipeline_state
+		// Referencing the IUnknown directly to prevent Odin bug
+		// Issue link: https://github.com/odin-lang/Odin/issues/7433
+		pso_pointer^ = pso.pipeline_state.id3d12pageable.id3d12object.iunknown
 		pso.pso_swap = nil
 	}
 }

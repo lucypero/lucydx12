@@ -2,7 +2,6 @@ package main
 
 import "core:thread"
 import "core:mem/virtual"
-import "core:debug/trace"
 import "core:reflect"
 import "core:fmt"
 import "core:mem"
@@ -51,7 +50,6 @@ lighting_shader_filename :: "src/shaders/lighting.hlsl"
 ui_shader_filename :: "src/shaders/ui.hlsl"
 text_shader_filename :: "src/shaders/text.hlsl"
 post_process_shader_filename :: "src/shaders/post_process.hlsl"
-
 
 INITIAL_WINDOW_WIDTH :: 2000
 INITIAL_WINDOW_HEIGHT :: 1000
