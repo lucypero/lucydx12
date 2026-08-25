@@ -31,6 +31,26 @@ transition_resource_from_copy_to_read :: proc(res: ^dx.IResource, cmd_list: ^dx.
 }
 */
 
+Swapchain :: struct {
+	swapchain: ^dxgi.ISwapChain3,
+	targets: [NUM_RENDERTARGETS]Texture, // render target textures
+	frame_index: int, // last swapchain RTV we wrote to
+}
+
+// TODO pull more code to make more swapchain procs
+swapchain_transition :: proc(state_before, state_after: dx.RESOURCE_STATES) {
+	transition_resource(g_dx_core.swapchain.targets[g_dx_core.swapchain.frame_index].buffer,
+		g_dx_core.cmdlist, state_before, state_after, subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES)
+}
+
+swapchain_present :: proc() {
+	when PROFILE do spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, name = "Present")
+	flags: dxgi.PRESENT
+	params: dxgi.PRESENT_PARAMETERS
+	hr := g_dx_core.swapchain.swapchain->Present1(1, flags, &params)
+	check(hr, "Present failed")
+}
+
 DX_Core :: struct {
 	device: ^dx.IDevice,
 	factory: ^dxgi.IFactory4,
@@ -316,13 +336,19 @@ dxc_init :: proc() -> ^dxc.ICompiler3 {
 	return compiler
 }
 
+print_file_error :: proc(filename: string) {
+	cwd, err := os.get_working_directory(context.temp_allocator)
+	assert(err == os.General_Error.None, "could not get cwd")
+	lprintfln("Could not read file: %v. CWD is: %v", filename, cwd)
+}
+
 // compiles vertex and pixel shader, for a graphics pipeline
 compile_shader :: proc(compiler: ^dxc.ICompiler3, shader_filename: string) -> (vs, ps: ^dxc.IBlob, ok: bool) {
 
 	data, ok_f := os.read_entire_file_from_path(shader_filename, context.allocator)
 
 	if ok_f != os.General_Error.None {
-		lprintfln("could not read file")
+		print_file_error(shader_filename)
 		os.exit(1)
 	}
 
@@ -352,7 +378,7 @@ compile_shader_compute :: proc(compiler: ^dxc.ICompiler3, shader_filename: strin
 	data, ok_f := os.read_entire_file_from_path(shader_filename, context.allocator)
 
 	if ok_f != os.General_Error.None {
-		lprintfln("could not read file")
+		print_file_error(shader_filename)
 		os.exit(1)
 	}
 
@@ -1951,9 +1977,9 @@ init_dx :: proc(pool: ^DXResourcePool, window: ^sdl.Window) {
 	check(ct.device->CheckFeatureSupport(.OPTIONS16, &feature_data, size_of(feature_data)))
 
 	if feature_data.GPUUploadHeapSupported {
-		lprintfln("GPU UPLOAD is supported!")
+		// lprintfln("GPU UPLOAD is supported!")
 	} else {
-		lprintfln("GPU UPLOAD is NOT supported. You poor girl")
+		// lprintfln("GPU UPLOAD is NOT supported. You poor girl")
 	}
 
 	// set up logging callback
@@ -1961,7 +1987,7 @@ init_dx :: proc(pool: ^DXResourcePool, window: ^sdl.Window) {
 	info_queue: ^dx.IInfoQueue1
 	ct.device->QueryInterface(dx.IInfoQueue1_UUID, (^rawptr)(&info_queue))
 	cb_cookie: u32
-	hr = info_queue->RegisterMessageCallback(dx_log_callback, {.IGNORE_FILTERS}, nil, &cb_cookie)
+	hr = info_queue->RegisterMessageCallback(dx_log_debug_callback, {.IGNORE_FILTERS}, nil, &cb_cookie)
 	info_queue->SetMuteDebugOutput(true)
 	check(hr, "failed to register")
 	info_queue->Release()
@@ -2028,29 +2054,62 @@ init_dx :: proc(pool: ^DXResourcePool, window: ^sdl.Window) {
 	}
 }
 
+dx_log_debug_callback :: proc "c" (
+	category: dx.MESSAGE_CATEGORY,
+	severity: dx.MESSAGE_SEVERITY,
+	id: dx.MESSAGE_ID,
+	description: cstring,
+	ctx: rawptr,
+) {
+	context = runtime.default_context()
+
+	// Filtering by severity
+
+	#partial switch severity {
+	case .CORRUPTION, .ERROR, .WARNING:
+	case:
+		return
+	}
+
+	msg := string(description)
+
+	// ignore if it tells me the device is live
+	if id == .LIVE_DEVICE do return
+
+	severity_string, _ := reflect.enum_name_from_value(severity)
+	cat, _ := reflect.enum_name_from_value(category)
+
+	lprintfln("hello")
+	lprintfln("%v: (%v) %v", severity_string, cat, msg)
+
+	// printing stack trace
+	// TODO: replace with new debug/trace library
+
+	// if !trace.in_resolve(&g_global_trace_ctx) {
+	// 	buf: [64]trace.Frame
+	// 	max_frames_display :: 3
+	// 	frames := trace.frames(&g_global_trace_ctx, 1, buf[:])
+
+	// 	// filtering by frames where we actually have info
+	// 	real_counter := 0
+
+	// 	for f in frames {
+	// 		fl := trace.resolve(&g_global_trace_ctx, f, context.temp_allocator)
+	// 		if fl.loc.file_path == "" && fl.loc.line == 0 do continue
+	// 		if real_counter == 0 do lprintfln("At:")
+	// 		real_counter += 1
+	// 		if real_counter <= max_frames_display do lprintfln("--- %v - Frame %v", fl.loc, real_counter)
+	// 	}
+	// }
+}
+
 // end of frame bureocracy
 dx_frame_end :: proc() {
 
-	{
-		// Transitioning the render target to "Present" state
-		transition_resource(g_dx_core.swapchain.targets[g_dx_core.swapchain.frame_index].buffer,
-			g_dx_core.cmdlist, {.RENDER_TARGET}, dx.RESOURCE_STATE_PRESENT, subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES)
-	}
-
-	g_dx_core.cmdlist->Close()
-
-	// execute
-	cmdlists := [?]^dx.IGraphicsCommandList{g_dx_core.cmdlist}
-	g_dx_core.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
-
-	// present
-	{
-		when PROFILE do spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, name = "Present")
-		flags: dxgi.PRESENT
-		params: dxgi.PRESENT_PARAMETERS
-		hr := g_dx_core.swapchain.swapchain->Present1(1, flags, &params)
-		check(hr, "Present failed")
-	}
+	// Transitioning the render target to "Present" state
+	swapchain_transition({.RENDER_TARGET}, dx.RESOURCE_STATE_PRESENT)
+	close_and_execute_cmdlist()
+	swapchain_present()
 
 	// wait for frame to finish
 	{

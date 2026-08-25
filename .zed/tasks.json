@@ -82,7 +82,7 @@
 	},
 	{
 		"label": "GAME - Run debug",
-		"command": "odin run hookin -debug -out:hookin.exe -linker:radlink -keep-executable -vet",
+		"command": "raddbg.exe --ipc kill_all && odin build hookin -debug -out:hookin.exe -linker:radlink -keep-executable -vet && raddbg --ipc run",
 		"use_new_terminal": false,
 		"allow_concurrent_runs": false,
 		"reveal": "always",
