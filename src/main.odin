@@ -2,7 +2,6 @@ package main
 
 import "core:thread"
 import "core:mem/virtual"
-import "core:reflect"
 import "core:fmt"
 import "core:mem"
 import "core:slice"
@@ -124,11 +123,6 @@ GBuffer :: [GBufferUnitName]Texture
 
 MAX_GIZMOS :: 20
 
-Swapchain :: struct {
-	swapchain: ^dxgi.ISwapChain3,
-	targets: [NUM_RENDERTARGETS]Texture, // render target textures
-	frame_index: int, // last swapchain RTV we wrote to
-}
 
 @(private="file")
 Context :: struct {
@@ -801,11 +795,8 @@ init_dx_user :: proc() {
 	ct.tx_post_process_output = texture_create(nil, cast(u64)WINDOW_WIDTH, cast(u32)WINDOW_HEIGHT, .R8G8B8A8_UNORM,
 		&g_resources_resizing, view_flags = {.UAV}, texture_name = "post process output")
 
-	// TODO: delete this?
 	close_and_execute_cmdlist()
-
 	imgui_init()
-
 	load_white_texture(&g_resources_longterm)
 
 	// post-process output
@@ -872,53 +863,6 @@ do_main_loop :: proc() {
 SWAPCHAIN_FORMAT :: dxgi.FORMAT.R8G8B8A8_UNORM
 
 
-dx_log_callback :: proc "c" (
-	category: dx.MESSAGE_CATEGORY,
-	severity: dx.MESSAGE_SEVERITY,
-	id: dx.MESSAGE_ID,
-	description: cstring,
-	ctx: rawptr,
-) {
-	context = runtime.default_context()
-
-	// Filtering by severity
-
-	#partial switch severity {
-	case .CORRUPTION, .ERROR, .WARNING:
-	case:
-		return
-	}
-
-	msg := string(description)
-
-	// ignore if it tells me the device is live
-	if id == .LIVE_DEVICE do return
-
-	severity_string, _ := reflect.enum_name_from_value(severity)
-	cat, _ := reflect.enum_name_from_value(category)
-
-	lprintfln("%v: (%v) %v", severity_string, cat, msg)
-
-	// printing stack trace
-	// TODO: replace with new debug/trace library
-
-	// if !trace.in_resolve(&g_global_trace_ctx) {
-	// 	buf: [64]trace.Frame
-	// 	max_frames_display :: 3
-	// 	frames := trace.frames(&g_global_trace_ctx, 1, buf[:])
-
-	// 	// filtering by frames where we actually have info
-	// 	real_counter := 0
-
-	// 	for f in frames {
-	// 		fl := trace.resolve(&g_global_trace_ctx, f, context.temp_allocator)
-	// 		if fl.loc.file_path == "" && fl.loc.line == 0 do continue
-	// 		if real_counter == 0 do lprintfln("At:")
-	// 		real_counter += 1
-	// 		if real_counter <= max_frames_display do lprintfln("--- %v - Frame %v", fl.loc, real_counter)
-	// 	}
-	// }
-}
 
 update :: proc() {
 

@@ -103,6 +103,9 @@ window_new :: proc(window_name:string, width, height: int) {
 		rtv_count = 1,
 		rtv_formats = {0 = .R8G8B8A8_UNORM, 1 ..=7 = .UNKNOWN},
 	}, render_proc = pso_quad_render, pso_name = "Quad PSO")
+
+	// Leave the cmd list closed until it's time to render
+	close_and_execute_cmdlist()
 }
 
 create_root_signatures :: proc(pool : ^DXResourcePool) -> (root_signatures : [RootSignatureChoice]^dx.IRootSignature){
@@ -253,6 +256,7 @@ present :: proc() {
 
 	// Rendering everything
 	g_dx_core.cmdlist->Reset(ctd.command_allocator, nil)
+	swapchain_transition(dx.RESOURCE_STATE_PRESENT, {.RENDER_TARGET})
 
 	for pso in ct.psos {
 		pso.render_proc(pso)
