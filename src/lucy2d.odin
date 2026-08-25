@@ -25,7 +25,8 @@ Lucy2DContext :: struct {
 	psos: [PSOName]PSO,
 	sb_sprites: StructuredBuffer,
 	sprites_to_render: [dynamic]Sprite,
-	cb_general: ConstantBufferUpload
+	cb_general: ConstantBufferUpload,
+	clear_color_issued: Maybe(v4)
 }
 
 SPRITE_MAX_COUNT :: 100
@@ -233,7 +234,7 @@ window_cleanup :: proc() {
 
 // clears the window with a color
 window_clear :: proc(color: Color) {
-
+	g_lct.clear_color_issued = color
 }
 
 draw_sprite :: proc(pos, size: v2) {
@@ -258,13 +259,23 @@ present :: proc() {
 	g_dx_core.cmdlist->Reset(ctd.command_allocator, nil)
 	swapchain_transition(dx.RESOURCE_STATE_PRESENT, {.RENDER_TARGET})
 
+	// Clear color
+	if clear_color, ok := ct.clear_color_issued.?; ok {
+		swapchain_clear(clear_color)
+	}
+
 	for pso in ct.psos {
 		pso.render_proc(pso)
 	}
 
 	dx_frame_end()
+	frame_end()
+}
 
-	// Setting things up for the next frame
+// Setting things up for the next frame
+frame_end :: proc() {
+	ct := &g_lct
+	ct.clear_color_issued = nil
 	clear(&ct.sprites_to_render)
 	sdl.PumpEvents()
 }
@@ -295,8 +306,6 @@ lucy2d_upload_thread_start :: proc() {
 pso_quad_render :: proc(pso: PSO) {
 
 	ct := &g_lct
-
-	lprintfln("rendering sprites...")
 
 	copy_to_buffer_already_mapped(ct.sb_sprites.gpu_pointer, slice.to_bytes(ct.sprites_to_render[:]))
 
