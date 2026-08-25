@@ -8,7 +8,6 @@ import "core:mem"
 import "core:slice"
 import "core:os"
 import "core:strings"
-import "core:sys/windows"
 import "core:time"
 import dx "vendor:directx/d3d12"
 import dxgi "vendor:directx/dxgi"
@@ -143,11 +142,6 @@ Context :: struct {
 	imgui_descriptor_heap: ^dx.IDescriptorHeap,
 	imgui_allocator: DescriptorHeapAllocator,
 
-	/// fence stuff (for waiting to render frame)
-	fence: ^dx.IFence,
-	fence_value: u64,
-	fence_event: windows.HANDLE,
-
 	tx_depth: Texture,
 	gbuffer: GBuffer,
 	root_signatures: [RootSignatureChoice]^dx.IRootSignature,
@@ -224,6 +218,7 @@ Light :: struct #align (16) {
 }
 
 // constant buffer data
+@(private="file")
 GeneralConstants :: struct #align (256) {
 	view: dxm,
 	projection: dxm,
@@ -702,7 +697,6 @@ create_root_signatures :: proc() {
 @(private="file")
 init_dx_user :: proc() {
 	ct := &g_dx_context
-	hr : dx.HRESULT
 
 	// Generating HLSL file with all the structs
 	{
@@ -829,21 +823,6 @@ init_dx_user :: proc() {
 	lprintfln("Loading scene: %v", ct.scene_list[g_config.scene_pick])
 
 	scene_schedule_load(&g_scenes[0], ct.scene_list[g_config.scene_pick])
-
-	// This fence is used to wait for frames to finish
-	{
-		hr = g_dx_core.device->CreateFence(ct.fence_value, {}, dx.IFence_UUID, (^rawptr)(&ct.fence))
-		check(hr, "Failed to create fence")
-		append(&g_resources_longterm, ct.fence)
-		ct.fence_value += 1
-		manual_reset: windows.BOOL = false
-		initial_state: windows.BOOL = false
-		ct.fence_event = windows.CreateEventW(nil, manual_reset, initial_state, nil)
-		if ct.fence_event == nil {
-			lprintln("Failed to create fence event")
-			return
-		}
-	}
 }
 
 do_main_loop :: proc() {
@@ -1178,7 +1157,6 @@ load_settings :: proc() {
 render :: proc() {
 	ctd := &g_dx_core
 	ct := &g_dx_context
-	hr: dx.HRESULT
 
 	cb_general_update()
 
@@ -1219,48 +1197,7 @@ render :: proc() {
 
 	render_imgui()
 
-	// Cannot draw after this point!!
-
-	// Transitioning the render target to "Present" state
-	transition_resource(g_dx_core.swapchain.targets[g_dx_core.swapchain.frame_index].buffer,
-		g_dx_core.cmdlist, {.RENDER_TARGET}, dx.RESOURCE_STATE_PRESENT, subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES)
-
-	g_dx_core.cmdlist->Close()
-
-	// execute
-	cmdlists := [?]^dx.IGraphicsCommandList{g_dx_core.cmdlist}
-	g_dx_core.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
-
-	// present
-	{
-		when PROFILE do spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, name = "Present")
-		flags: dxgi.PRESENT
-		params: dxgi.PRESENT_PARAMETERS
-		hr = g_dx_core.swapchain.swapchain->Present1(1, flags, &params)
-		check(hr, "Present failed")
-	}
-
-	// wait for frame to finish
-	{
-		when PROFILE do spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, name = "v-sync wait")
-
-		current_fence_value := g_dx_context.fence_value
-
-		hr = g_dx_core.queue->Signal(g_dx_context.fence, current_fence_value)
-		check(hr, "Failed to signal fence")
-
-		g_dx_context.fence_value += 1
-		completed := g_dx_context.fence->GetCompletedValue()
-
-		if completed < current_fence_value {
-			hr = g_dx_context.fence->SetEventOnCompletion(current_fence_value, g_dx_context.fence_event)
-			check(hr, "Failed to set event on completion flag")
-			windows.WaitForSingleObject(g_dx_context.fence_event, windows.INFINITE)
-		}
-
-		g_dx_core.swapchain.frame_index = cast(int)ctd.swapchain.swapchain->GetCurrentBackBufferIndex()
-		check(g_dx_core.command_allocator->Reset())
-	}
+	dx_frame_end()
 
 	// swap PSO here if needed (hot reload of shaders)
 

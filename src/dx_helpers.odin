@@ -45,6 +45,11 @@ DX_Core :: struct {
 	heap_cbv_srv_uav: UberDescriptorHeap,
 	heap_dsv: UberDescriptorHeap,
 	heap_rtv: UberDescriptorHeap,
+
+	/// fence stuff (for waiting to render frame)
+	fence: ^dx.IFence,
+	fence_value: u64,
+	fence_event: windows.HANDLE,
 }
 
 g_dx_core : DX_Core
@@ -2006,6 +2011,68 @@ init_dx :: proc(pool: ^DXResourcePool, window: ^sdl.Window) {
 	}
 
 	ct.swapchain = create_swapchain(ct.factory, ct.queue, pool, window)
+
+	// This fence is used to wait for frames to finish
+	{
+		hr = g_dx_core.device->CreateFence(ct.fence_value, {}, dx.IFence_UUID, (^rawptr)(&ct.fence))
+		check(hr, "Failed to create fence")
+		append(pool, ct.fence)
+		ct.fence_value += 1
+		manual_reset: windows.BOOL = false
+		initial_state: windows.BOOL = false
+		ct.fence_event = windows.CreateEventW(nil, manual_reset, initial_state, nil)
+		if ct.fence_event == nil {
+			lprintln("Failed to create fence event")
+			return
+		}
+	}
+}
+
+// end of frame bureocracy
+dx_frame_end :: proc() {
+
+	{
+		// Transitioning the render target to "Present" state
+		transition_resource(g_dx_core.swapchain.targets[g_dx_core.swapchain.frame_index].buffer,
+			g_dx_core.cmdlist, {.RENDER_TARGET}, dx.RESOURCE_STATE_PRESENT, subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES)
+	}
+
+	g_dx_core.cmdlist->Close()
+
+	// execute
+	cmdlists := [?]^dx.IGraphicsCommandList{g_dx_core.cmdlist}
+	g_dx_core.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
+
+	// present
+	{
+		when PROFILE do spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, name = "Present")
+		flags: dxgi.PRESENT
+		params: dxgi.PRESENT_PARAMETERS
+		hr := g_dx_core.swapchain.swapchain->Present1(1, flags, &params)
+		check(hr, "Present failed")
+	}
+
+	// wait for frame to finish
+	{
+		when PROFILE do spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, name = "v-sync wait")
+
+		current_fence_value := g_dx_core.fence_value
+
+		hr := g_dx_core.queue->Signal(g_dx_core.fence, current_fence_value)
+		check(hr, "Failed to signal fence")
+
+		g_dx_core.fence_value += 1
+		completed := g_dx_core.fence->GetCompletedValue()
+
+		if completed < current_fence_value {
+			hr = g_dx_core.fence->SetEventOnCompletion(current_fence_value, g_dx_core.fence_event)
+			check(hr, "Failed to set event on completion flag")
+			windows.WaitForSingleObject(g_dx_core.fence_event, windows.INFINITE)
+		}
+
+		g_dx_core.swapchain.frame_index = cast(int)g_dx_core.swapchain.swapchain->GetCurrentBackBufferIndex()
+		check(g_dx_core.command_allocator->Reset())
+	}
 }
 
 resource_pool_release :: proc(pool : ^DXResourcePool) {
