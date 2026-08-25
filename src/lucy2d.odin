@@ -20,10 +20,12 @@ Lucy2DContext :: struct {
 	resources_resizing : [dynamic]^dx.IUnknown,
 	resources_longterm : [dynamic]^dx.IUnknown,
 	window : ^sdl.Window,
+	window_dimensions: v2i,
 	root_signatures: [RootSignatureChoice]^dx.IRootSignature,
 	psos: [PSOName]PSO,
 	sb_sprites: StructuredBuffer,
-	sprites_to_render: [dynamic]Sprite
+	sprites_to_render: [dynamic]Sprite,
+	cb_general: ConstantBufferUpload
 }
 
 SPRITE_MAX_COUNT :: 100
@@ -34,12 +36,16 @@ Sprite :: struct #align (16) {
 	size: v2
 }
 
+GeneralConstants :: struct #align (256) {
+	sb_sprites_idx: u32,
+	inv_screen: v2,
+}
+
 g_lct : Lucy2DContext
 
 // creates the window
 // the app HAS to call this before anything else.
 window_new :: proc(window_name:string, width, height: int) {
-
 
 	// set up allocators?
 	g_lct.upload_thread = thread.create_and_start(lucy2d_upload_thread_start)
@@ -49,6 +55,8 @@ window_new :: proc(window_name:string, width, height: int) {
 	g_lct.resources_longterm = make([dynamic]^dx.IUnknown)
 
 	ct := &g_lct
+
+	ct.window_dimensions = v2i{width, height}
 
 	// Init SDL and create window
 	if err := sdl.Init(sdl.InitFlags{.TIMER, .AUDIO, .VIDEO, .EVENTS}); err != 0 {
@@ -79,6 +87,9 @@ window_new :: proc(window_name:string, width, height: int) {
 	// Creating a Constant buffer?? if needed
 
 	// Creating Sprite Structured buffer
+
+	g_lct.cb_general = cb_upload_create(size_of(GeneralConstants), &g_lct.resources_longterm, name = "general constants cbv")
+
 	g_lct.sb_sprites = structured_buffer_create("Sprite buffer", &g_lct.resources_longterm, Sprite, SPRITE_MAX_COUNT, heap_type = .UPLOAD)
 
 	// Creating PSO's
@@ -87,7 +98,7 @@ window_new :: proc(window_name:string, width, height: int) {
 		blend_state = .Normal,
 		cull_mode = .None,
 		enable_depth = false,
-		depth_write = true,
+		depth_write = false,
 		root_signature = .Standard,
 		rtv_count = 1,
 		rtv_formats = {0 = .R8G8B8A8_UNORM, 1 ..=7 = .UNKNOWN},
@@ -232,12 +243,22 @@ present :: proc() {
 	ctd := &g_dx_core
 	ct := &g_lct
 
+	// Updating Constant Buffer
+	{
+		copy_to_buffer_already_mapped_value(ct.cb_general.gpu_pointer, &GeneralConstants {
+			sb_sprites_idx = cast(u32)ct.sb_sprites.srv_index,
+			inv_screen = 1.0 / v2{cast(f32)ct.window_dimensions.x, cast(f32)ct.window_dimensions.y}
+		})
+	}
+
 	// Rendering everything
 	g_dx_core.cmdlist->Reset(ctd.command_allocator, nil)
 
 	for pso in ct.psos {
 		pso.render_proc(pso)
 	}
+
+	dx_frame_end()
 
 	// Setting things up for the next frame
 	clear(&ct.sprites_to_render)
