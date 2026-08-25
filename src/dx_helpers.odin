@@ -37,9 +37,13 @@ Swapchain :: struct {
 	frame_index: int, // last swapchain RTV we wrote to
 }
 
-// TODO pull more code to make more swapchain procs
+swapchain_get_current_target :: proc() -> Texture {
+	return g_dx_core.swapchain.targets[g_dx_core.swapchain.frame_index]
+}
+
 swapchain_transition :: proc(state_before, state_after: dx.RESOURCE_STATES) {
-	transition_resource(g_dx_core.swapchain.targets[g_dx_core.swapchain.frame_index].buffer,
+	tex_swapchain := swapchain_get_current_target()
+	transition_resource(tex_swapchain.buffer,
 		g_dx_core.cmdlist, state_before, state_after, subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES)
 }
 
@@ -49,6 +53,14 @@ swapchain_present :: proc() {
 	params: dxgi.PRESENT_PARAMETERS
 	hr := g_dx_core.swapchain.swapchain->Present1(1, flags, &params)
 	check(hr, "Present failed")
+}
+
+// Issue a clear color command on the swapchain's current buffer
+swapchain_clear :: proc(clear_color: v4) {
+	clear_color := clear_color
+	tex_swapchain := swapchain_get_current_target()
+	handle_swapchain := get_descriptor_heap_cpu_address(g_dx_core.heap_rtv.heap, tex_swapchain.rtv_index)
+	g_dx_core.cmdlist->ClearRenderTargetView(handle_swapchain, &clear_color, 0, nil)
 }
 
 DX_Core :: struct {

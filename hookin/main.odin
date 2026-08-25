@@ -21,7 +21,17 @@ main :: proc() {
 			break
 		}
 
-		ldx.window_clear({1,1,1,1})
+		if kb[sdl.Scancode.A] == 1 {
+			ldx.window_clear({1,0,0,1})
+		}
+
+		if kb[sdl.Scancode.D] == 1 {
+			ldx.window_clear({0,1,0,1})
+		}
+
+		if kb[sdl.Scancode.W] == 1 {
+			ldx.window_clear({0,0,1,1})
+		}
 
 		// position, scale, texture
 		// choose pivot? maybe
