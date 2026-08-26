@@ -5,6 +5,7 @@ struct Sprite
 {
 	float2 pos;
 	float2 size;
+	float4 color;
 };
 
 SamplerState g_sampler : register(s1); // nearest neighbor sampler
@@ -28,7 +29,7 @@ VSOut VSMain(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
 	// make the corners and stuff.. do some linear transforms
 
 	VSOut output;
-	output.color = float4(1,1,1,1);
+	output.color = sprite.color;
 	output.pos.z = 1;
 	output.pos.w = 1;
 
@@ -55,5 +56,5 @@ VSOut VSMain(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
 }
 
 float4 PSMain(VSOut input) : SV_Target {
-	return float4(1,0,0,1);
+	return input.color;
 }
