@@ -26,7 +26,8 @@ Lucy2DContext :: struct {
 	sb_sprites: StructuredBuffer,
 	sprites_to_render: [dynamic]Sprite,
 	cb_general: ConstantBufferUpload,
-	clear_color_issued: Maybe(v4)
+	clear_color_issued: Maybe(v4),
+	window_should_close: bool
 }
 
 SPRITE_MAX_COUNT :: 100
@@ -34,7 +35,8 @@ SPRITE_MAX_COUNT :: 100
 // TODO: do the reflection thing that copies your structs to hlsl
 Sprite :: struct #align (16) {
 	pos: v2,
-	size: v2
+	size: v2,
+	color: v4,
 }
 
 GeneralConstants :: struct #align (256) {
@@ -232,10 +234,8 @@ window_clear :: proc(color: Color) {
 	g_lct.clear_color_issued = color
 }
 
-draw_sprite :: proc(pos, size: v2) {
-	append(&g_lct.sprites_to_render, Sprite{
-		pos, size
-	})
+draw_sprite :: proc(sprite: Sprite) {
+	append(&g_lct.sprites_to_render, sprite)
 }
 
 // draws all the stuff, and resets frame state
@@ -275,6 +275,20 @@ frame_end :: proc() {
 	ct.clear_color_issued = nil
 	clear(&ct.sprites_to_render)
 	sdl.PumpEvents()
+
+	for e: sdl.Event; sdl.PollEvent(&e); {
+		#partial switch e.type {
+		case .QUIT:
+			g_lct.window_should_close = true
+		case .WINDOWEVENT:
+			#partial switch e.window.event {
+			case .CLOSE:
+				g_lct.window_should_close = true
+				// case .RESIZED:
+				// 	g_dx_context.resize_wanted = v2i{cast(int)e.window.data1, cast(int)e.window.data2}
+			}
+		}
+	}
 }
 
 get_keyboard :: proc() -> []u8 {
@@ -319,4 +333,8 @@ pso_quad_render :: proc(pso: PSO) {
 
 	ctd.cmdlist->IASetPrimitiveTopology(.TRIANGLESTRIP)
 	ctd.cmdlist->DrawInstanced(4, cast(u32)len(ct.sprites_to_render), 0, 0)
+}
+
+window_should_close :: proc() -> bool {
+	return g_lct.window_should_close
 }
