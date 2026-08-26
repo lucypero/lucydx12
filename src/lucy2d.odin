@@ -338,3 +338,11 @@ pso_quad_render :: proc(pso: PSO) {
 window_should_close :: proc() -> bool {
 	return g_lct.window_should_close
 }
+
+texture_load :: proc(image_filepath: string) -> Texture {
+	texture_dds_path := texture_cache_query(image_filepath, .BC7_UNORM_SRGB, 1, nil)
+	dds_file := parse_dds_file(texture_dds_path)
+	texture := texture_create(dds_file.mipmap_data, u64(dds_file.width), dds_file.height,
+		dds_file.format, &g_lct.resources_longterm, view_flags = {.SRV}, mip_levels = len(dds_file.mipmap_data), texture_name = string(image_filepath))
+	return texture
+}

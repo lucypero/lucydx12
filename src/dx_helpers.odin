@@ -1,5 +1,6 @@
 package main
 
+import "core:strconv"
 import "core:time"
 import "core:c"
 import img "vendor:stb/image"
@@ -563,8 +564,6 @@ BufferViewFlags :: bit_set[TextureViewFlag]
 
 // creates texture on default heap
 // schedules an upload of data
-// TODO: i think you can further simplify the API here. you can deduce things like res_flags and srv_desc by
-//  the view flags.
 texture_create :: proc(
 	image_data: Maybe([][]byte), // slice of mipmap data. nil for texture initialized with no data
 	width: u64,
@@ -1141,65 +1140,85 @@ get_mip_level_size :: proc(width, height: u32, format_is_compressed: bool, bytes
 	}
 }
 
-texture_cache_query :: proc(model_filepath, image_name: string, format: dxgi.FORMAT, image_data: Maybe([]byte)) -> (texture_out_path: string) {
 
-	// test if this exists already
 
-	// lprintln("image texture cache miss. creating texture with mipmaps")
+/*
+Converts an image file into an optimized format. Stores it in a cache.
+If it's already in the cache, it does nothing
+
+**Inputs**
+- image_filepath: The file path name for the uncompressed image. 
+	If there's no image yet, this will be the name of the created image
+- out_format: image format for the output DDS file
+- mip_levels: 0 for max amount of mip map levels
+- image_data: Unoptimized image data if there's no original image file yet. 
+	If this isn't nil, the image file will be created with this data as its contents, named `image_name`.
+
+**Returns**
+- the path of the optimized (DDS) texture file.
+*/
+texture_cache_query :: proc(
+	image_filepath: string,
+	out_format: dxgi.FORMAT,
+	mip_levels: int = 0, // 0 for max amount of mip map levels
+	image_data: Maybe([]byte) = nil // 
+) -> (texture_out_path: string) {
+
+	TODO: stop hashing and just store it in the cache in the same dir structure as the original texture;
+	THEN figure out how to have the original functionality for GLTF Files.;
+
 	alloc_err : runtime.Allocator_Error
-
-	filepath_hash := hash_thing(model_filepath)
-	// image_name_hash := hash_thing(image_name)
+	filepath_hash := hash_thing(image_filepath)
 
 	cache_dir : string
 	cache_dir, alloc_err = filepath.join({"cache", filepath_hash}, context.temp_allocator)
 	assert(alloc_err == .None)
 
-	image_name_dss := strings.concatenate({filepath.stem(image_name), ".dds"}, context.temp_allocator)
+	image_name_dss := strings.concatenate({filepath.stem(image_filepath), ".dds"}, context.temp_allocator)
 	texture_out_path, alloc_err = filepath.join({cache_dir, image_name_dss}, context.temp_allocator)
 	assert(alloc_err == os.ERROR_NONE)
 
-	// checking if it exists already
 	if os.exists(texture_out_path) {
+		// Texture already in the cache. returning the optimized texture
 		return texture_out_path
 	}
 
-	lprintfln("converting texture %v...", image_name)
+	lprintfln("converting texture %v...", image_filepath)
 
 	// create dirs
 	dir_err := os.make_directory_all(cache_dir)
-
 	assert(dir_err == os.ERROR_NONE)
-
-	input_image_dir := filepath.dir(model_filepath)
-	input_image_path, alloc_err_2 := filepath.join({input_image_dir, image_name}, context.temp_allocator)
-
-	assert(alloc_err_2 == .None)
 
 	// Writing data to a file if a data slice was sent (necessary for texconv)
 	if image_data_inner, ok := image_data.?; ok {
-		err := os.write_entire_file_from_bytes(input_image_path, image_data_inner)
+		err := os.write_entire_file_from_bytes(filepath_hash, image_data_inner)
 		assert(err == os.General_Error.None)
 	}
 
-	state, _, _, err := os.process_exec(os.Process_Desc {
+	mip_levels_str_buff: [5]byte
+	mip_levels_str := strconv.write_int(mip_levels_str_buff[:], cast(i64)mip_levels, 10)
+
+	state, stdout, _, err := os.process_exec(os.Process_Desc {
 		command = {
 			"./texconv.exe",
-			"-f", reflect.enum_string(format), // select output format
-			"-m", "0", // all mip levels
+			"-f", reflect.enum_string(out_format), // select output format
+			"-m", mip_levels_str,
 			"-y", // overwrite
 			"-dx10", // force adding dx10 header
 			"-o", cache_dir,
 			"-nologo",
-			input_image_path
+			image_filepath
 		}
 	}, context.temp_allocator)
 
 	// lprintln(string(stdout))
-	// lprintln(string(stderr))
-	assert(state.exited && state.exit_code == 0 && err == os.General_Error.None)
+	if !(state.exited && state.exit_code == 0 && err == os.General_Error.None) {
+		// Something wrong happened. print output
+		lprintfln("TEXCONV ERROR: %v", string(stdout))
+		os.exit(1)
+	}
 
-	lprintfln("texture %v converted correctly", image_name)
+	lprintfln("texture %v converted correctly", image_filepath)
 
 	return texture_out_path
 }
