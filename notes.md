@@ -1,17 +1,15 @@
 # LUCY2D - Todo
 
+- set up the PSO and root signature for sprite rendering. basically, you need to set up
+    everything that the quad shader needs.
+
 - write the shader for vertex pulling.
 
 - it's clear you need to start separating the engine as a LIBRARY, and the engine showcase as an APP.
 - basically, src/main.odin has to be a separate package. just like lucy2d perhaps.
 - maybe you need to break up the pool for all your dx resouces. maybe have DX CORE have its own pool. Etc.
 
-## for lucy2d
-
-- set up a basic pipeline for quads. (do vertex pulling)
-
 # clear color
-
 - don't clear tx lighting out. instead try clearing albedo g buffer. see if that's enough.
 
 # current task

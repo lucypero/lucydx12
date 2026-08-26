@@ -97,7 +97,7 @@ window_new :: proc(window_name:string, width, height: int) {
 	g_lct.psos[.Quad] = pso_create("src/shaders/quads.hlsl", &ct.root_signatures, &ct.resources_longterm, PSOParameters {
 		vertex_input = struct{},
 		blend_state = .Normal,
-		cull_mode = .None,
+		cull_mode = .Back,
 		enable_depth = false,
 		depth_write = false,
 		root_signature = .Standard,
@@ -113,19 +113,13 @@ create_root_signatures :: proc(pool : ^DXResourcePool) -> (root_signatures : [Ro
 	ct := &g_dx_core
 	hr : dx.HRESULT
 
-	root_parameters:= [2]dx.ROOT_PARAMETER {
+	root_parameters:= [?]dx.ROOT_PARAMETER {
 		// This is the index of the CBV on the srv heap
 		{
 			ParameterType = ._32BIT_CONSTANTS,
 			Constants = {ShaderRegister = 0, Num32BitValues = 1},
 			ShaderVisibility = .ALL
 		},
-		// This is the DrawConstants for the mesh drawing
-		{
-			ParameterType = ._32BIT_CONSTANTS,
-			Constants = {ShaderRegister = 1, Num32BitValues = 2},
-			ShaderVisibility = .ALL
-		}
 	}
 
 	sampler_descs := [?]dx.STATIC_SAMPLER_DESC { 
@@ -143,13 +137,14 @@ create_root_signatures :: proc(pool : ^DXResourcePool) -> (root_signatures : [Ro
 			RegisterSpace = 0,
 			ShaderVisibility = .ALL,
 		},
+		// Pixel art sampler
 		{
-			Filter = .COMPARISON_MIN_MAG_LINEAR_MIP_POINT,
-			AddressU = .BORDER,
-			AddressV = .BORDER,
-			AddressW = .BORDER,
+			Filter = .MIN_MAG_MIP_POINT,
+			AddressU = .CLAMP,
+			AddressV = .CLAMP,
+			AddressW = .CLAMP,
 			MipLODBias = 0.0,
-			ComparisonFunc = .LESS_EQUAL,
+			ComparisonFunc = .NEVER,
 			BorderColor = .OPAQUE_WHITE,
 			MinLOD = 0.0,
 			MaxLOD = dx.FLOAT32_MAX,
@@ -238,7 +233,9 @@ window_clear :: proc(color: Color) {
 }
 
 draw_sprite :: proc(pos, size: v2) {
-
+	append(&g_lct.sprites_to_render, Sprite{
+		pos, size
+	})
 }
 
 // draws all the stuff, and resets frame state
@@ -304,10 +301,22 @@ lucy2d_upload_thread_start :: proc() {
 }
 
 pso_quad_render :: proc(pso: PSO) {
-
+	ctd := &g_dx_core
 	ct := &g_lct
 
 	copy_to_buffer_already_mapped(ct.sb_sprites.gpu_pointer, slice.to_bytes(ct.sprites_to_render[:]))
 
-	// here do the draw call
+	// Common render stuff
+	{
+		ctd.cmdlist->SetPipelineState(pso.pipeline_state)
+		ctd.cmdlist->SetDescriptorHeaps(1, &ctd.heap_cbv_srv_uav.heap)
+		ctd.cmdlist->SetGraphicsRootSignature(pso.root_signature)
+		ctd.cmdlist->SetGraphicsRoot32BitConstant(0, cast(u32)ct.cb_general.srv_index, 0)
+		set_viewport_stuff(ct.window_dimensions[0], ct.window_dimensions[1])
+	}
+
+	swapchain_set_as_render_target()
+
+	ctd.cmdlist->IASetPrimitiveTopology(.TRIANGLESTRIP)
+	ctd.cmdlist->DrawInstanced(4, cast(u32)len(ct.sprites_to_render), 0, 0)
 }
