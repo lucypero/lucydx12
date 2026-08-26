@@ -7,14 +7,13 @@ struct Sprite
 	float2 size;
 };
 
-SamplerState g_sampler : register(s0);
+SamplerState g_sampler : register(s1); // nearest neighbor sampler
+int cbv_index: register (b0); // index of my big CBV into the srv heap
 
 struct GeneralConstants {
 	uint sb_sprites_idx; // index of the sprite structured buffer into the resource heap
 	float2 inv_screen; // 1.0 / (width, height)
 };
-
-int cbv_index: register (b0); // index of my big CBV into the srv heap
 
 struct VSOut {
 	float4 pos   : SV_Position;
@@ -41,15 +40,16 @@ VSOut VSMain(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
 		output.pos.xy = sprite.pos + float2(0, sprite.size.y);
 		break;
 	case 2:
-		output.pos.xy = sprite.pos + float2(sprite.size.x, sprite.size.y);
+		output.pos.xy = sprite.pos + float2(sprite.size.x, 0);
 		break;
 	case 3:
-		output.pos.xy = sprite.pos + float2(sprite.size.x, 0);
+		output.pos.xy = sprite.pos + float2(sprite.size.x, sprite.size.y);
 		break;
 	}
 
 	// Converting to homogeneus coord space
-	output.pos.xy = output.pos.xy * general_constants.inv_screen * float2(2, -2) + float2(-1, 1);
+	output.pos.xy = output.pos.xy * general_constants.inv_screen * 2 - 1;
+	// output.pos.xy = output.pos.xy * general_constants.inv_screen * float2(2, 2) + float2(-1, -1);
 
 	return output;
 }

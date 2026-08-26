@@ -41,6 +41,13 @@ swapchain_get_current_target :: proc() -> Texture {
 	return g_dx_core.swapchain.targets[g_dx_core.swapchain.frame_index]
 }
 
+// Sets the swapchain's current frame as the render target on the command list
+swapchain_set_as_render_target :: proc() {
+	tex_swapchain := swapchain_get_current_target()
+	tex_swapchain_cpu_addr := texture_get_rtv_cpu_address(tex_swapchain)
+	g_dx_core.cmdlist->OMSetRenderTargets(1, &tex_swapchain_cpu_addr, false, nil)
+}
+
 swapchain_transition :: proc(state_before, state_after: dx.RESOURCE_STATES) {
 	tex_swapchain := swapchain_get_current_target()
 	transition_resource(tex_swapchain.buffer,
