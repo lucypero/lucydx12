@@ -451,7 +451,7 @@ load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: s
 		image_data = slice.bytes_from_ptr(data_multipointer[image.buffer_view.offset:], cast(int)image.buffer_view.size)
 	}
 
-	texture_final_path := texture_cache_query(model_filepath, image_name, format, image_data)
+	texture_final_path := texture_cache_query(image_name, format, 0, image_data)
 	dds_file := parse_dds_file(texture_final_path)
 
 	texture := texture_create(dds_file.mipmap_data, u64(dds_file.width), dds_file.height,
@@ -483,9 +483,6 @@ gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string
 
 		// base color
 		if mat.pbr_metallic_roughness.base_color_texture.texture != nil {
-			// process base color (BC 7 SRGB)
-			// load mat.pbr_metallic_roughness.base_color_texture.texture.image_
-
 			srv_i := load_texture(mat.pbr_metallic_roughness.base_color_texture.texture.image_, 
 				.BC7_UNORM_SRGB, model_filepath, &scene.resource_pool)
 
@@ -497,9 +494,6 @@ gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string
 
 		// metallic roughness
 		if mat.pbr_metallic_roughness.metallic_roughness_texture.texture != nil {
-			// process metallic roughness (BC 7 UNORM)
-			// load mat.pbr_metallic_roughness.metallic_roughness_texture.texture.image_
-
 			srv_i := load_texture(mat.pbr_metallic_roughness.metallic_roughness_texture.texture.image_,
 				.BC7_UNORM, model_filepath, &scene.resource_pool)
 
@@ -512,9 +506,6 @@ gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string
 
 		// normal
 		if mat.normal_texture.texture != nil {
-			// process normal texture (BC 5 UNORM)
-			// load mat.normal_texture.texture.image_
-
 			srv_i := load_texture(mat.normal_texture.texture.image_,
 				.BC5_UNORM, model_filepath, &scene.resource_pool)
 

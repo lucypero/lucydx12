@@ -1,5 +1,7 @@
 # LUCY2D - Todo
 
+
+
 - set up the PSO and root signature for sprite rendering. basically, you need to set up
     everything that the quad shader needs.
 
