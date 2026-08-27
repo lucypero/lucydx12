@@ -3,6 +3,7 @@ package hookin
 import "core:math/rand"
 import "core:math/linalg"
 import sdl "vendor:sdl2"
+import "audio"
 
 // Importing rendering engine
 import ldx "../src"
@@ -25,10 +26,14 @@ main :: proc() {
 	char_scale : f32 = 0.5
 	food_pos : v2 = {100, 200}
 
+	if !audio.init() do return
+	audio.set_instrument(0, 30)
+
 	tex_player := ldx.texture_load("hookin_sprites/player_01.png")
 	tex_size := ldx.texture_get_size(tex_player)
 
 	for !ldx.window_should_close() {
+		audio.update()
 		kb := ldx.get_keyboard()
 		if kb[sdl.Scancode.ESCAPE] == 1 do break
 		ldx.window_clear(COLOR_BACKGROUND)
@@ -42,6 +47,7 @@ main :: proc() {
 			// spawn the food somewhere else
 			food_pos = {rand.float32_range(0 + 50, WINDOW_WIDTH - 50), rand.float32_range(0 + 50, WINDOW_HEIGHT - 50)}
 			char_scale += 0.1
+			audio.play_note(.C, 6, 0.1, 100, 0)
 		}
 
 		ldx.draw_texture(tex_player, char_pos, {char_scale, char_scale})
