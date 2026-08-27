@@ -550,7 +550,7 @@ main :: proc() {
 
 	defer sdl.DestroyWindow(ct.window)
 
-	init_dx(&g_resources_longterm, ct.window)
+	init_dx(&g_resources_longterm, ct.window, WINDOW_WIDTH, WINDOW_HEIGHT)
 
 	init_dx_user()
 	context_init(ct)
