@@ -33,10 +33,11 @@ Lucy2DContext :: struct {
 SPRITE_MAX_COUNT :: 100
 
 // TODO: do the reflection thing that copies your structs to hlsl
-Sprite :: struct #align (16) {
+Sprite :: struct {
 	pos: v2,
 	size: v2,
 	color: v4,
+	tex_idx: i32
 }
 
 GeneralConstants :: struct #align (256) {
@@ -82,7 +83,7 @@ window_new :: proc(window_name:string, width, height: int) {
 		return
 	}
 
-	init_dx(&g_lct.resources_longterm, ct.window)
+	init_dx(&g_lct.resources_longterm, ct.window, width, height)
 
 	// Creating all root signatures
 	g_lct.root_signatures = create_root_signatures(&g_lct.resources_longterm)

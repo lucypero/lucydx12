@@ -1164,8 +1164,8 @@ texture_cache_query :: proc(
 	image_data: Maybe([]byte) = nil // 
 ) -> (texture_out_path: string) {
 
-	TODO: stop hashing and just store it in the cache in the same dir structure as the original texture;
-	THEN figure out how to have the original functionality for GLTF Files.;
+	// TODO: stop hashing and just store it in the cache in the same dir structure as the original texture;
+	// THEN figure out how to have the original functionality for GLTF Files.;
 
 	alloc_err : runtime.Allocator_Error
 	filepath_hash := hash_thing(image_filepath)
@@ -1945,7 +1945,7 @@ search_for_files_with_ext :: proc(base_path: string, ext: string, files_out: ^[d
 }
 
 // inits all basic dx resources in g_dx_core.
-init_dx :: proc(pool: ^DXResourcePool, window: ^sdl.Window) {
+init_dx :: proc(pool: ^DXResourcePool, window: ^sdl.Window, width, height: int) {
 
 	ct := &g_dx_core
 
@@ -2074,7 +2074,7 @@ init_dx :: proc(pool: ^DXResourcePool, window: ^sdl.Window) {
 		ct.heap_rtv = uber_heap_create(.RTV, pool)
 	}
 
-	ct.swapchain = create_swapchain(ct.factory, ct.queue, pool, window)
+	ct.swapchain = create_swapchain(ct.factory, ct.queue, pool, width, height, window)
 
 	// This fence is used to wait for frames to finish
 	{
@@ -2186,6 +2186,7 @@ create_swapchain :: proc(
 	factory: ^dxgi.IFactory4,
 	queue: ^dx.ICommandQueue,
 	pool : ^DXResourcePool,
+	width, height: int,
 	window: ^sdl.Window) -> (swapchain: Swapchain) {
 
 	// Get the window handle from SDL
@@ -2194,8 +2195,8 @@ create_swapchain :: proc(
 	window_handle := dxgi.HWND(window_info.info.win.window)
 
 	desc := dxgi.SWAP_CHAIN_DESC1 {
-		Width = u32(WINDOW_WIDTH),
-		Height = u32(WINDOW_HEIGHT),
+		Width = u32(width),
+		Height = u32(height),
 		Format = SWAPCHAIN_FORMAT,
 		SampleDesc = {Count = 1, Quality = 0},
 		BufferUsage = {.RENDER_TARGET_OUTPUT},
