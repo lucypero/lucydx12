@@ -11,7 +11,7 @@ import "core:slice"
 import dxgi "vendor:directx/dxgi"
 import "core:mem/virtual"
 import dxma "../libs/odin-d3d12ma"
-import "../../third_party/meshopt"
+import meshopt "../libs/meshoptimizer"
 
 import "core:prof/spall"
 _ :: spall // To make the vet go away

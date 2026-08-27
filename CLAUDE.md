@@ -11,6 +11,16 @@ top of a single shared D3D12 foundation:
 
 ---
 
+## 🚫 Consultation only — do not edit
+
+**Do not make any edits to files in this repository until Lucy explicitly tells you to.**
+Lucy works with Claude here for consultation: analysis, explanation, design discussion, and
+answering questions from the source that already exists. Investigate, reason, and report back.
+Wait for an explicit instruction before writing or changing any file (this note being the one
+exception that established the rule).
+
+---
+
 ## ⚠️ Package layout (read this first)
 
 **Everything under `src/` is a single Odin package named `main`.** That includes
