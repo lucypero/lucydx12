@@ -1,19 +1,12 @@
 # LUCY2D - Todo
 
 
+- think about the API for rendering sprites. the size. should it respect the texture's size? which size is the canon size?
 
 
 - it's clear you need to start separating the engine as a LIBRARY, and the engine showcase as an APP.
 - basically, src/main.odin has to be a separate package. just like lucy2d perhaps.
 - maybe you need to break up the pool for all your dx resouces. maybe have DX CORE have its own pool. Etc.
-
-# current task
-
-- Update the bindings to this so you can generate normals. make a PR:
-
-it uses karl's binding generator. should be straight forward!!
-
-https://github.com/GloriousPtr/odin-meshoptimizer/tree/main
 
 # pipeline refactoring - todo
 

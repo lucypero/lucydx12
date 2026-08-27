@@ -27,7 +27,8 @@ Lucy2DContext :: struct {
 	sprites_to_render: [dynamic]Sprite,
 	cb_general: ConstantBufferUpload,
 	clear_color_issued: Maybe(v4),
-	window_should_close: bool
+	window_should_close: bool,
+	loaded_textures: map[int]Texture,
 }
 
 SPRITE_MAX_COUNT :: 100
@@ -53,6 +54,10 @@ window_new :: proc(window_name:string, width, height: int) {
 
 	// set up allocators?
 	g_lct.upload_thread = thread.create_and_start(lucy2d_upload_thread_start)
+
+	// Set up dynamic fields
+	g_lct.sprites_to_render = make([dynamic]Sprite, 0, 20)
+	g_lct.loaded_textures = make(map[int]Texture)
 
 	// setting up resource pool for buffers tied to window size
 	g_lct.resources_resizing = make([dynamic]^dx.IUnknown)
@@ -340,10 +345,40 @@ window_should_close :: proc() -> bool {
 	return g_lct.window_should_close
 }
 
-texture_load :: proc(image_filepath: string) -> Texture {
+texture_load :: proc(image_filepath: string) -> int {
 	texture_dds_path := texture_cache_query(image_filepath, .BC7_UNORM_SRGB, 1, nil)
 	dds_file := parse_dds_file(texture_dds_path)
 	texture := texture_create(dds_file.mipmap_data, u64(dds_file.width), dds_file.height,
 		dds_file.format, &g_lct.resources_longterm, view_flags = {.SRV}, mip_levels = len(dds_file.mipmap_data), texture_name = string(image_filepath))
-	return texture
+
+	tid := texture.srv_index
+	g_lct.loaded_textures[tid] = texture
+	return tid
+}
+
+// Draws texture at the texture's resolution, scaled up given a `scale`
+draw_texture :: proc(tex_id: int, pos: v2, scale := v2{1,1}) {
+	tex, found := &g_lct.loaded_textures[tex_id]
+	ensure(found)
+
+	append(&g_lct.sprites_to_render, Sprite{
+		pos = pos,
+		size = v2{cast(f32)tex.width, cast(f32)tex.height} * scale,
+		tex_idx = cast(i32)tex.srv_index
+	})
+}
+
+// Draws a solid color rect sized by `size`
+draw_solid_rect :: proc(pos, size: v2, color: Color) {
+	append(&g_lct.sprites_to_render, Sprite{
+		pos = pos,
+		size = size,
+		color = color
+	})
+}
+
+texture_get_size :: proc(tex_id: int) -> v2i {
+	tex, found := &g_lct.loaded_textures[tex_id]
+	ensure(found)
+	return {tex.width, tex.height}
 }
