@@ -41,11 +41,16 @@ Textures :: struct {
 }
 
 g_textures: Textures
+g_char_pos: v2
+g_boxes: [dynamic]AABB
+g_char_tex_size: v2
 
 main :: proc() {
 	ldx.window_new("hookin", WINDOW_WIDTH, WINDOW_HEIGHT)
-	char_pos : v2 = {100, 100}
+	g_char_pos = {100, 100}
 	char_scale : f32 = 1
+	g_boxes = make([dynamic]AABB, 0, 20)
+	append(&g_boxes, AABB{{400, 600}, {100, 200}})
 
 	if !audio.init() do return
 	audio.set_instrument(0, 30)
@@ -57,6 +62,9 @@ main :: proc() {
 	g_textures.crate_stone = ldx.texture_load("hookin_sprites/sokoban-pack/Blocks/block_02.png")
 	g_textures.goal = ldx.texture_load("hookin_sprites/sokoban-pack/Environment/environment_10.png")
 	g_textures.pit = ldx.texture_load("hookin_sprites/sokoban-pack/Environment/environment_06.png")
+
+	char_tex_size_i := ldx.texture_get_size(g_textures.player)
+	g_char_tex_size = v2{cast(f32)char_tex_size_i.x, cast(f32)char_tex_size_i.y}
 
 	// constructing map
 	cell_tex_size := ldx.texture_get_size(g_textures.wall)
@@ -79,20 +87,42 @@ main :: proc() {
 		kb := ldx.get_keyboard()
 		if kb[sdl.Scancode.ESCAPE] == 1 do break
 		ldx.window_clear(COLOR_BACKGROUND)
-		if kb[sdl.Scancode.A] == 1 do char_pos.x -= CHARACTER_SPEED
-		if kb[sdl.Scancode.D] == 1 do char_pos.x += CHARACTER_SPEED
-		if kb[sdl.Scancode.W] == 1 do char_pos.y += CHARACTER_SPEED
-		if kb[sdl.Scancode.S] == 1 do char_pos.y -= CHARACTER_SPEED
 
-		// Rendering the map
+		// Update game logic
+
+		// Update player's AABB
+		if kb[sdl.Scancode.A] == 1 do character_move({-CHARACTER_SPEED, 0})
+		if kb[sdl.Scancode.D] == 1 do character_move({CHARACTER_SPEED, 0})
+		if kb[sdl.Scancode.W] == 1 do character_move({0, CHARACTER_SPEED})
+		if kb[sdl.Scancode.S] == 1 do  character_move({0, -CHARACTER_SPEED})
+
+		// Drawing everything
 		map_draw(the_map)
-
-		ldx.draw_texture(g_textures.player, char_pos, {char_scale, char_scale})
-
+		ldx.draw_texture(g_textures.player, g_char_pos, {char_scale, char_scale})
 		ldx.present()
 	}
 
 	ldx.window_cleanup()
+}
+
+character_move :: proc(dir: v2) {
+
+	pos_future := g_char_pos + dir
+
+	hit_thing := false
+
+	aabb_player := AABB{{0,g_char_tex_size.x}, {0,g_char_tex_size.y}}
+
+	aabb_future := aabb_translate(aabb_player, pos_future)
+
+	for b in g_boxes {
+		if aabb_do_collide(aabb_future, b) {
+			hit_thing = true
+			return
+		}
+	}
+
+	g_char_pos = pos_future
 }
 
 map_draw :: proc(the_map: Map) {
@@ -131,4 +161,24 @@ map_draw :: proc(the_map: Map) {
 			}
 		}
 	}
+}
+
+Interval :: struct{min,max:f32}
+
+interval_collide :: proc(a,b :Interval) -> bool {
+	return a.max > b.min && a.min < b.max
+}
+
+interval_add :: proc(interval : Interval, sum: f32) -> Interval {
+	return {interval.min + sum, interval.max + sum}
+}
+
+AABB :: struct{x, y: Interval}
+
+aabb_do_collide :: proc(a, b: AABB) -> bool{
+	return interval_collide(a.x, b.x) && interval_collide(a.y, b.y)
+}
+
+aabb_translate :: proc(aabb:AABB, pos: v2) -> AABB {
+	return AABB{interval_add(aabb.x, pos.x), interval_add(aabb.y, pos.y)}
 }
