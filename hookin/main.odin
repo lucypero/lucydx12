@@ -53,7 +53,8 @@ main :: proc() {
 	append(&g_boxes, AABB{{400, 600}, {100, 200}})
 
 	if !audio.init() do return
-	audio.set_instrument(0, 30)
+	//audio.set_instrument(0, 30)
+	midi_track := audio.load_midi_file("hookin/audio/ct600ad.mid")
 
 	g_textures.player = ldx.texture_load("hookin_sprites/sokoban-pack/Player/player_01.png")
 	g_textures.crate_wood = ldx.texture_load("hookin_sprites/sokoban-pack/Crates/crate_07.png")
@@ -82,6 +83,8 @@ main :: proc() {
 		}
 	}
 
+	audio.play_midi(&midi_track)
+	frame := 0
 	for !ldx.window_should_close() {
 		audio.update()
 		kb := ldx.get_keyboard()
@@ -89,6 +92,11 @@ main :: proc() {
 		ldx.window_clear(COLOR_BACKGROUND)
 
 		// Update game logic
+		frame += 1
+		if frame % 50 == 0
+		{
+			audio.play_note(.C, 2, 0.1, 127, 9)
+		}
 
 		// Update player's AABB
 		if kb[sdl.Scancode.A] == 1 do character_move({-CHARACTER_SPEED, 0})

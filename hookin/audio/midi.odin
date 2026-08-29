@@ -19,14 +19,14 @@ foreign winmm {
 // standard 12-tone notes with enharmonic equivalents
 Notes :: enum {
 	C = 0,
-	Cs = 1, Db = 1, 
+	Cs = 1,  Db = 1, 
 	D = 2,
-	Ds = 3, Eb = 3,
+	Ds = 3,  Eb = 3,
 	E = 4,
 	F = 5,
-	Fs = 6, Gb = 6,
+	Fs = 6,  Gb = 6,
 	G = 7,
-	Gs = 8, Ab = 8,
+	Gs = 8,  Ab = 8,
 	A = 9,
 	As = 10, Bb = 10,
 	B = 11,
@@ -68,6 +68,8 @@ destroy :: proc() {
 		}
 		delete(g_active_notes)
 
+		if g_playback.tracks != nil do delete(g_playback.tracks)
+
 		midiOutClose(g_midi_device)
 		g_midi_device = nil
 	}
@@ -80,11 +82,69 @@ update :: proc() {
 
 	now := time.now()
 
+	// process single note events (play_note)
 	// iterate backwards to safely remove
 	#reverse for note, i in g_active_notes {
 		if time.diff(now, note.end_time) <= 0 {
 			midiOutShortMsg(g_midi_device, note.off_msg)
 			unordered_remove(&g_active_notes, i)
+		}
+	}
+
+	// process file playback
+	if g_playback.is_playing && g_playback.file != nil {
+		dt_sec := time.duration_seconds(time.diff(g_playback.last_time, now))
+		g_playback.last_time = now
+
+		// calculate frametime and convert to midi ticks
+		sec_per_qn := f64(g_playback.tempo_us_per_qn) / 1_000_000.0
+		sec_per_tick := sec_per_qn / f64(g_playback.file.division)
+		ticks_to_process := dt_sec / sec_per_tick
+
+		all_finished := true
+
+		// loop through all tracks, skipping finished tracks and subtracting
+		// time from active track timers
+		for track_idx in 0..<len(g_playback.tracks) {
+			tp := &g_playback.tracks[track_idx]
+			if tp.finished do continue
+
+			all_finished = false
+			tp.tick_timer -= ticks_to_process
+			track := &g_playback.file.tracks[track_idx]
+
+			// loop all events that have expired timers (this could be multiple events
+			// for things like chords)
+			for tp.tick_timer <= 0 && !tp.finished {
+				ev := &track.events[tp.event_idx]
+
+				if ev.type == .Midi {
+					// for standard midi note, construct the u32 data and fire the message
+					msg := u32(ev.status) | (u32(ev.data1) << 8) | (u32(ev.data2) << 16)
+					midiOutShortMsg(g_midi_device, msg)
+				} else if ev.type == .Meta {
+					// if a set tempo (0x51) meta event, pack, calculate and set new tempo
+					if ev.meta_type == 0x51 && len(ev.meta_data) == 3 {
+						g_playback.tempo_us_per_qn = (u32(ev.meta_data[0]) << 16) | 
+						(u32(ev.meta_data[1]) << 8) | 
+						u32(ev.meta_data[2])
+					}
+				}
+
+				// advance to next event, adding next event delay to timer
+				// if no more events, mark finished
+				tp.event_idx += 1
+				if tp.event_idx >= len(track.events) {
+					tp.finished = true
+				} else {
+					next_ev := track.events[tp.event_idx]
+					tp.tick_timer += f64(next_ev.delta_ticks)
+				}
+			}
+		}
+
+		if all_finished {
+			g_playback.is_playing = false
 		}
 	}
 }
@@ -115,13 +175,14 @@ play_note :: proc(note: Notes, octave: int, duration: f32, velocity, channel: in
 
 	velocity: u32 = u32(velocity) 
 
-	// 0x90 status byte to signal note_on
-	status := u32(0x90) | ch
+	// 0x90 status byte to signal note_on, 0x80 for note_off
+	status_on  := u32(0x90) | ch
+	status_off := u32(0x80) | ch
 
 	// message structure
 	// u32 {(unused byte)(velocity byte)(note byte)(status byte)}
-	msg_on  := status  | (note_val << 8) | (velocity << 16)
-	msg_off := status | (note_val << 8) | (0 << 16)
+	msg_on  := status_on  | (note_val << 8) | (velocity << 16)
+	msg_off := status_off | (note_val << 8) | (64 << 16)
 
 	// send note immediately and append to tracker
 	if duration > 0 {
@@ -163,6 +224,25 @@ MidiFile :: struct {
 	tracks:   []MidiTrack,	// the various event tracks that belong to the .mid file
 }
 
+// playback state
+
+TrackPlayback :: struct {
+	event_idx:  int,
+	tick_timer: f64, // how many ticks till next event fires
+	finished:   bool,
+}
+
+Midi_Playback_State :: struct {
+	file:            ^MidiFile,
+	is_playing:      bool,
+	tempo_us_per_qn: u32, 				// tempo in microseconds per quarter-note
+	tracks:          []TrackPlayback,
+	last_time:       time.Time,
+}
+
+@(private)
+g_playback: Midi_Playback_State
+
 // binary parsing helpers
 
 // midi uses big endian, helpers return values in little endian so we can work with them easier
@@ -200,8 +280,7 @@ read_vlq :: proc(data: []u8, offset: ^int) -> u32 {
 load_midi_file :: proc(filepath: string) -> MidiFile {
 	file: MidiFile
 	data, ok := os.read_entire_file_from_path(filepath, context.allocator)
-	if ok != .SUCCESS
-	{
+	if ok != .SUCCESS {
 		log.warn("Failed to read file: ", filepath)
 		return {}
 	}
@@ -219,8 +298,7 @@ load_midi_file :: proc(filepath: string) -> MidiFile {
 	// start of first track MTrk chunk
 
 	// check if file is large enough to contain header and look for 'MThd' string to validate as .mid file
-	if offset + 14 > len(data) || data[0] != 'M' || data[1] != 'T' || data[2] != 'h' || data[3] != 'd'
-	{
+	if offset + 14 > len(data) || data[0] != 'M' || data[1] != 'T' || data[2] != 'h' || data[3] != 'd' {
 		log.warn("Failed to validate midi file: ", filepath)
 		delete(file.raw_data)
 		return {}
@@ -289,13 +367,13 @@ load_midi_file :: proc(filepath: string) -> MidiFile {
 				length := int(read_vlq(data, &offset))
 				ev.meta_data = data[offset : offset+length]
 				offset += length
-			// handle SysEx events
+				// handle SysEx events
 			} else if running_status == 0xF0 || running_status == 0xF7 {
 				ev.type = .SysEx
 				length := int(read_vlq(data, &offset))
 				ev.meta_data = data[offset : offset+length]
 				offset += length
-			// handle standard midi events
+				// handle standard midi events
 			} else {
 				ev.type = .Midi
 				// the bottom four bits of status byte are channel information
@@ -318,6 +396,39 @@ load_midi_file :: proc(filepath: string) -> MidiFile {
 	return file
 }
 
+play_midi :: proc(file: ^MidiFile) {
+	// clear tracks if something was already playing
+	if g_playback.tracks != nil {
+		delete(g_playback.tracks)
+	}
+
+	g_playback.file = file
+	g_playback.is_playing = true
+	g_playback.tempo_us_per_qn = 500000 // 500000qn == 120bpm, set to default tempo
+	g_playback.last_time = time.now()
+	g_playback.tracks = make([]TrackPlayback, len(file.tracks))
+
+	// set timer of every track to the delay time of first event, empty tracks get marked finished
+	for track, i in file.tracks {
+		if len(track.events) > 0 {
+			g_playback.tracks[i].tick_timer = f64(track.events[0].delta_ticks)
+		} else {
+			g_playback.tracks[i].finished = true
+		}
+	}
+}
+
+stop_midi :: proc() {
+	g_playback.is_playing = false
+	if g_midi_device == nil do return
+
+	// set note off messages to every channel to avoid hanging notes
+	for ch in 0..<16 {
+		msg := u32(0xB0) | u32(ch) | (123 << 8) | (0 << 16)
+		midiOutShortMsg(g_midi_device, msg)
+	}
+}
+
 destroy_midi_file :: proc(file: ^MidiFile) {
 	for track in file.tracks {
 		delete(track.events)
@@ -326,3 +437,4 @@ destroy_midi_file :: proc(file: ^MidiFile) {
 	delete(file.raw_data)
 	file.raw_data = nil
 }
+
