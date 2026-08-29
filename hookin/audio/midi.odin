@@ -46,18 +46,20 @@ g_active_notes: [dynamic]Active_Note
 
 
 // init windows multimedia device and return true on success
-init :: proc() -> bool {
+@(require_results)
+init :: proc() -> (success: bool) {
+	success = true
 	// DeviceID of 0xFFFFFFFF tells windows to route midi to systems default synth
 	MIDI_MAPPER : u32 = 0xFFFFFFFF
 	res := midiOutOpen(&g_midi_device, MIDI_MAPPER, 0, 0, 0)
 
 	if res != 0 {
 		log.warn("Failed to initialize windows multimedia device!")
-		return false
+		success = false
+		return
 	}
-
 	g_active_notes = make([dynamic]Active_Note)
-	return true
+	return
 }
 
 destroy :: proc() {
@@ -277,15 +279,17 @@ read_vlq :: proc(data: []u8, offset: ^int) -> u32 {
 
 // midi loading and playback code
 
-load_midi_file :: proc(filepath: string) -> MidiFile {
-	file: MidiFile
-	data, ok := os.read_entire_file_from_path(filepath, context.allocator)
-	if ok != .SUCCESS {
+load_midi_file :: proc(filepath: string) -> (file: MidiFile, success: bool) {
+	success = true
+	data, err := os.read_entire_file_from_path(filepath, context.allocator)
+	if err != .SUCCESS {
 		log.warn("Failed to read file: ", filepath)
-		return {}
+		success = false
+		return
 	}
 
 	file.raw_data = data
+	defer if !success do destroy_midi_file(&file)
 	offset := 0
 
 	// standard midi header
@@ -300,8 +304,8 @@ load_midi_file :: proc(filepath: string) -> MidiFile {
 	// check if file is large enough to contain header and look for 'MThd' string to validate as .mid file
 	if offset + 14 > len(data) || data[0] != 'M' || data[1] != 'T' || data[2] != 'h' || data[3] != 'd' {
 		log.warn("Failed to validate midi file: ", filepath)
-		delete(file.raw_data)
-		return {}
+		success = false
+		return
 	}
 	offset += 4
 
@@ -325,12 +329,8 @@ load_midi_file :: proc(filepath: string) -> MidiFile {
 		// check length and validate MTrk chunk
 		if offset + 8 > len(data) || data[offset] != 'M' || data[offset+1] != 'T' || data[offset+2] != 'r' || data[offset+3] != 'k' {
 			log.warn("Failed to parse MTrk chunk, invalid or corrupted file!")
-			delete(file.raw_data)
-			for track in file.tracks {
-				delete(track.events)
-			}
-			delete(file.tracks)
-			return {}
+			success = false
+			return
 		}
 		offset += 4
 
@@ -393,7 +393,7 @@ load_midi_file :: proc(filepath: string) -> MidiFile {
 			append(&track.events, ev)
 		}
 	}
-	return file
+	return
 }
 
 play_midi :: proc(file: ^MidiFile) {

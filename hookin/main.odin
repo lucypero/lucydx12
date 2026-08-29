@@ -52,9 +52,14 @@ main :: proc() {
 	g_boxes = make([dynamic]AABB, 0, 20)
 	append(&g_boxes, AABB{{400, 600}, {100, 200}})
 
-	if !audio.init() do return
-	//audio.set_instrument(0, 30)
-	midi_track := audio.load_midi_file("hookin/audio/ct600ad.mid")
+	ok := audio.init()
+	if !ok {
+		// handle error
+	}
+	midi_track, success := audio.load_midi_file("hookin/audio/ct600ad.mid")
+	if !success {
+		// handle error
+	}
 
 	g_textures.player = ldx.texture_load("hookin_sprites/sokoban-pack/Player/player_01.png")
 	g_textures.crate_wood = ldx.texture_load("hookin_sprites/sokoban-pack/Crates/crate_07.png")
@@ -73,8 +78,7 @@ main :: proc() {
 	the_map : Map = {
 		v2{50, WINDOW_HEIGHT - 50 - cast(f32)cell_tex_size.y},
 		v2{1,1},
-		cell_tex_size_f,
-		{
+		cell_tex_size_f, {
 			{.Wall, .Wall, .Wall, .Wall, .Wall, .Wall, .Wall},
 			{.Wall, .Ground, .Ground, .Pit, .Ground, .CrateStone, .Wall},
 			{.Wall, .Ground, .Ground, .Pit, .Goal, .Ground, .Wall},
@@ -93,8 +97,7 @@ main :: proc() {
 
 		// Update game logic
 		frame += 1
-		if frame % 50 == 0
-		{
+		if frame % 50 == 0 {
 			audio.play_note(.C, 2, 0.1, 127, 9)
 		}
 
@@ -147,11 +150,10 @@ map_draw :: proc(the_map: Map) {
 			}
 
 			if cell == .Pit {
-				ldx.draw_solid_rect(
-					{
-						the_map.pos.x + cast(f32)column_i * the_map.cell_tex_size.x * the_map.scale.x,
-						the_map.pos.y - cast(f32)row_i * the_map.cell_tex_size.y * the_map.scale.y
-					}, the_map.cell_tex_size * the_map.scale, COLOR_BLACK)
+				ldx.draw_solid_rect( {
+					the_map.pos.x + cast(f32)column_i * the_map.cell_tex_size.x * the_map.scale.x,
+					the_map.pos.y - cast(f32)row_i * the_map.cell_tex_size.y * the_map.scale.y
+				}, the_map.cell_tex_size * the_map.scale, COLOR_BLACK)
 			}
 
 			ldx.draw_texture(
