@@ -8,8 +8,11 @@ import "audio"
 // Importing rendering engine
 import ldx "../src"
 
+v2i :: ldx.v2i
 v2 :: ldx.v2
 v4 :: ldx.v4
+
+Coord :: v2i
 
 WINDOW_WIDTH :: 1000
 WINDOW_HEIGHT :: 500
@@ -33,6 +36,7 @@ Tile :: enum {
 Map :: struct {
 	pos, scale: v2,
 	cell_tex_size: v2,
+	player_spawn_coord: Coord,
 	tiles: [][]Tile
 }
 
@@ -70,20 +74,40 @@ main :: proc() {
 	g_char_tex_size = v2{cast(f32)char_tex_size_i.x, cast(f32)char_tex_size_i.y}
 
 	// constructing map
-	cell_tex_size := ldx.texture_get_size(g_textures.wall)
-	cell_tex_size_f := v2{cast(f32)cell_tex_size.x, cast(f32)cell_tex_size.y}
-	the_map : Map = {
-		v2{50, WINDOW_HEIGHT - 50 - cast(f32)cell_tex_size.y},
-		v2{1,1},
-		cell_tex_size_f, 
-		{
+	the_map: Map
+	{
+		cell_tex_size := ldx.texture_get_size(g_textures.wall)
+		cell_tex_size_f := v2{cast(f32)cell_tex_size.x, cast(f32)cell_tex_size.y}
+
+		map_tiles : [][]Tile = {
 			{.Wall, .Wall, .Wall, .Wall, .Wall, .Wall, .Wall},
 			{.Wall, .Ground, .Ground, .Pit, .Ground, .CrateStone, .Wall},
 			{.Wall, .Ground, .Ground, .Pit, .Goal, .Ground, .Wall},
 			{.Wall, .PlayerSpawn, .Ground, .Pit, .Ground, .Ground, .Wall},
 			{.Wall, .Wall, .Wall, .Wall, .Wall, .Wall, .Wall}
 		}
+
+		player_spawn_coord : Coord
+
+		outer: for row_i, y in map_tiles {
+			for col_i, x in row_i {
+				if col_i == .PlayerSpawn {
+					player_spawn_coord = {x, y}
+					break outer
+				}
+			}
+		}
+
+		the_map = {
+			v2{50, WINDOW_HEIGHT - 50 - cell_tex_size_f.y},
+			v2{1,1},
+			cell_tex_size_f, 
+			player_spawn_coord,
+			map_tiles
+		}
 	}
+
+	g_char_pos = map_coord_to_world_pos(the_map, the_map.player_spawn_coord)
 
 	audio.play_midi(&midi_track)
 	frame := 0
@@ -188,4 +212,16 @@ aabb_do_collide :: proc(a, b: AABB) -> bool{
 
 aabb_translate :: proc(aabb:AABB, pos: v2) -> AABB {
 	return AABB{interval_add(aabb.x, pos.x), interval_add(aabb.y, pos.y)}
+}
+
+map_coord_to_world_pos :: proc(the_map: Map, coord: Coord) -> v2 {
+
+	coord_f := v2i_to_v2(coord)
+	coord_f.y *= -1
+
+	return the_map.pos + the_map.cell_tex_size * the_map.scale * coord_f
+}
+
+v2i_to_v2 :: proc(coord: v2i) -> v2 {
+	return {cast(f32)coord.x, cast(f32)coord.y}
 }
