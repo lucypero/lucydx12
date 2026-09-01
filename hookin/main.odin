@@ -1,5 +1,7 @@
 package hookin
 
+import "core:math"
+// import "core:math/linalg"
 // import "core:math/rand"
 // import "core:math/linalg"
 import sdl "vendor:sdl2"
@@ -20,8 +22,16 @@ COLOR_BACKGROUND :: v4{0.773, 0.686, 0.643,1}
 COLOR_CHARACTER :: v4{0.8, 0.494, 0.522, 1}
 COLOR_FOOD :: v4{0.639, 0.427, 0.565, 1}
 COLOR_BLACK :: v4{0,0,0,1}
-CHARACTER_SPEED :: 1
+CHARACTER_SPEED :: 3
 CHARACTER_SIZE :: 64
+
+// Collision Box
+
+Box :: struct {
+	pos : v2, // position of top left of the box
+	size: v2, // dimensions
+	vel: v2,  // velocity
+}
 
 Tile :: enum {
 	Wall,
@@ -44,14 +54,16 @@ Textures :: struct {
 	player, crate_wood, ground, wall, crate_stone, goal, pit: int
 }
 
+Player :: struct {
+	using box: Box,// box for collision
+	texture_size: v2,
+}
+
 g_textures: Textures
-g_char_pos: v2
-g_char_tex_size: v2
+g_player : Player
 
 main :: proc() {
 	ldx.window_new("hookin", WINDOW_WIDTH, WINDOW_HEIGHT)
-	g_char_pos = {120, 300}
-	char_scale : f32 = 1
 
 	ok := audio.init()
 	if !ok {
@@ -71,7 +83,8 @@ main :: proc() {
 	g_textures.pit = ldx.texture_load("hookin_sprites/sokoban-pack/Environment/environment_06.png")
 
 	char_tex_size_i := ldx.texture_get_size(g_textures.player)
-	g_char_tex_size = v2{cast(f32)char_tex_size_i.x, cast(f32)char_tex_size_i.y}
+	g_player.texture_size = v2i_to_v2(char_tex_size_i)
+	g_player.box.size = g_player.texture_size
 
 	// constructing map
 	the_map: Map
@@ -107,10 +120,18 @@ main :: proc() {
 		}
 	}
 
-	g_char_pos = map_coord_to_world_pos(the_map, the_map.player_spawn_coord)
+	// Placing player at position
+	g_player.pos = map_coord_to_world_pos(the_map, the_map.player_spawn_coord)
 
 	audio.play_midi(&midi_track)
 	frame := 0
+
+	box_test := Box {
+		{500, 200},
+		{100, 100},
+		{0,0}
+	}
+
 	for !ldx.window_should_close() {
 		audio.update()
 		kb := ldx.get_keyboard()
@@ -123,47 +144,74 @@ main :: proc() {
 			audio.play_note(.C, 2, 0.1, 127, 9)
 		}
 
-		if kb[sdl.Scancode.A] == 1 do character_move({-CHARACTER_SPEED, 0}, the_map)
-		if kb[sdl.Scancode.D] == 1 do character_move({CHARACTER_SPEED, 0}, the_map)
-		if kb[sdl.Scancode.W] == 1 do character_move({0, CHARACTER_SPEED}, the_map)
-		if kb[sdl.Scancode.S] == 1 do  character_move({0, -CHARACTER_SPEED}, the_map)
+		// Moving player
+		{
+			vel : v2
+
+			if kb[sdl.Scancode.A] == 1 do vel.x = -CHARACTER_SPEED
+			if kb[sdl.Scancode.D] == 1 do vel.x = CHARACTER_SPEED
+			if kb[sdl.Scancode.W] == 1 do vel.y = CHARACTER_SPEED
+			if kb[sdl.Scancode.S] == 1 do vel.y = -CHARACTER_SPEED
+
+			// vel = linalg.normalize(vel)
+
+			// g_player.vel = {CHARACTER_SPEED, 0}
+			g_player.vel = vel
+
+			// character_move(the_map)
+			// g_player.pos += g_player.box.vel
+
+			move_and_slide(&g_player.box, box_test)
+		}
 
 		// Drawing everything
-		map_draw(the_map)
-		ldx.draw_texture(g_textures.player, g_char_pos, {char_scale, char_scale})
+		{
+			map_draw(the_map)
+
+			// Draw the player
+			ldx.draw_texture(g_textures.player, g_player.pos)
+
+			// Draw player hitbox
+			ldx.draw_solid_rect(g_player.pos, g_player.size, {1,0,0,0.5})
+
+			// draw test box
+			ldx.draw_solid_rect(box_test.pos, box_test.size, COLOR_BLACK)
+		}
+
 		ldx.present()
 	}
 
 	ldx.window_cleanup()
 }
 
-character_move :: proc(dir: v2, the_map: Map) {
+// Move and slide
+// character_move :: proc(the_map: Map) {
 
-	pos_future := g_char_pos + dir
+// 	pos_future := g_char_pos + dir
 
-	hit_thing := false
+// 	hit_thing := false
 
-	aabb_player := AABB{{0,g_char_tex_size.x}, {0,g_char_tex_size.y}}
+// 	aabb_player := AABB{{0,g_char_tex_size.x}, {0,g_char_tex_size.y}}
 
-	aabb_future := aabb_translate(aabb_player, pos_future)
+// 	aabb_future := aabb_translate(aabb_player, pos_future)
 
-	for row, row_i in the_map.tiles {
-		for cell, column_i in row {
-			#partial switch cell {
-			case .Wall, .CrateWood,.CrateStone:
-				pos, size := map_get_tile_pos_size(the_map, row_i, column_i)
-				aabb_tile := aabb_translate(AABB{{0,size.x}, {0,size.y}}, pos)
-				if aabb_do_collide(aabb_future, aabb_tile) {
-					hit_thing = true
-					return
-				}
-			case:
-				continue
-			}
-		}
-	}
-	g_char_pos = pos_future
-}
+// 	for row, row_i in the_map.tiles {
+// 		for cell, column_i in row {
+// 			#partial switch cell {
+// 			case .Wall, .CrateWood,.CrateStone:
+// 				pos, size := map_get_tile_pos_size(the_map, row_i, column_i)
+// 				aabb_tile := aabb_translate(AABB{{0,size.x}, {0,size.y}}, pos)
+// 				if aabb_do_collide(aabb_future, aabb_tile) {
+// 					hit_thing = true
+// 					return
+// 				}
+// 			case:
+// 				continue
+// 			}
+// 		}
+// 	}
+// 	g_char_pos = pos_future
+// }
 
 map_get_tile_pos_size :: proc(the_map: Map, row_i, column_i: int) -> (v2, v2) {
 	return {
@@ -206,6 +254,7 @@ interval_add :: proc(interval : Interval, sum: f32) -> Interval {
 
 AABB :: struct{x, y: Interval}
 
+// True if there's a collision between the AABB's
 aabb_do_collide :: proc(a, b: AABB) -> bool{
 	return interval_collide(a.x, b.x) && interval_collide(a.y, b.y)
 }
@@ -224,4 +273,115 @@ map_coord_to_world_pos :: proc(the_map: Map, coord: Coord) -> v2 {
 
 v2i_to_v2 :: proc(coord: v2i) -> v2 {
 	return {cast(f32)coord.x, cast(f32)coord.y}
+}
+
+aabb_swept :: proc(b1, b2 :Box) -> (collision_time: f32, collision_normal: v2) {
+
+
+
+
+
+	inv_entry : v2
+	inv_exit : v2
+
+	// find the distance between the objects on the near and far sides for both x and y 
+	if b1.vel.x > 0.0 {
+		inv_entry.x = b2.pos.x - (b1.pos.x + b1.size.x)
+		inv_exit.x = (b2.pos.x + b2.size.x) - b1.pos.x
+	} else {
+		inv_entry.x = (b2.pos.x + b2.size.x) - b1.pos.x
+		inv_exit.x = b2.pos.x - (b1.pos.x + b1.size.x)
+	} 
+
+	if b1.vel.y > 0.0 {
+		inv_entry.y = b2.pos.y - (b1.pos.y + b1.size.y)
+		inv_exit.y = (b2.pos.y + b2.size.y) - b1.pos.y
+	} else {
+		inv_entry.y = (b2.pos.y + b2.size.y) - b1.pos.y
+		inv_exit.y = b2.pos.y - (b1.pos.y + b1.size.y)
+	}
+
+	// find time of collision and time of leaving for each axis (if statement is to prevent divide by zero) 
+	entry, exit: v2
+
+	if (b1.vel.x == 0.0) {
+		entry.x = math.inf_f32(-1)
+		exit.x = math.inf_f32(1)
+	} else {
+		entry.x = inv_entry.x / b1.vel.x; 
+		exit.x = inv_exit.x / b1.vel.x; 
+	} 
+
+	if (b1.vel.y == 0.0) {
+		entry.y = math.inf_f32(-1)
+		exit.y = math.inf_f32(1)
+	} else {
+		entry.y = inv_entry.y / b1.vel.y; 
+		exit.y = inv_exit.y / b1.vel.y; 
+	}
+
+	// find the earliest/latest times of collisionfloat 
+	entry_time := max(entry.x, entry.y)
+	exit_time := min(exit.x, exit.y)
+
+	// if there was no collision
+	if ((entry_time > exit_time) || (entry.x < 0.0 && entry.y < 0.0) || (entry.x > 1.0) || (entry.y > 1.0)) {
+		collision_normal = {0, 0}
+		collision_time = 1.0
+	} else {  // if there was a collision
+		// calculate normal of collided surface
+		if (entry.x > entry.y) {
+			if (inv_entry.x < 0.0) {
+				collision_normal = {1,0}
+			} else {
+				collision_normal = {-1, 0}
+			} 
+		} else {
+			if (inv_entry.y < 0.0) {
+				collision_normal = {0,1}
+			} else {
+				collision_normal = {0,-1}
+			} 
+		} // return the time of collisionreturn entryTime; 
+		collision_time = entry_time
+	}
+
+	return
+}
+
+// Collision: Testing player against box
+move_and_slide :: proc(moving_box: ^Box, static_box: Box) {
+
+	box_broadphase := box_get_broadphase(moving_box^)
+
+	if box_does_hit_box(box_broadphase, static_box) {
+		col_time, col_normal := aabb_swept(moving_box^, static_box)
+
+		// there was collision
+		if col_time < 1 {
+			// Sliding
+			remaining_time := 1.0 - col_time
+			dotprod := (moving_box.vel.x * col_normal.y + moving_box.vel.y * col_normal.x) * remaining_time
+			moving_box.vel.x = dotprod * col_normal.y
+			moving_box.vel.y = dotprod * col_normal.x
+		}
+	}
+
+	moving_box.pos.x += moving_box.vel.x
+	moving_box.pos.y += moving_box.vel.y
+}
+
+box_get_broadphase :: proc(b: Box) -> (broadphase_box: Box) {
+	broadphase_box.pos.x = b.vel.x > 0 ? b.pos.x : b.pos.x + b.vel.x;  
+	broadphase_box.pos.y = b.vel.y > 0 ? b.pos.y : b.pos.y + b.vel.y;  
+	broadphase_box.size.x = b.vel.x > 0 ? b.vel.x + b.size.x : b.size.x - b.vel.x;  
+	broadphase_box.size.y = b.vel.y > 0 ? b.vel.y + b.size.y : b.size.y - b.vel.y;  
+	return
+}
+
+box_does_hit_box :: proc(b1,b2: Box) -> bool {
+	return !((b1.pos.x + b1.size.x < b2.pos.x) || 
+		(b1.pos.x > b2.pos.x + b2.size.x) || 
+		(b1.pos.y + b1.size.y < b2.pos.y) || 
+		(b1.pos.y > b2.pos.y + b2.size.y))
 }

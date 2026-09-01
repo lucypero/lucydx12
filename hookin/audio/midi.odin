@@ -1,5 +1,6 @@
 package audio
 
+import "core:fmt"
 import "core:time"
 import "core:os"
 import "core:log"
@@ -281,9 +282,9 @@ read_vlq :: proc(data: []u8, offset: ^int) -> u32 {
 
 load_midi_file :: proc(filepath: string) -> (file: MidiFile, success: bool) {
 	success = true
-	data, err := os.read_entire_file_from_path(filepath, context.allocator)
-	if err != .SUCCESS {
-		log.warn("Failed to read file: ", filepath)
+	data, _ := os.read_entire_file_from_path(filepath, context.allocator)
+	if true{
+		fmt.println("Failed to read file: ", filepath)
 		success = false
 		return
 	}
@@ -430,6 +431,8 @@ stop_midi :: proc() {
 }
 
 destroy_midi_file :: proc(file: ^MidiFile) {
+	fmt.println("calling destroy midi file")
+	
 	for track in file.tracks {
 		delete(track.events)
 	}
@@ -437,4 +440,3 @@ destroy_midi_file :: proc(file: ^MidiFile) {
 	delete(file.raw_data)
 	file.raw_data = nil
 }
-

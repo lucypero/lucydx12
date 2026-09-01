@@ -38,21 +38,21 @@ VSOut VSMain(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
 	output.tex_idx = sprite.tex_idx;
 
 	switch (vid) {
-	case 0: // bottom left
+	case 0: // top left
 		output.pos.xy = sprite.pos;
-		output.uvs = float2(0, 1);
-		break;
-	case 1: // top left
-		output.pos.xy = sprite.pos + float2(0, sprite.size.y);
 		output.uvs = float2(0, 0);
 		break;
-	case 2: // bottom right
+	case 1: // top right
 		output.pos.xy = sprite.pos + float2(sprite.size.x, 0);
-		output.uvs = float2(1, 1);
-		break;
-	case 3: // top right
-		output.pos.xy = sprite.pos + float2(sprite.size.x, sprite.size.y);
 		output.uvs = float2(1, 0);
+		break;
+	case 2: // bottom left
+		output.pos.xy = sprite.pos - float2(0, sprite.size.y);
+		output.uvs = float2(0, 1);
+		break;
+	case 3: // bottom right
+		output.pos.xy = sprite.pos + float2(sprite.size.x, -sprite.size.y);
+		output.uvs = float2(1, 1);
 		break;
 	}
 
