@@ -275,12 +275,7 @@ v2i_to_v2 :: proc(coord: v2i) -> v2 {
 	return {cast(f32)coord.x, cast(f32)coord.y}
 }
 
-aabb_swept :: proc(b1, b2 :Box) -> (collision_time: f32, collision_normal: v2) {
-
-
-
-
-
+box_swept :: proc(b1, b2 :Box) -> (collision_time: f32, collision_normal: v2) {
 	inv_entry : v2
 	inv_exit : v2
 
@@ -352,23 +347,24 @@ aabb_swept :: proc(b1, b2 :Box) -> (collision_time: f32, collision_normal: v2) {
 // Collision: Testing player against box
 move_and_slide :: proc(moving_box: ^Box, static_box: Box) {
 
+	col_time : f32 = 1
+	col_normal: v2
+
 	box_broadphase := box_get_broadphase(moving_box^)
-
 	if box_does_hit_box(box_broadphase, static_box) {
-		col_time, col_normal := aabb_swept(moving_box^, static_box)
-
-		// there was collision
-		if col_time < 1 {
-			// Sliding
-			remaining_time := 1.0 - col_time
-			dotprod := (moving_box.vel.x * col_normal.y + moving_box.vel.y * col_normal.x) * remaining_time
-			moving_box.vel.x = dotprod * col_normal.y
-			moving_box.vel.y = dotprod * col_normal.x
-		}
+		col_time, col_normal = box_swept(moving_box^, static_box)
 	}
 
-	moving_box.pos.x += moving_box.vel.x
-	moving_box.pos.y += moving_box.vel.y
+	// moving the box right next to the obstacle
+	moving_box.pos += moving_box.vel * col_time
+
+	// there was collision
+	if col_time < 1 {
+		// Sliding
+		remaining_time := 1.0 - col_time
+		dotprod := (moving_box.vel.x * col_normal.y + moving_box.vel.y * col_normal.x) * remaining_time
+		moving_box.pos += v2{dotprod * col_normal.y, dotprod * col_normal.x}
+	}
 }
 
 box_get_broadphase :: proc(b: Box) -> (broadphase_box: Box) {
