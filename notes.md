@@ -1,6 +1,5 @@
 # LUCY2D - Todo
 
-
 - think about the API for rendering sprites. the size. should it respect the texture's size? which size is the canon size?
 
 

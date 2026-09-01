@@ -1,7 +1,7 @@
 package hookin
 
 import "core:math"
-// import "core:math/linalg"
+import "core:math/linalg"
 // import "core:math/rand"
 // import "core:math/linalg"
 import sdl "vendor:sdl2"
@@ -148,12 +148,12 @@ main :: proc() {
 		{
 			vel : v2
 
-			if kb[sdl.Scancode.A] == 1 do vel.x = -CHARACTER_SPEED
-			if kb[sdl.Scancode.D] == 1 do vel.x = CHARACTER_SPEED
-			if kb[sdl.Scancode.W] == 1 do vel.y = CHARACTER_SPEED
-			if kb[sdl.Scancode.S] == 1 do vel.y = -CHARACTER_SPEED
+			if kb[sdl.Scancode.A] == 1 do vel.x = -1
+			if kb[sdl.Scancode.D] == 1 do vel.x = 1
+			if kb[sdl.Scancode.W] == 1 do vel.y = 1
+			if kb[sdl.Scancode.S] == 1 do vel.y = -1
 
-			// vel = linalg.normalize(vel)
+			if vel != {0,0} do vel = linalg.normalize(vel) * CHARACTER_SPEED
 
 			// g_player.vel = {CHARACTER_SPEED, 0}
 			g_player.vel = vel
@@ -294,11 +294,11 @@ aabb_swept :: proc(b1, b2 :Box) -> (collision_time: f32, collision_normal: v2) {
 	} 
 
 	if b1.vel.y > 0.0 {
-		inv_entry.y = b2.pos.y - (b1.pos.y + b1.size.y)
-		inv_exit.y = (b2.pos.y + b2.size.y) - b1.pos.y
+		inv_entry.y = (b2.pos.y - b2.size.y) - b1.pos.y
+		inv_exit.y = b2.pos.y - (b1.pos.y - b1.size.y)
 	} else {
-		inv_entry.y = (b2.pos.y + b2.size.y) - b1.pos.y
-		inv_exit.y = b2.pos.y - (b1.pos.y + b1.size.y)
+		inv_entry.y = b2.pos.y - (b1.pos.y - b1.size.y)
+		inv_exit.y = (b2.pos.y - b2.size.y) - b1.pos.y
 	}
 
 	// find time of collision and time of leaving for each axis (if statement is to prevent divide by zero) 
@@ -372,16 +372,16 @@ move_and_slide :: proc(moving_box: ^Box, static_box: Box) {
 }
 
 box_get_broadphase :: proc(b: Box) -> (broadphase_box: Box) {
-	broadphase_box.pos.x = b.vel.x > 0 ? b.pos.x : b.pos.x + b.vel.x;  
-	broadphase_box.pos.y = b.vel.y > 0 ? b.pos.y : b.pos.y + b.vel.y;  
-	broadphase_box.size.x = b.vel.x > 0 ? b.vel.x + b.size.x : b.size.x - b.vel.x;  
-	broadphase_box.size.y = b.vel.y > 0 ? b.vel.y + b.size.y : b.size.y - b.vel.y;  
+	broadphase_box.pos.x = b.vel.x > 0 ? b.pos.x : b.pos.x + b.vel.x
+	broadphase_box.pos.y = b.vel.y > 0 ? b.pos.y + b.vel.y : b.pos.y
+	broadphase_box.size.x = b.vel.x > 0 ? b.vel.x + b.size.x : b.size.x - b.vel.x  
+	broadphase_box.size.y = b.vel.y > 0 ? b.vel.y + b.size.y : b.size.y - b.vel.y  
 	return
 }
 
 box_does_hit_box :: proc(b1,b2: Box) -> bool {
-	return !((b1.pos.x + b1.size.x < b2.pos.x) || 
-		(b1.pos.x > b2.pos.x + b2.size.x) || 
-		(b1.pos.y + b1.size.y < b2.pos.y) || 
-		(b1.pos.y > b2.pos.y + b2.size.y))
+	return !((b1.pos.x + b1.size.x < b2.pos.x) ||
+		(b1.pos.x > b2.pos.x + b2.size.x) ||
+		(b1.pos.y < b2.pos.y - b2.size.y) ||
+		(b1.pos.y - b1.size.y > b2.pos.y))
 }
