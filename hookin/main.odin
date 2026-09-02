@@ -1,5 +1,6 @@
 package hookin
 
+import "core:fmt"
 import "core:math"
 import "core:math/linalg"
 // import "core:math/rand"
@@ -155,13 +156,25 @@ main :: proc() {
 
 			if vel != {0,0} do vel = linalg.normalize(vel) * CHARACTER_SPEED
 
-			// g_player.vel = {CHARACTER_SPEED, 0}
 			g_player.vel = vel
 
-			// character_move(the_map)
-			// g_player.pos += g_player.box.vel
+			map_boxes := make([dynamic]Box, 0, map_get_tile_count(the_map), context.temp_allocator)
 
-			move_and_slide(&g_player.box, box_test)
+			for row, row_i in the_map.tiles {
+				for cell, column_i in row {
+					#partial switch cell {
+					case .Wall, .CrateWood,.CrateStone:
+						tile_box : Box
+						tile_box.pos, tile_box.size = map_get_tile_pos_size(the_map, row_i, column_i)
+						append(&map_boxes, tile_box)
+					case:
+						continue
+					}
+				}
+			}
+
+			move_and_slide(&g_player.box, map_boxes[:])
+
 		}
 
 		// Drawing everything
@@ -179,6 +192,7 @@ main :: proc() {
 		}
 
 		ldx.present()
+		free_all(context.temp_allocator)
 	}
 
 	ldx.window_cleanup()
@@ -300,6 +314,10 @@ box_swept :: proc(b1, b2 :Box) -> (collision_time: f32, collision_normal: v2) {
 	entry, exit: v2
 
 	if (b1.vel.x == 0.0) {
+		// if there's no overlap in X, there is no colission
+		if (b1.pos.x + b1.size.x <= b2.pos.x) || (b1.pos.x >= b2.pos.x + b2.size.x) {
+			return 1.0, {0, 0}
+		}
 		entry.x = math.inf_f32(-1)
 		exit.x = math.inf_f32(1)
 	} else {
@@ -308,6 +326,10 @@ box_swept :: proc(b1, b2 :Box) -> (collision_time: f32, collision_normal: v2) {
 	} 
 
 	if (b1.vel.y == 0.0) {
+		// if there's no overlap in Y, there is no colission
+		if (b1.pos.y <= b2.pos.y - b2.size.y) || (b1.pos.y - b1.size.y >= b2.pos.y) {
+			return 1.0, {0, 0}
+		}
 		entry.y = math.inf_f32(-1)
 		exit.y = math.inf_f32(1)
 	} else {
@@ -320,7 +342,7 @@ box_swept :: proc(b1, b2 :Box) -> (collision_time: f32, collision_normal: v2) {
 	exit_time := min(exit.x, exit.y)
 
 	// if there was no collision
-	if ((entry_time > exit_time) || (entry.x < 0.0 && entry.y < 0.0) || (entry.x > 1.0) || (entry.y > 1.0)) {
+	if (entry_time > exit_time) || entry_time < 0 || entry_time > 1 {
 		collision_normal = {0, 0}
 		collision_time = 1.0
 	} else {  // if there was a collision
@@ -339,31 +361,41 @@ box_swept :: proc(b1, b2 :Box) -> (collision_time: f32, collision_normal: v2) {
 			} 
 		} // return the time of collisionreturn entryTime; 
 		collision_time = entry_time
+		fmt.printfln("%v, %v, entry: %v", collision_time, collision_normal, entry)
 	}
 
 	return
 }
 
-// Collision: Testing player against box
-move_and_slide :: proc(moving_box: ^Box, static_box: Box) {
+// Collision: Testing player against boxes
+move_and_slide :: proc(moving_box: ^Box, static_boxes: []Box) {
 
-	col_time : f32 = 1
 	col_normal: v2
+	col_time := math.inf_f32(1)
+	for static_box in static_boxes {
+		box_broadphase := box_get_broadphase(moving_box^)
+		if !box_does_hit_box(box_broadphase, static_box) do continue
+		col_time_i, col_normal_i := box_swept(moving_box^, static_box)
 
-	box_broadphase := box_get_broadphase(moving_box^)
-	if box_does_hit_box(box_broadphase, static_box) {
-		col_time, col_normal = box_swept(moving_box^, static_box)
+		if col_time_i < col_time {
+			col_time = col_time_i
+			col_normal = col_normal_i
+		}
 	}
-
-	// moving the box right next to the obstacle
-	moving_box.pos += moving_box.vel * col_time
 
 	// there was collision
 	if col_time < 1 {
+
+		// moving the box right next to the obstacle
+		moving_box.pos += moving_box.vel * col_time
+
 		// Sliding
 		remaining_time := 1.0 - col_time
 		dotprod := (moving_box.vel.x * col_normal.y + moving_box.vel.y * col_normal.x) * remaining_time
 		moving_box.pos += v2{dotprod * col_normal.y, dotprod * col_normal.x}
+	} else { // no collision
+		// Moving box normally (no collision)
+		moving_box.pos += moving_box.vel
 	}
 }
 
@@ -380,4 +412,8 @@ box_does_hit_box :: proc(b1,b2: Box) -> bool {
 		(b1.pos.x > b2.pos.x + b2.size.x) ||
 		(b1.pos.y < b2.pos.y - b2.size.y) ||
 		(b1.pos.y - b1.size.y > b2.pos.y))
+}
+
+map_get_tile_count :: proc(the_map: Map) -> int {
+	return len(the_map.tiles) * len(the_map.tiles[0])
 }
