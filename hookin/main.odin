@@ -1,6 +1,6 @@
 package hookin
 
-import "core:fmt"
+// import "core:fmt"
 import "core:math"
 import "core:math/linalg"
 // import "core:math/rand"
@@ -273,7 +273,7 @@ v2i_to_v2 :: proc(coord: v2i) -> v2 {
 	return {cast(f32)coord.x, cast(f32)coord.y}
 }
 
-box_swept :: proc(b1, b2 :Box) -> (collision_time: f32, collision_normal: v2) {
+box_sweep :: proc(b1, b2 :Box) -> (collision_time: f32, collision_normal: v2) {
 	inv_entry : v2
 	inv_exit : v2
 
@@ -344,11 +344,7 @@ box_swept :: proc(b1, b2 :Box) -> (collision_time: f32, collision_normal: v2) {
 
 // Collision: Testing player against boxes
 move_and_slide :: proc(moving_box: ^Box, static_boxes: []Box) {
-
-	@static counter : int = 0
-
-	// Fix collision on multiple boxes at once by running the code below 4 times on the remaining velocity, or something like that;
-	outer: for i in 0..<4 {
+	outer: for _ in 0..<4 {
 
 		col_normal: v2
 		col_time := math.inf_f32(1)
@@ -359,10 +355,9 @@ move_and_slide :: proc(moving_box: ^Box, static_boxes: []Box) {
 		for static_box in static_boxes {
 			box_broadphase := box_get_broadphase(moving_box^)
 			if !box_does_hit_box(box_broadphase, static_box) do continue
-			col_time_i, col_normal_i := box_swept(moving_box^, static_box)
+			col_time_i, col_normal_i := box_sweep(moving_box^, static_box)
 
 			// Discarding collisions on internal edges
-
 			is_discarded : bool
 
 			if col_normal_i == {1,0} && .Right not_in static_box.hittable_faces do is_discarded = true
@@ -381,32 +376,23 @@ move_and_slide :: proc(moving_box: ^Box, static_boxes: []Box) {
 			}
 		}
 
-		// // there was collision
+		// there was collision
 		if col_time < 1 {
-
 			// moving the box right next to the obstacle
 			moving_box.pos += moving_box.vel * col_time
 
 			// Sliding
 			remaining_time := 1.0 - col_time
 			dotprod := (moving_box.vel.x * col_normal.y + moving_box.vel.y * col_normal.x) * remaining_time
-
-			next_vel :=v2{dotprod * col_normal.y, dotprod * col_normal.x}
-
-			fmt.printfln("i: %v, coltime: %v, normal: %v, vel tested:%v, next: %v", i, col_time, col_normal, moving_box.vel, next_vel)
-			moving_box.vel =  next_vel
-			counter += 1
-			// moving_box.pos += moving_box.vel
-		} else {
+			next_vel := v2{dotprod * col_normal.y, dotprod * col_normal.x}
+			// Setting the box's velocity as the slide velocity, and sweeping again before committing to a move.
+			moving_box.vel = next_vel
+		} else { // no collision. skip all other collision tests
 			break outer
 		}
 	}
 
 	moving_box.pos += moving_box.vel
-
-	// if !was_collision {
-	// 	moving_box.pos += moving_box.vel
-	// }
 }
 
 box_get_broadphase :: proc(b: Box) -> (broadphase_box: Box) {
