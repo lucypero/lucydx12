@@ -15,6 +15,7 @@ v2i :: ldx.v2i
 v2 :: ldx.v2
 v4 :: ldx.v4
 
+// Map coordinate. origin at TOP LEFT of the map, visually and in data the_map[0][0]
 Coord :: v2i
 
 WINDOW_WIDTH :: 1000
@@ -28,10 +29,14 @@ CHARACTER_SIZE :: 64
 
 // Collision Box
 
+Face :: enum {Left, Right, Top, Bottom}
+Faces :: bit_set[Face; u8]
+
 Box :: struct {
 	pos : v2, // position of top left of the box
 	size: v2, // dimensions
 	vel: v2,  // velocity
+	hittable_faces: Faces
 }
 
 Tile :: enum {
@@ -127,12 +132,6 @@ main :: proc() {
 	audio.play_midi(&midi_track)
 	frame := 0
 
-	box_test := Box {
-		{500, 200},
-		{100, 100},
-		{0,0}
-	}
-
 	for !ldx.window_should_close() {
 		audio.update()
 		kb := ldx.get_keyboard()
@@ -158,20 +157,8 @@ main :: proc() {
 
 			g_player.vel = vel
 
-			map_boxes := make([dynamic]Box, 0, map_get_tile_count(the_map), context.temp_allocator)
+			map_boxes := map_generate_collisions(the_map)
 
-			for row, row_i in the_map.tiles {
-				for cell, column_i in row {
-					#partial switch cell {
-					case .Wall, .CrateWood,.CrateStone:
-						tile_box : Box
-						tile_box.pos, tile_box.size = map_get_tile_pos_size(the_map, row_i, column_i)
-						append(&map_boxes, tile_box)
-					case:
-						continue
-					}
-				}
-			}
 
 			move_and_slide(&g_player.box, map_boxes[:])
 
@@ -186,9 +173,6 @@ main :: proc() {
 
 			// Draw player hitbox
 			ldx.draw_solid_rect(g_player.pos, g_player.size, {1,0,0,0.5})
-
-			// draw test box
-			ldx.draw_solid_rect(box_test.pos, box_test.size, COLOR_BLACK)
 		}
 
 		ldx.present()
@@ -342,26 +326,17 @@ box_swept :: proc(b1, b2 :Box) -> (collision_time: f32, collision_normal: v2) {
 	exit_time := min(exit.x, exit.y)
 
 	// if there was no collision
-	if (entry_time > exit_time) || entry_time < 0 || entry_time > 1 {
+	if (entry_time >= exit_time) || entry_time < 0 || entry_time > 1 {
 		collision_normal = {0, 0}
 		collision_time = 1.0
 	} else {  // if there was a collision
-		// calculate normal of collided surface
+		// The normal always opposes the velocity on the axis we entered through.
 		if (entry.x > entry.y) {
-			if (inv_entry.x < 0.0) {
-				collision_normal = {1,0}
-			} else {
-				collision_normal = {-1, 0}
-			} 
+			collision_normal = b1.vel.x > 0 ? {-1,0} : {1, 0}
 		} else {
-			if (inv_entry.y < 0.0) {
-				collision_normal = {0,1}
-			} else {
-				collision_normal = {0,-1}
-			} 
-		} // return the time of collisionreturn entryTime; 
+			collision_normal = b1.vel.y > 0 ? {0,-1} : {0,1}
+		} 
 		collision_time = entry_time
-		fmt.printfln("%v, %v, entry: %v", collision_time, collision_normal, entry)
 	}
 
 	return
@@ -370,33 +345,68 @@ box_swept :: proc(b1, b2 :Box) -> (collision_time: f32, collision_normal: v2) {
 // Collision: Testing player against boxes
 move_and_slide :: proc(moving_box: ^Box, static_boxes: []Box) {
 
-	col_normal: v2
-	col_time := math.inf_f32(1)
-	for static_box in static_boxes {
-		box_broadphase := box_get_broadphase(moving_box^)
-		if !box_does_hit_box(box_broadphase, static_box) do continue
-		col_time_i, col_normal_i := box_swept(moving_box^, static_box)
+	@static counter : int = 0
 
-		if col_time_i < col_time {
-			col_time = col_time_i
-			col_normal = col_normal_i
+	// Fix collision on multiple boxes at once by running the code below 4 times on the remaining velocity, or something like that;
+	outer: for i in 0..<4 {
+
+		col_normal: v2
+		col_time := math.inf_f32(1)
+		last_hittable_faces: Faces
+
+		if moving_box.vel == {0,0} do break
+
+		for static_box in static_boxes {
+			box_broadphase := box_get_broadphase(moving_box^)
+			if !box_does_hit_box(box_broadphase, static_box) do continue
+			col_time_i, col_normal_i := box_swept(moving_box^, static_box)
+
+			// Discarding collisions on internal edges
+
+			is_discarded : bool
+
+			if col_normal_i == {1,0} && .Right not_in static_box.hittable_faces do is_discarded = true
+			if col_normal_i == {-1,0} && .Left not_in static_box.hittable_faces do is_discarded = true
+			if col_normal_i == {0,1} && .Top not_in static_box.hittable_faces do is_discarded = true
+			if col_normal_i == {0,-1} && .Bottom not_in static_box.hittable_faces do is_discarded = true
+
+			if is_discarded {
+				continue
+			}
+
+			if col_time_i < col_time {
+				col_normal = col_normal_i
+				col_time = col_time_i
+				last_hittable_faces = static_box.hittable_faces
+			}
+		}
+
+		// // there was collision
+		if col_time < 1 {
+
+			// moving the box right next to the obstacle
+			moving_box.pos += moving_box.vel * col_time
+
+			// Sliding
+			remaining_time := 1.0 - col_time
+			dotprod := (moving_box.vel.x * col_normal.y + moving_box.vel.y * col_normal.x) * remaining_time
+
+			next_vel :=v2{dotprod * col_normal.y, dotprod * col_normal.x}
+
+			fmt.printfln("i: %v, coltime: %v, normal: %v, vel tested:%v, next: %v", i, col_time, col_normal, moving_box.vel, next_vel)
+			moving_box.vel =  next_vel
+			counter += 1
+			// moving_box.pos += moving_box.vel
+		} else {
+			break outer
 		}
 	}
 
-	// there was collision
-	if col_time < 1 {
+	moving_box.pos += moving_box.vel
 
-		// moving the box right next to the obstacle
-		moving_box.pos += moving_box.vel * col_time
-
-		// Sliding
-		remaining_time := 1.0 - col_time
-		dotprod := (moving_box.vel.x * col_normal.y + moving_box.vel.y * col_normal.x) * remaining_time
-		moving_box.pos += v2{dotprod * col_normal.y, dotprod * col_normal.x}
-	} else { // no collision
-		// Moving box normally (no collision)
-		moving_box.pos += moving_box.vel
-	}
+	// if !was_collision {
+	// 	moving_box.pos += moving_box.vel
+	// }
 }
 
 box_get_broadphase :: proc(b: Box) -> (broadphase_box: Box) {
@@ -416,4 +426,54 @@ box_does_hit_box :: proc(b1,b2: Box) -> bool {
 
 map_get_tile_count :: proc(the_map: Map) -> int {
 	return len(the_map.tiles) * len(the_map.tiles[0])
+}
+
+map_generate_collisions :: proc(the_map: Map) -> []Box {
+
+	map_boxes := make([dynamic]Box, 0, map_get_tile_count(the_map), context.temp_allocator)
+
+	for row, row_i in the_map.tiles {
+		for _, column_i in row {
+			if !tile_is_solid(the_map, Coord{column_i, row_i}) do continue
+
+			// Construct Box
+			tile_box : Box
+			tile_box.pos, tile_box.size = map_get_tile_pos_size(the_map, row_i, column_i)
+
+			if !tile_is_solid(the_map, {column_i+1, row_i}) do tile_box.hittable_faces |= {.Right}
+			if !tile_is_solid(the_map, {column_i-1, row_i}) do tile_box.hittable_faces |= {.Left}
+			if !tile_is_solid(the_map, {column_i, row_i + 1}) do tile_box.hittable_faces |= {.Bottom}
+			if !tile_is_solid(the_map, {column_i, row_i - 1}) do tile_box.hittable_faces |= {.Top}
+			append(&map_boxes, tile_box)
+		}
+	}
+
+	return map_boxes[:]
+}
+
+tile_is_solid :: proc(the_map: Map, coord: Coord) -> bool {
+	tile, ok := map_get_tile(the_map, coord)
+	if !ok do return true
+
+	switch tile {
+	case .Wall, .CrateWood,.CrateStone:
+		return true
+	case .Ground, .Pit, .Goal, .PlayerSpawn:
+		fallthrough
+	case:
+		return false
+	}
+}
+
+@(require_results)
+map_get_tile :: proc(the_map: Map, coord: Coord) -> (tile: Tile, ok: bool = false) {
+	row_size := len(the_map.tiles[0])
+	if !(coord.x >= 0 && coord.x < row_size) do return
+	if !(coord.y >= 0 && coord.y < len(the_map.tiles)) do return
+	return the_map.tiles[coord.y][coord.x], true
+}
+
+@(require_results)
+map_get_tile_unchecked :: proc(the_map: Map, coord: Coord) -> (tile: Tile) {
+	return the_map.tiles[coord.y][coord.x]
 }
