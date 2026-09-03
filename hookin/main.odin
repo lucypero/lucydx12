@@ -537,7 +537,7 @@ game_restart :: proc() {
 	// initting map
 	map_tiles : [ROW_COUNT][COLUMN_COUNT]Tile = {
 		{.Wall, .Wall, .Wall, .Wall, .Wall, .Wall, .Wall},
-		{.Wall, .Ground, .Ground, .Ground, .Ground, .Ground, .Wall},
+		{.Wall, .Ground, .Ground, .CrateStone, .Ground, .Pit, .Wall},
 		{.Wall, .Ground, .Ground, .Ground, .Ground, .CrateWood, .Wall},
 		{.Wall, .Ground, .CrateWood, .Ground, .CrateWood, .Ground, .Wall},
 		{.Wall, .PlayerSpawn, .Ground, .CrateWood, .Ground, .Ground, .Wall},
@@ -579,12 +579,21 @@ move_box :: proc(tm: ^Map, c: Coord, dir: v2) {
 	dir_int.y *= -1
 	next_coord := c + dir_int
 	tile_next, ok := map_get_tile(tm^, next_coord)
-	if ok && tile_next == .Ground {
+	if !ok do return
+
+	// We do different things depending on what is the next tile
+	switch tile_next {
+	case .Wall, .CrateWood, .CrateStone: return
+	case .PlayerSpawn, .Ground, .Goal:
 		// move the box
 		tile_prev := map_get_tile_ref(tm, c)
 		tile_prev^ = .Ground
 
 		tile_next := map_get_tile_ref(tm, next_coord)
 		tile_next^ = tile_box
+	case .Pit:
+		// disappear the box
+		tile_prev := map_get_tile_ref(tm, c)
+		tile_prev^ = .Ground
 	}
 }
