@@ -214,35 +214,6 @@ main :: proc() {
 	ldx.window_cleanup()
 }
 
-// Move and slide
-// character_move :: proc(the_map: Map) {
-
-// 	pos_future := g_char_pos + dir
-
-// 	hit_thing := false
-
-// 	aabb_player := AABB{{0,g_char_tex_size.x}, {0,g_char_tex_size.y}}
-
-// 	aabb_future := aabb_translate(aabb_player, pos_future)
-
-// 	for row, row_i in the_map.tiles {
-// 		for cell, column_i in row {
-// 			#partial switch cell {
-// 			case .Wall, .CrateWood,.CrateStone:
-// 				pos, size := map_get_tile_pos_size(the_map, row_i, column_i)
-// 				aabb_tile := aabb_translate(AABB{{0,size.x}, {0,size.y}}, pos)
-// 				if aabb_do_collide(aabb_future, aabb_tile) {
-// 					hit_thing = true
-// 					return
-// 				}
-// 			case:
-// 				continue
-// 			}
-// 		}
-// 	}
-// 	g_char_pos = pos_future
-// }
-
 map_get_tile_pos_size :: proc(the_map: Map, row_i, column_i: int) -> (v2, v2) {
 	return {
 		the_map.pos.x + cast(f32)column_i * the_map.cell_tex_size.x * the_map.scale.x,
