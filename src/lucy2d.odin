@@ -9,6 +9,13 @@ import "core:strings"
 import "core:fmt"
 import "core:mem/virtual"
 
+// imgui
+import im "../libs/odin-imgui"
+// imgui sdl2 implementation
+import "../libs/odin-imgui/imgui_impl_sdl2"
+// imgui dx12 implementation
+import "../libs/odin-imgui/imgui_impl_dx12"
+
 Color :: v4
 
 PSOName :: enum {
@@ -29,6 +36,10 @@ Lucy2DContext :: struct {
 	clear_color_issued: Maybe(v4),
 	window_should_close: bool,
 	loaded_textures: map[int]Texture,
+
+	/// imgui stuff
+	imgui_descriptor_heap: ^dx.IDescriptorHeap,
+	imgui_allocator: DescriptorHeapAllocator,
 }
 
 SPRITE_MAX_COUNT :: 100
