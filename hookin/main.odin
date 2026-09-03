@@ -129,17 +129,35 @@ main :: proc() {
 			g_player.vel = vel
 			map_boxes, coords := map_generate_collisions(g_map)
 			box_i, col_normal, did_hit := move_and_slide(&g_player.box, map_boxes[:])
+
+			@static box_i_last_hit: int
+			@static hit_counter: int
+
 			if did_hit {
 				fmt.printfln("coord hit: %v: col normal %v",
 					coords[box_i], col_normal)
 
-				// 
 				tile := map_get_tile_unchecked(g_map, coords[box_i])
 
 				#partial switch tile {
 				case .CrateWood:
-					move_box(&g_map, coords[box_i], -col_normal)
+
+					hit_counter += 1
+
+					if box_i_last_hit != box_i {
+						hit_counter = 0
+					}
+
+					box_i_last_hit = box_i
+
+
+					if hit_counter > 20 {
+						move_box(&g_map, coords[box_i], -col_normal)
+						hit_counter = 0
+					}
 				}
+			} else {
+				hit_counter = 0
 			}
 		}
 
