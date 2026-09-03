@@ -74,6 +74,7 @@ g_textures: Textures
 g_player : Player
 g_player_coord: Coord
 g_lives : int
+g_times_level_win: int
 
 main :: proc() {
 	ldx.window_new("hookin", WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -134,9 +135,6 @@ main :: proc() {
 			@static hit_counter: int
 
 			if did_hit {
-				fmt.printfln("coord hit: %v: col normal %v",
-					coords[box_i], col_normal)
-
 				tile := map_get_tile_unchecked(g_map, coords[box_i])
 
 				#partial switch tile {
@@ -168,14 +166,16 @@ main :: proc() {
 			// changed cord.
 			// TODO: trigger on tile enter event, or whatever.
 
-			// checking if tile is a hole
-
 			tile := map_get_tile_unchecked(g_map, coord)
-			if tile == .Pit {
+			#partial switch tile {
+			case .Goal: // Goal. you won
+				g_times_level_win += 1
+				audio.play_note(.F, 2, 0.1, 127, 9)
+				// go to the next level i guess?
+				game_restart()
+			case .Pit: // landed on pit. die
 				g_lives -= 1
-
 				note := cast(audio.Notes)coord.y
-
 				audio.play_note(note, 2, 0.1, 127, 9)
 				game_restart()
 			}
@@ -199,7 +199,11 @@ main :: proc() {
 
 			// drawing amount of lives
 			for i in 0..<g_lives {
-				ldx.draw_solid_rect({10 + 100 * cast(f32)i, 5 + 50}, {50, 50}, {1,0,0,1})
+				ldx.draw_solid_rect({10 + 55 * cast(f32)i, 5 + 50}, {50, 50}, {1,0,0,1})
+			}
+
+			for i in 0..<g_times_level_win {
+				ldx.draw_solid_rect({400 + 55 * cast(f32)i, 5 + 50}, {50, 50}, {0,1,0,1})
 			}
 		}
 
@@ -539,7 +543,7 @@ game_restart :: proc() {
 		{.Wall, .Wall, .Wall, .Wall, .Wall, .Wall, .Wall},
 		{.Wall, .Ground, .Ground, .CrateStone, .Ground, .Pit, .Wall},
 		{.Wall, .Ground, .Ground, .Ground, .Ground, .CrateWood, .Wall},
-		{.Wall, .Ground, .CrateWood, .Ground, .CrateWood, .Ground, .Wall},
+		{.Wall, .Ground, .CrateWood, .Ground, .CrateWood, .Goal, .Wall},
 		{.Wall, .PlayerSpawn, .Ground, .CrateWood, .Ground, .Ground, .Wall},
 		{.Wall, .Ground, .Ground, .Ground, .Ground, .Ground, .Wall},
 		{.Wall, .Wall, .Wall, .Wall, .Wall, .Wall, .Wall}
