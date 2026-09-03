@@ -126,13 +126,21 @@ main :: proc() {
 			if kb[sdl.Scancode.S] == 1 do vel.y = -1
 
 			if vel != {0,0} do vel = linalg.normalize(vel) * CHARACTER_SPEED
-
 			g_player.vel = vel
+			map_boxes, coords := map_generate_collisions(g_map)
+			box_i, col_normal, did_hit := move_and_slide(&g_player.box, map_boxes[:])
+			if did_hit {
+				fmt.printfln("coord hit: %v: col normal %v",
+					coords[box_i], col_normal)
 
-			map_boxes := map_generate_collisions(g_map)
+				// 
+				tile := map_get_tile_unchecked(g_map, coords[box_i])
 
-
-			move_and_slide(&g_player.box, map_boxes[:])
+				#partial switch tile {
+				case .CrateWood:
+					move_box(&g_map, coords[box_i], -col_normal)
+				}
+			}
 		}
 
 		// What tile is the player in?
@@ -358,16 +366,15 @@ box_sweep :: proc(b1, b2 :Box) -> (collision_time: f32, collision_normal: v2) {
 }
 
 // Collision: Testing player against boxes
-move_and_slide :: proc(moving_box: ^Box, static_boxes: []Box) {
+move_and_slide :: proc(moving_box: ^Box, static_boxes: []Box) -> (_box_i: int, _col_normal: v2, _did_hit: bool){
 	outer: for _ in 0..<4 {
 
 		col_normal: v2
 		col_time := math.inf_f32(1)
-		last_hittable_faces: Faces
 
 		if moving_box.vel == {0,0} do break
 
-		for static_box in static_boxes {
+		for static_box, box_i in static_boxes {
 			box_broadphase := box_get_broadphase(moving_box^)
 			if !box_does_hit_box(box_broadphase, static_box) do continue
 			col_time_i, col_normal_i := box_sweep(moving_box^, static_box)
@@ -387,12 +394,19 @@ move_and_slide :: proc(moving_box: ^Box, static_boxes: []Box) {
 			if col_time_i < col_time {
 				col_normal = col_normal_i
 				col_time = col_time_i
-				last_hittable_faces = static_box.hittable_faces
+
+				// Saving box we hit for return value
+				_box_i = box_i
 			}
 		}
 
 		// there was collision
 		if col_time < 1 {
+
+			// Setting return values
+			_did_hit = true
+			_col_normal = col_normal
+
 			// moving the box right next to the obstacle
 			moving_box.pos += moving_box.vel * col_time
 
@@ -408,6 +422,7 @@ move_and_slide :: proc(moving_box: ^Box, static_boxes: []Box) {
 	}
 
 	moving_box.pos += moving_box.vel
+	return
 }
 
 box_get_broadphase :: proc(b: Box) -> (broadphase_box: Box) {
@@ -429,9 +444,10 @@ map_get_tile_count :: proc(the_map: Map) -> int {
 	return len(the_map.tiles) * len(the_map.tiles[0])
 }
 
-map_generate_collisions :: proc(the_map: Map) -> []Box {
+map_generate_collisions :: proc(the_map: Map) -> ([]Box, []Coord) {
 
 	map_boxes := make([dynamic]Box, 0, map_get_tile_count(the_map), context.temp_allocator)
+	coords := make([dynamic]Coord, 0, map_get_tile_count(the_map), context.temp_allocator)
 
 	for row, row_i in the_map.tiles {
 		for _, column_i in row {
@@ -446,10 +462,11 @@ map_generate_collisions :: proc(the_map: Map) -> []Box {
 			if !tile_is_solid(the_map, {column_i, row_i + 1}) do tile_box.hittable_faces |= {.Bottom}
 			if !tile_is_solid(the_map, {column_i, row_i - 1}) do tile_box.hittable_faces |= {.Top}
 			append(&map_boxes, tile_box)
+			append(&coords, v2i{column_i, row_i})
 		}
 	}
 
-	return map_boxes[:]
+	return map_boxes[:], coords[:]
 }
 
 tile_is_solid :: proc(the_map: Map, coord: Coord) -> bool {
@@ -488,6 +505,10 @@ map_get_tile :: proc(the_map: Map, coord: Coord) -> (tile: Tile, ok: bool = fals
 	return the_map.tiles[coord.y][coord.x], true
 }
 
+map_get_tile_ref :: proc(the_map: ^Map, coord: Coord) -> (tile: ^Tile) {
+	return &the_map.tiles[coord.y][coord.x]
+}
+
 @(require_results)
 map_get_tile_unchecked :: proc(the_map: Map, coord: Coord) -> (tile: Tile) {
 	return the_map.tiles[coord.y][coord.x]
@@ -499,9 +520,9 @@ game_restart :: proc() {
 	map_tiles : [ROW_COUNT][COLUMN_COUNT]Tile = {
 		{.Wall, .Wall, .Wall, .Wall, .Wall, .Wall, .Wall},
 		{.Wall, .Ground, .Ground, .Ground, .Ground, .Ground, .Wall},
-		{.Wall, .Ground, .Ground, .Ground, .Ground, .CrateStone, .Wall},
-		{.Wall, .Ground, .CrateWood, .Ground, .CrateStone, .Ground, .Wall},
-		{.Wall, .PlayerSpawn, .Ground, .Ground, .Ground, .Ground, .Wall},
+		{.Wall, .Ground, .Ground, .Ground, .Ground, .CrateWood, .Wall},
+		{.Wall, .Ground, .CrateWood, .Ground, .CrateWood, .Ground, .Wall},
+		{.Wall, .PlayerSpawn, .Ground, .CrateWood, .Ground, .Ground, .Wall},
 		{.Wall, .Ground, .Ground, .Ground, .Ground, .Ground, .Wall},
 		{.Wall, .Wall, .Wall, .Wall, .Wall, .Wall, .Wall}
 	}
@@ -531,4 +552,21 @@ game_restart :: proc() {
 
 	g_player.pos = map_coord_to_world_pos(g_map, g_map.player_spawn_coord)
 	g_player_coord = g_map.player_spawn_coord
+}
+
+move_box :: proc(tm: ^Map, c: Coord, dir: v2) {
+	tile_box := map_get_tile_unchecked(tm^, c)
+
+	dir_int := v2_to_v2i(dir)
+	dir_int.y *= -1
+	next_coord := c + dir_int
+	tile_next, ok := map_get_tile(tm^, next_coord)
+	if ok && tile_next == .Ground {
+		// move the box
+		tile_prev := map_get_tile_ref(tm, c)
+		tile_prev^ = .Ground
+
+		tile_next := map_get_tile_ref(tm, next_coord)
+		tile_next^ = tile_box
+	}
 }
