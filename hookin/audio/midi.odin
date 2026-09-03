@@ -56,7 +56,6 @@ init :: proc() -> (success: bool) {
 
 	if res != 0 {
 		log.warn("Failed to initialize windows multimedia device!")
-		success = false
 		return
 	}
 	g_active_notes = make([dynamic]Active_Note)
@@ -282,8 +281,8 @@ read_vlq :: proc(data: []u8, offset: ^int) -> u32 {
 
 load_midi_file :: proc(filepath: string) -> (file: MidiFile, success: bool) {
 	success = true
-	data, _ := os.read_entire_file_from_path(filepath, context.allocator)
-	if true{
+	data, os_err := os.read_entire_file_from_path(filepath, context.allocator)
+	if os_err != os.General_Error.None {
 		fmt.println("Failed to read file: ", filepath)
 		success = false
 		return
@@ -432,7 +431,7 @@ stop_midi :: proc() {
 
 destroy_midi_file :: proc(file: ^MidiFile) {
 	fmt.println("calling destroy midi file")
-	
+
 	for track in file.tracks {
 		delete(track.events)
 	}

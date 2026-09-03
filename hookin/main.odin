@@ -1,5 +1,7 @@
 package hookin
 
+import "core:fmt"
+// import "core:fmt"
 // import "core:fmt"
 import "core:math"
 import "core:math/linalg"
@@ -17,6 +19,9 @@ v4 :: ldx.v4
 
 // Map coordinate. origin at TOP LEFT of the map, visually and in data the_map[0][0]
 Coord :: v2i
+
+ROW_COUNT :: 5
+COLUMN_COUNT :: 7
 
 WINDOW_WIDTH :: 1000
 WINDOW_HEIGHT :: 500
@@ -53,7 +58,7 @@ Map :: struct {
 	pos, scale: v2,
 	cell_tex_size: v2,
 	player_spawn_coord: Coord,
-	tiles: [][]Tile
+	tiles: [ROW_COUNT][COLUMN_COUNT]Tile,
 }
 
 Textures :: struct {
@@ -65,11 +70,15 @@ Player :: struct {
 	texture_size: v2,
 }
 
+g_map: Map
 g_textures: Textures
 g_player : Player
+g_player_coord: Coord
+g_lives : int
 
 main :: proc() {
 	ldx.window_new("hookin", WINDOW_WIDTH, WINDOW_HEIGHT)
+	g_lives = 3
 
 	ok := audio.init()
 	if !ok {
@@ -78,6 +87,7 @@ main :: proc() {
 	midi_track, success := audio.load_midi_file("hookin/audio/ct600ad.mid")
 	if !success {
 		// handle error
+		fmt.println("could not load midi file.")
 	}
 
 	g_textures.player = ldx.texture_load("hookin_sprites/sokoban-pack/Player/player_01.png")
@@ -92,45 +102,10 @@ main :: proc() {
 	g_player.texture_size = v2i_to_v2(char_tex_size_i)
 	g_player.box.size = g_player.texture_size
 
-	// constructing map
-	the_map: Map
-	{
-		cell_tex_size := ldx.texture_get_size(g_textures.wall)
-		cell_tex_size_f := v2{cast(f32)cell_tex_size.x, cast(f32)cell_tex_size.y}
-
-		map_tiles : [][]Tile = {
-			{.Wall, .Wall, .Wall, .Wall, .Wall, .Wall, .Wall},
-			{.Wall, .Ground, .Ground, .Pit, .Ground, .CrateStone, .Wall},
-			{.Wall, .Ground, .Ground, .Pit, .Goal, .Ground, .Wall},
-			{.Wall, .PlayerSpawn, .Ground, .Pit, .Ground, .Ground, .Wall},
-			{.Wall, .Wall, .Wall, .Wall, .Wall, .Wall, .Wall}
-		}
-
-		player_spawn_coord : Coord
-
-		outer: for row_i, y in map_tiles {
-			for col_i, x in row_i {
-				if col_i == .PlayerSpawn {
-					player_spawn_coord = {x, y}
-					break outer
-				}
-			}
-		}
-
-		the_map = {
-			v2{50, WINDOW_HEIGHT - 50 - cell_tex_size_f.y},
-			v2{1,1},
-			cell_tex_size_f, 
-			player_spawn_coord,
-			map_tiles
-		}
-	}
-
-	// Placing player at position
-	g_player.pos = map_coord_to_world_pos(the_map, the_map.player_spawn_coord)
+	game_restart()
 
 	audio.play_midi(&midi_track)
-	frame := 0
+	// frame := 0
 
 	for !ldx.window_should_close() {
 		audio.update()
@@ -139,10 +114,10 @@ main :: proc() {
 		ldx.window_clear(COLOR_BACKGROUND)
 
 		// Update game logic
-		frame += 1
-		if frame % 50 == 0 {
-			audio.play_note(.C, 2, 0.1, 127, 9)
-		}
+		// frame += 1
+		// if frame % 50 == 0 {
+		// 	audio.play_note(.C, 2, 0.1, 127, 9)
+		// }
 
 		// Moving player
 		{
@@ -157,22 +132,52 @@ main :: proc() {
 
 			g_player.vel = vel
 
-			map_boxes := map_generate_collisions(the_map)
+			map_boxes := map_generate_collisions(g_map)
 
 
 			move_and_slide(&g_player.box, map_boxes[:])
+		}
 
+		// What tile is the player in?
+		coord := map_world_box_to_coord(g_map, g_player.box)
+
+		if coord != g_player_coord {
+			// changed cord.
+			// TODO: trigger on tile enter event, or whatever.
+
+			// checking if tile is a hole
+
+			tile := map_get_tile_unchecked(g_map, coord)
+			if tile == .Pit {
+				g_lives -= 1
+
+				note := cast(audio.Notes)coord.y
+
+				audio.play_note(note, 2, 0.1, 127, 9)
+				game_restart()
+			}
+
+			g_player_coord = coord
 		}
 
 		// Drawing everything
 		{
-			map_draw(the_map)
+			map_draw(g_map)
 
 			// Draw the player
 			ldx.draw_texture(g_textures.player, g_player.pos)
 
 			// Draw player hitbox
 			ldx.draw_solid_rect(g_player.pos, g_player.size, {1,0,0,0.5})
+
+			// draw where player is on the coord screen
+			p_coord_pos := map_coord_to_world_pos(g_map, coord)
+			ldx.draw_solid_rect(p_coord_pos, g_map.cell_tex_size, {1,1,0,0.5})
+
+			// drawing amount of lives
+			for i in 0..<g_lives {
+				ldx.draw_solid_rect({10 + 100 * cast(f32)i, 5 + 50}, {50, 50}, {1,0,0,1})
+			}
 		}
 
 		ldx.present()
@@ -253,7 +258,7 @@ interval_add :: proc(interval : Interval, sum: f32) -> Interval {
 AABB :: struct{x, y: Interval}
 
 // True if there's a collision between the AABB's
-aabb_do_collide :: proc(a, b: AABB) -> bool{
+aabb_do_collide :: proc(a, b: AABB) -> bool {
 	return interval_collide(a.x, b.x) && interval_collide(a.y, b.y)
 }
 
@@ -271,6 +276,10 @@ map_coord_to_world_pos :: proc(the_map: Map, coord: Coord) -> v2 {
 
 v2i_to_v2 :: proc(coord: v2i) -> v2 {
 	return {cast(f32)coord.x, cast(f32)coord.y}
+}
+
+v2_to_v2i :: proc(a: v2) -> v2i {
+	return {cast(int)a.x, cast(int)a.y}
 }
 
 box_sweep :: proc(b1, b2 :Box) -> (collision_time: f32, collision_normal: v2) {
@@ -451,6 +460,20 @@ tile_is_solid :: proc(the_map: Map, coord: Coord) -> bool {
 	}
 }
 
+map_world_box_to_coord :: proc(tm : Map, b: Box) -> Coord {
+
+	// determing middle point of box
+	middle_point := b.pos + {b.size.x / 2, -b.size.y / 2}
+	// Flipping y (world space is +y up, coord space is +y down)
+	middle_point.y *= -1
+	map_offset := v2{tm.pos.x, -tm.pos.y}
+
+	// where does this point fall in the grid?
+	cell_size : v2 = tm.cell_tex_size * tm.scale
+
+	return v2_to_v2i((middle_point - map_offset) / cell_size)
+}
+
 @(require_results)
 map_get_tile :: proc(the_map: Map, coord: Coord) -> (tile: Tile, ok: bool = false) {
 	row_size := len(the_map.tiles[0])
@@ -462,4 +485,42 @@ map_get_tile :: proc(the_map: Map, coord: Coord) -> (tile: Tile, ok: bool = fals
 @(require_results)
 map_get_tile_unchecked :: proc(the_map: Map, coord: Coord) -> (tile: Tile) {
 	return the_map.tiles[coord.y][coord.x]
+}
+
+game_restart :: proc() {
+
+	// initting map
+	map_tiles : [ROW_COUNT][COLUMN_COUNT]Tile = {
+		{.Wall, .Wall, .Wall, .Wall, .Wall, .Wall, .Wall},
+		{.Wall, .Ground, .Ground, .Pit, .Ground, .CrateStone, .Wall},
+		{.Wall, .Ground, .Ground, .Pit, .CrateStone, .Ground, .Wall},
+		{.Wall, .PlayerSpawn, .Ground, .Pit, .Ground, .Ground, .Wall},
+		{.Wall, .Wall, .Wall, .Wall, .Wall, .Wall, .Wall}
+	}
+
+	cell_tex_size := ldx.texture_get_size(g_textures.wall)
+	cell_tex_size_f := v2{cast(f32)cell_tex_size.x, cast(f32)cell_tex_size.y}
+	player_spawn_coord : Coord
+
+	outer: for row_i, y in map_tiles {
+		for col_i, x in row_i {
+			if col_i == .PlayerSpawn {
+				player_spawn_coord = {x, y}
+				break outer
+			}
+		}
+	}
+
+	g_map = {
+		v2{50, WINDOW_HEIGHT - 50 - cell_tex_size_f.y},
+		v2{1,1},
+		cell_tex_size_f, 
+		player_spawn_coord,
+		map_tiles
+	}
+
+	// placing player at spawn position
+
+	g_player.pos = map_coord_to_world_pos(g_map, g_map.player_spawn_coord)
+	g_player_coord = g_map.player_spawn_coord
 }
