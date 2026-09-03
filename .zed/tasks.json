@@ -14,7 +14,7 @@
 		"save": "all",
 	},
 	{
-		"label": "vet unused",
+		"label": "vet everything",
 		"command": "odin check src -debug -define:PROFILE=true -vet-packages:main,sluggish_generator -vet-unused-variables -vet-shadowing -vet-using-stmt -vet-cast -vet-unused-procedures",
 		"use_new_terminal": false,
 		"allow_concurrent_runs": false,
@@ -82,7 +82,7 @@
 	},
 	{
 		"label": "GAME - Run debug",
-		"command": "raddbg.exe --ipc kill_all && odin build hookin -debug -out:hookin.exe -linker:radlink -keep-executable -vet && raddbg --ipc run",
+		"command": "raddbg.exe --ipc kill_all && odin build hookin -debug -out:hookin.exe -linker:radlink -keep-executable -vet-shadowing && raddbg --ipc run",
 		"use_new_terminal": false,
 		"allow_concurrent_runs": false,
 		"reveal": "always",
@@ -96,7 +96,7 @@
 	},
 	{
 		"label": "GAME - Build debug",
-		"command": "odin build hookin -debug -out:hookin.exe -linker:radlink -keep-executable -vet",
+		"command": "odin build hookin -debug -out:hookin.exe -linker:radlink -keep-executable -vet-shadowing",
 		"use_new_terminal": false,
 		"allow_concurrent_runs": false,
 		"reveal": "always",

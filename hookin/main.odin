@@ -1,8 +1,6 @@
 package hookin
 
 import "core:fmt"
-// import "core:fmt"
-// import "core:fmt"
 import "core:math"
 import "core:math/linalg"
 // import "core:math/rand"
@@ -20,11 +18,11 @@ v4 :: ldx.v4
 // Map coordinate. origin at TOP LEFT of the map, visually and in data the_map[0][0]
 Coord :: v2i
 
-ROW_COUNT :: 5
+ROW_COUNT :: 7
 COLUMN_COUNT :: 7
 
 WINDOW_WIDTH :: 1000
-WINDOW_HEIGHT :: 500
+WINDOW_HEIGHT :: 800
 COLOR_BACKGROUND :: v4{0.773, 0.686, 0.643,1}
 COLOR_CHARACTER :: v4{0.8, 0.494, 0.522, 1}
 COLOR_FOOD :: v4{0.639, 0.427, 0.565, 1}
@@ -68,6 +66,7 @@ Textures :: struct {
 Player :: struct {
 	using box: Box,// box for collision
 	texture_size: v2,
+	texture_offset: v2,
 }
 
 g_map: Map
@@ -99,13 +98,15 @@ main :: proc() {
 	g_textures.pit = ldx.texture_load("hookin_sprites/sokoban-pack/Environment/environment_06.png")
 
 	char_tex_size_i := ldx.texture_get_size(g_textures.player)
+
+	// initializing player
 	g_player.texture_size = v2i_to_v2(char_tex_size_i)
-	g_player.box.size = g_player.texture_size
+	g_player.box.size = g_player.texture_size * 0.7
+	g_player.texture_offset = v2{ -10, 10}
 
 	game_restart()
 
 	audio.play_midi(&midi_track)
-	// frame := 0
 
 	for !ldx.window_should_close() {
 		audio.update()
@@ -114,10 +115,6 @@ main :: proc() {
 		ldx.window_clear(COLOR_BACKGROUND)
 
 		// Update game logic
-		// frame += 1
-		// if frame % 50 == 0 {
-		// 	audio.play_note(.C, 2, 0.1, 127, 9)
-		// }
 
 		// Moving player
 		{
@@ -165,14 +162,14 @@ main :: proc() {
 			map_draw(g_map)
 
 			// Draw the player
-			ldx.draw_texture(g_textures.player, g_player.pos)
+			ldx.draw_texture(g_textures.player, g_player.pos + g_player.texture_offset)
 
 			// Draw player hitbox
-			ldx.draw_solid_rect(g_player.pos, g_player.size, {1,0,0,0.5})
+			// ldx.draw_solid_rect(g_player.pos, g_player.size, {1,0,0,0.5})
 
 			// draw where player is on the coord screen
-			p_coord_pos := map_coord_to_world_pos(g_map, coord)
-			ldx.draw_solid_rect(p_coord_pos, g_map.cell_tex_size, {1,1,0,0.5})
+			// p_coord_pos := map_coord_to_world_pos(g_map, coord)
+			// ldx.draw_solid_rect(p_coord_pos, g_map.cell_tex_size, {1,1,0,0.5})
 
 			// drawing amount of lives
 			for i in 0..<g_lives {
@@ -227,18 +224,27 @@ map_draw :: proc(the_map: Map) {
 	for row, row_i in the_map.tiles {
 		for cell, column_i in row {
 			the_tex : int
+			draw_ground: bool
 
 			switch cell {
 			case .Wall: the_tex = g_textures.wall
 			case .Pit: the_tex = g_textures.pit
-			case .Ground, .PlayerSpawn, .Goal: the_tex = g_textures.ground
+			case .Ground, .PlayerSpawn: the_tex = g_textures.ground
+			case .Goal: the_tex = g_textures.goal
 			case .CrateWood : the_tex = g_textures.crate_wood
 			case .CrateStone : the_tex = g_textures.crate_stone
 			}
 
 			pos, size := map_get_tile_pos_size(the_map, row_i, column_i)
-
 			if cell == .Pit do  ldx.draw_solid_rect(pos, size, COLOR_BLACK)
+
+			// Drawing ground  on certain tile types, before the main element
+			switch cell {
+			case .CrateWood, .CrateStone,.Goal, .Wall:
+				ldx.draw_texture(g_textures.ground, pos, the_map.scale)
+			case .Ground, .Pit, .PlayerSpawn:
+			}
+
 			ldx.draw_texture(the_tex, pos, the_map.scale)
 			if cell == .Goal do  ldx.draw_texture(g_textures.goal, pos, the_map.scale)
 		}
@@ -492,9 +498,11 @@ game_restart :: proc() {
 	// initting map
 	map_tiles : [ROW_COUNT][COLUMN_COUNT]Tile = {
 		{.Wall, .Wall, .Wall, .Wall, .Wall, .Wall, .Wall},
-		{.Wall, .Ground, .Ground, .Pit, .Ground, .CrateStone, .Wall},
-		{.Wall, .Ground, .Ground, .Pit, .CrateStone, .Ground, .Wall},
-		{.Wall, .PlayerSpawn, .Ground, .Pit, .Ground, .Ground, .Wall},
+		{.Wall, .Ground, .Ground, .Ground, .Ground, .Ground, .Wall},
+		{.Wall, .Ground, .Ground, .Ground, .Ground, .CrateStone, .Wall},
+		{.Wall, .Ground, .CrateWood, .Ground, .CrateStone, .Ground, .Wall},
+		{.Wall, .PlayerSpawn, .Ground, .Ground, .Ground, .Ground, .Wall},
+		{.Wall, .Ground, .Ground, .Ground, .Ground, .Ground, .Wall},
 		{.Wall, .Wall, .Wall, .Wall, .Wall, .Wall, .Wall}
 	}
 
@@ -512,7 +520,7 @@ game_restart :: proc() {
 	}
 
 	g_map = {
-		v2{50, WINDOW_HEIGHT - 50 - cell_tex_size_f.y},
+		v2{50, WINDOW_HEIGHT - 10},
 		v2{1,1},
 		cell_tex_size_f, 
 		player_spawn_coord,
