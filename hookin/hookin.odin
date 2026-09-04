@@ -69,14 +69,33 @@ Player :: struct {
 	using box: Box,// box for collision
 	texture_size: v2,
 	texture_offset: v2,
+	current_coord: Coord,
+	last_input_vel: v2i // determines where the player is facing
+}
+
+BoxCollisionRecord :: struct {
+	map_boxes: []Box,
+	coords: []Coord,
+	box_i: int, //index into map_boxes and coords of box that you hit,
+	col_normal: v2,
+	did_hit: bool,
+}
+
+GameEvent :: enum{
+	JustStarted,
+	PlayerDied,
+	BeatLevel
 }
 
 g_map: Map
 g_textures: Textures
 g_player : Player
-g_player_coord: Coord
 g_lives : int
 g_times_level_win: int
+g_last_event: GameEvent
+
+// TODO do keyboard system on lucy2d (snapshot of prev frame keys and current frame to see which one started being pressed now)
+g_was_space_pressed: bool
 
 main :: proc() {
 	ldx.window_new("hookin", WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -112,114 +131,7 @@ main :: proc() {
 	audio.play_midi(&midi_track)
 
 	for !ldx.window_should_close() {
-		ldx.frame_start()
-		audio.update()
-		kb := ldx.get_keyboard()
-		if kb[sdl.Scancode.ESCAPE] == 1 do break
-		ldx.window_clear(COLOR_BACKGROUND)
-
-		// Update game logic
-
-		// Moving player
-		{
-			vel : v2
-
-			if kb[sdl.Scancode.A] == 1 do vel.x = -1
-			if kb[sdl.Scancode.D] == 1 do vel.x = 1
-			if kb[sdl.Scancode.W] == 1 do vel.y = 1
-			if kb[sdl.Scancode.S] == 1 do vel.y = -1
-
-			if vel != {0,0} do vel = linalg.normalize(vel) * CHARACTER_SPEED
-			g_player.vel = vel
-			map_boxes, coords := map_generate_collisions(g_map)
-			box_i, col_normal, did_hit := move_and_slide(&g_player.box, map_boxes[:])
-
-			@static box_i_last_hit: int
-			@static hit_counter: int
-
-			if did_hit {
-				tile := map_get_tile_unchecked(g_map, coords[box_i])
-
-				#partial switch tile {
-				case .CrateWood:
-
-					hit_counter += 1
-
-					if box_i_last_hit != box_i {
-						hit_counter = 0
-					}
-
-					box_i_last_hit = box_i
-
-
-					if hit_counter > 20 {
-						move_box(&g_map, coords[box_i], -col_normal)
-						hit_counter = 0
-					}
-				}
-			} else {
-				hit_counter = 0
-			}
-		}
-
-		// What tile is the player in?
-		coord := map_world_box_to_coord(g_map, g_player.box)
-
-		if coord != g_player_coord {
-			// changed cord.
-			// TODO: trigger on tile enter event, or whatever.
-
-			tile := map_get_tile_unchecked(g_map, coord)
-			#partial switch tile {
-			case .Goal: // Goal. you won
-				g_times_level_win += 1
-				audio.play_note(.F, 2, 0.1, 127, 9)
-				// go to the next level i guess?
-				game_restart()
-			case .Pit: // landed on pit. die
-				g_lives -= 1
-				note := cast(audio.Notes)coord.y
-				audio.play_note(note, 2, 0.1, 127, 9)
-				game_restart()
-			}
-
-			g_player_coord = coord
-		}
-
-		// Drawing everything
-		{
-			map_draw(g_map)
-
-			// Draw the player
-			ldx.draw_texture(g_textures.player, g_player.pos + g_player.texture_offset)
-
-			// Draw player hitbox
-			// ldx.draw_solid_rect(g_player.pos, g_player.size, {1,0,0,0.5})
-
-			// draw where player is on the coord screen
-			// p_coord_pos := map_coord_to_world_pos(g_map, coord)
-			// ldx.draw_solid_rect(p_coord_pos, g_map.cell_tex_size, {1,1,0,0.5})
-
-			// drawing amount of lives
-			for i in 0..<g_lives {
-				ldx.draw_solid_rect({10 + 55 * cast(f32)i, 5 + 50}, {50, 50}, {1,0,0,1})
-			}
-
-			for i in 0..<g_times_level_win {
-				ldx.draw_solid_rect({400 + 55 * cast(f32)i, 5 + 50}, {50, 50}, {0,1,0,1})
-			}
-		}
-
-		// Drawing imgui
-		{
-			im.Begin("hookin")
-			defer im.End()
-			im.Text("Hi hookin!")
-			ldx.imgui_do_text("Player Coord: %v", g_player_coord)
-		}
-
-		ldx.frame_end()
-		free_all(context.temp_allocator)
+		if game_update() do break
 	}
 
 	ldx.window_cleanup()
@@ -525,7 +437,7 @@ game_restart :: proc() {
 		{.Wall, .Wall, .Wall, .Wall, .Wall, .Wall, .Wall},
 		{.Wall, .Ground, .Ground, .CrateStone, .Ground, .Pit, .Wall},
 		{.Wall, .Ground, .Ground, .Ground, .Ground, .CrateWood, .Wall},
-		{.Wall, .Ground, .CrateWood, .Ground, .CrateWood, .Goal, .Wall},
+		{.Wall, .Ground, .CrateWood, .Pit, .CrateWood, .Goal, .Wall},
 		{.Wall, .PlayerSpawn, .Ground, .CrateWood, .Ground, .Ground, .Wall},
 		{.Wall, .Ground, .Ground, .Ground, .Ground, .Ground, .Wall},
 		{.Wall, .Wall, .Wall, .Wall, .Wall, .Wall, .Wall}
@@ -553,33 +465,255 @@ game_restart :: proc() {
 	}
 
 	// placing player at spawn position
-
-	g_player.pos = map_coord_to_world_pos(g_map, g_map.player_spawn_coord)
-	g_player_coord = g_map.player_spawn_coord
+	box_place_at_coord(&g_player, g_map.player_spawn_coord)
+	g_player.current_coord = g_map.player_spawn_coord
 }
 
-move_box :: proc(tm: ^Map, c: Coord, dir: v2) {
-	tile_box := map_get_tile_unchecked(tm^, c)
-
-	dir_int := v2_to_v2i(dir)
-	dir_int.y *= -1
-	next_coord := c + dir_int
-	tile_next, ok := map_get_tile(tm^, next_coord)
-	if !ok do return
+move_box :: proc(tm: ^Map, c_from, c_to: Coord) -> (_box_did_fall: bool) {
+	current_box := map_get_tile_unchecked(tm^, c_from)
+	next_tile := map_get_tile_unchecked(tm^, c_to)
 
 	// We do different things depending on what is the next tile
-	switch tile_next {
+	switch next_tile {
 	case .Wall, .CrateWood, .CrateStone: return
 	case .PlayerSpawn, .Ground, .Goal:
 		// move the box
-		tile_prev := map_get_tile_ref(tm, c)
+		tile_prev := map_get_tile_ref(tm, c_from)
 		tile_prev^ = .Ground
 
-		tile_next := map_get_tile_ref(tm, next_coord)
-		tile_next^ = tile_box
+		tile_next := map_get_tile_ref(tm, c_to)
+		tile_next^ = current_box
 	case .Pit:
 		// disappear the box
-		tile_prev := map_get_tile_ref(tm, c)
+		tile_prev := map_get_tile_ref(tm, c_from)
 		tile_prev^ = .Ground
+		return true
 	}
+	return
+}
+
+player_kill :: proc() {
+	g_last_event = .PlayerDied
+	g_lives -= 1
+	audio.play_note(.A, 2, 0.1, 127, 9)
+	game_restart()
+}
+
+// teleport = true: teleport player's pos to the middle of coord
+// changed cord.
+// TODO: trigger on tile enter event, or whatever.
+player_coord_changed:: proc(coord: Coord, teleport: bool) {
+
+	if teleport {
+		box_place_at_coord(&g_player, coord)
+	}
+
+	tile, ok := map_get_tile(g_map, coord)
+	if !ok {
+		player_kill()
+		return
+	}
+
+	#partial switch tile {
+	case .Goal: // Goal. you won
+		g_times_level_win += 1
+		audio.play_note(.F, 2, 0.1, 127, 9)
+		g_last_event = .BeatLevel
+		// go to the next level i guess?
+		game_restart()
+	case .Pit, .Wall, .CrateWood, .CrateStone:  // landed on pit or something solid. die
+		player_kill()
+	}
+
+	g_player.current_coord = coord
+}
+
+try_move_box :: proc(bcr: BoxCollisionRecord) {
+	@static box_i_last_hit: int
+	@static hit_counter: int
+
+	if bcr.did_hit {
+		tile := map_get_tile_unchecked(g_map, bcr.coords[bcr.box_i])
+		#partial switch tile {
+		case .CrateWood:
+
+			hit_counter += 1
+			if box_i_last_hit != bcr.box_i {
+				hit_counter = 0
+			}
+			box_i_last_hit = bcr.box_i
+			if hit_counter > 20 {
+
+				dir_int := v2_to_v2i(-bcr.col_normal)
+				dir_int.y *= -1
+				coord_from := bcr.coords[bcr.box_i]
+				coord_to := coord_from + dir_int
+				tile_next, ok := map_get_tile(g_map, coord_to)
+
+				if ok {
+					move_box(&g_map, coord_from, coord_to)
+					hit_counter = 0
+				}
+			}
+		}
+	} else {
+		hit_counter = 0
+	}
+}
+
+game_update :: #force_inline proc() -> (_should_quit: bool) {
+	ldx.frame_start()
+	defer {
+		ldx.frame_end()
+		free_all(context.temp_allocator)
+	}
+	audio.update()
+	kb := ldx.get_keyboard()
+	if kb[sdl.Scancode.ESCAPE] == 1 do return true
+	ldx.window_clear(COLOR_BACKGROUND)
+
+	// Update game logic
+	if kb[sdl.Scancode.R] == 1 do game_restart()
+
+	// What tile is the player in?
+	coord := map_world_box_to_coord(g_map, g_player.box)
+
+	if coord != g_player.current_coord {
+		player_coord_changed(coord, false)
+	}
+
+	// Player update Logic
+	{
+		vel : v2
+
+		if kb[sdl.Scancode.A] == 1 {
+			vel.x = -1 
+			g_player.last_input_vel = {-1, 0}
+		}
+		if kb[sdl.Scancode.D] == 1 {
+			vel.x = 1
+			g_player.last_input_vel = {1, 0}
+		}
+		if kb[sdl.Scancode.W] == 1 {
+			vel.y = 1
+			g_player.last_input_vel = {0, -1}
+		} 
+		if kb[sdl.Scancode.S] == 1 {
+			vel.y = -1
+			g_player.last_input_vel = {0, 1}
+		}
+
+		if vel != {0,0} {
+			vel = linalg.normalize(vel) * CHARACTER_SPEED
+			g_player.vel = vel
+			map_boxes, coords := map_generate_collisions(g_map)
+			box_i, col_normal, did_hit := move_and_slide(&g_player.box, map_boxes[:])
+			bcr := BoxCollisionRecord { map_boxes, coords, box_i, col_normal, did_hit }
+			try_move_box(bcr)
+		} else {
+			g_player.vel = {}
+		}
+	}
+
+	// Hook mechanic
+	{
+		if kb[sdl.Scancode.SPACE] == 1 && !g_was_space_pressed {
+			try_do_hook()
+		}
+
+		// TODO: super crude temporary code. do input system on lucy2d now!
+		if kb[sdl.Scancode.SPACE] == 1 {
+			g_was_space_pressed = true
+		} else {
+			g_was_space_pressed = false
+		}
+	}
+
+	// Drawing everything
+	{
+		map_draw(g_map)
+
+		// Draw the player
+		ldx.draw_texture(g_textures.player, g_player.pos + g_player.texture_offset)
+
+		// Draw player hitbox
+		// ldx.draw_solid_rect(g_player.pos, g_player.size, {1,0,0,0.5})
+
+		// draw where player is on the coord screen
+		// p_coord_pos := map_coord_to_world_pos(g_map, coord)
+		// ldx.draw_solid_rect(p_coord_pos, g_map.cell_tex_size, {1,1,0,0.5})
+
+		// drawing amount of lives
+		for i in 0..<g_lives {
+			ldx.draw_solid_rect({10 + 55 * cast(f32)i, 5 + 50}, {50, 50}, {1,0,0,1})
+		}
+
+		for i in 0..<g_times_level_win {
+			ldx.draw_solid_rect({400 + 55 * cast(f32)i, 5 + 50}, {50, 50}, {0,1,0,1})
+		}
+	}
+
+	// Do imgui UI
+	{
+		im.Begin("hookin")
+		defer im.End()
+		im.Text("Hi hookin!")
+		ldx.imgui_do_text("Player Coord: %v", g_player.current_coord)
+		ldx.imgui_do_text("Player looking at: %v", g_player.last_input_vel)
+		ldx.imgui_do_text("Last Event: %v", g_last_event)
+	}
+
+	return false
+}
+
+try_do_hook :: proc() {
+	// get current coord and look up coords along last input vel
+	// loop tiles along that vel
+
+	last_vel := g_player.last_input_vel
+
+	fmt.printfln("last vel %v", last_vel)
+
+	lookup_coord := g_player.current_coord + last_vel
+
+	distance : int = 1
+	hit_wooden_box : bool
+
+	outer: for {
+		tile, ok := map_get_tile(g_map, lookup_coord)
+		if !ok do break outer
+
+		#partial switch tile {
+		case .Wall, .CrateStone:
+			break outer
+		case .CrateWood:
+			hit_wooden_box = true
+			break outer
+		}
+
+		lookup_coord += last_vel
+		distance += 1
+	}
+
+	// Bring crate over if it's distance > 1
+	tile, ok := map_get_tile(g_map, lookup_coord)
+	if !ok do return
+
+	if distance > 1 && tile == .CrateWood {
+		move_box(&g_map, lookup_coord, g_player.current_coord + g_player.last_input_vel)
+		coord_player_to := g_player.current_coord - g_player.last_input_vel
+		// move player
+		player_coord_changed(g_player.current_coord - g_player.last_input_vel, true)
+	}
+}
+
+box_place_at_coord :: proc(b: ^Box, coord: Coord) {
+	coord_pos := map_coord_to_world_pos(g_map, coord)
+	tile_offset := g_map.cell_tex_size / 2
+	tile_offset.y *= -1
+
+	box_offset := b.size / 2
+	box_offset.y *= -1
+
+	b.pos = coord_pos + tile_offset - box_offset
 }
