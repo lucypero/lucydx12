@@ -1,5 +1,7 @@
 package main
 
+import "core:fmt"
+import "core:strings"
 import "base:runtime"
 import dx "vendor:directx/d3d12"
 import sdl "vendor:sdl2"
@@ -121,4 +123,12 @@ imgui_start_frame :: proc() {
 	imgui_impl_dx12.NewFrame()
 	imgui_impl_sdl2.NewFrame()
 	im.NewFrame()
+}
+
+// helper functions
+imgui_do_text :: proc(format:string, args: ..any) {
+	sb := strings.builder_make_len_cap(0, 0, context.temp_allocator)
+	fmt.sbprintfln(&sb, format, ..args)
+	cst, _ := strings.to_cstring(&sb)
+	im.Text(cst)
 }

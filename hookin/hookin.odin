@@ -1,5 +1,6 @@
 package hookin
 
+import "core:strings"
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
@@ -209,7 +210,14 @@ main :: proc() {
 			}
 		}
 
-		im.ShowDemoWindow()
+		// Drawing imgui
+		{
+			im.Begin("hookin")
+			defer im.End()
+			im.Text("Hi hookin!")
+			ldx.imgui_do_text("Player Coord: %v", g_player_coord)
+		}
+
 		ldx.frame_end()
 		free_all(context.temp_allocator)
 	}
