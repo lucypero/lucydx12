@@ -101,16 +101,11 @@ window_new :: proc(window_name:string, width, height: int) {
 
 	init_dx(&g_lct.resources_longterm, ct.window, width, height)
 
-	// Creating all root signatures
 	g_lct.root_signatures = create_root_signatures(&g_lct.resources_longterm)
-
-	// Creating a Constant buffer?? if needed
-
-	// Creating Sprite Structured buffer
-
 	g_lct.cb_general = cb_upload_create(size_of(GeneralConstants), &g_lct.resources_longterm, name = "general constants cbv")
-
 	g_lct.sb_sprites = structured_buffer_create("Sprite buffer", &g_lct.resources_longterm, Sprite, SPRITE_MAX_COUNT, heap_type = .UPLOAD)
+
+	imgui_init(ct.window, &ct.resources_longterm)
 
 	// Creating PSO's
 	g_lct.psos[.Quad] = pso_create("src/shaders/quads.hlsl", &ct.root_signatures, &ct.resources_longterm, PSOParameters {
@@ -221,6 +216,7 @@ create_root_signatures :: proc(pool : ^DXResourcePool) -> (root_signatures : [Ro
 window_cleanup :: proc() {
 	ct := &g_lct
 	thread.destroy(g_lct.upload_thread)
+	imgui_destroy()
 	sdl.DestroyWindow(ct.window)
 	sdl.Quit()
 
@@ -256,7 +252,7 @@ draw_sprite :: proc(sprite: Sprite) {
 }
 
 // draws all the stuff, and resets frame state
-present :: proc() {
+frame_end :: proc() {
 
 	ctd := &g_dx_core
 	ct := &g_lct
@@ -282,18 +278,19 @@ present :: proc() {
 		pso.render_proc(pso)
 	}
 
+	imgui_end_frame()
 	dx_frame_end()
-	frame_end()
 }
 
-// Setting things up for the next frame
-frame_end :: proc() {
+frame_start :: proc() {
+
 	ct := &g_lct
 	ct.clear_color_issued = nil
 	clear(&ct.sprites_to_render)
 	sdl.PumpEvents()
 
 	for e: sdl.Event; sdl.PollEvent(&e); {
+		imgui_impl_sdl2.ProcessEvent(&e)
 		#partial switch e.type {
 		case .QUIT:
 			g_lct.window_should_close = true
@@ -306,6 +303,8 @@ frame_end :: proc() {
 			}
 		}
 	}
+
+	imgui_start_frame()
 }
 
 get_keyboard :: proc() -> []u8 {
