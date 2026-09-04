@@ -14,22 +14,16 @@ import "../libs/odin-imgui/imgui_impl_dx12"
 ImguiContext :: struct {
 	imgui_descriptor_heap: ^dx.IDescriptorHeap,
 	imgui_allocator: DescriptorHeapAllocator,
-	user_data: rawptr,
-	user_update_proc : proc(data: rawptr)
 }
 
 g_imgui_context: ImguiContext
 
-imgui_init :: proc(window: ^sdl.Window, pool: ^DXResourcePool, user_data: rawptr, user_update_proc : proc(data: rawptr)) {
+imgui_init :: proc(window: ^sdl.Window, pool: ^DXResourcePool) {
 
 	// initting dear imgui
 	im.CHECKVERSION()
 	im.CreateContext()
 	io := im.GetIO()
-
-	TODO: CALL THIS on the engine's update code or something. and have an example for hookin. and refactor the 3D showcase app;
-	g_imgui_context.user_data = user_data
-	g_imgui_context.user_update_proc = user_update_proc
 
 	io.ConfigFlags += {.NavEnableKeyboard, .NavEnableGamepad}
 	io.ConfigFlags += {.DockingEnable}
@@ -102,27 +96,29 @@ imgui_init :: proc(window: ^sdl.Window, pool: ^DXResourcePool, user_data: rawptr
 	imgui_impl_dx12.Init(&dx12_init)
 }
 
-imgui_destoy :: proc() {
+imgui_destroy :: proc() {
 	imgui_impl_sdl2.Shutdown() // here
 	imgui_impl_dx12.Shutdown()
 	im.DestroyContext()
 }
 
 // call this right before swapchain present
-render_imgui :: proc() {
-
+imgui_end_frame :: proc() {
+	im.Render()
 	// setting imgui's descriptor heap
 	// if i don't do this, it errors out. seems like RenderDrawData doesn't set it
 	//  by itself
 	g_dx_core.cmdlist->SetDescriptorHeaps(1, &g_imgui_context.imgui_descriptor_heap)
-
-	// need graphics command list
 	imgui_impl_dx12.RenderDrawData(im.GetDrawData(), g_dx_core.cmdlist)
-
 	io := im.GetIO()
-
 	if .ViewportsEnable in io.ConfigFlags {
 		im.UpdatePlatformWindows()
 		im.RenderPlatformWindowsDefault()
 	}
+}
+
+imgui_start_frame :: proc() {
+	imgui_impl_dx12.NewFrame()
+	imgui_impl_sdl2.NewFrame()
+	im.NewFrame()
 }

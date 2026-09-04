@@ -132,10 +132,6 @@ Context :: struct {
 	/// SDL stuff
 	window: ^sdl.Window,
 
-	/// imgui stuff
-	imgui_descriptor_heap: ^dx.IDescriptorHeap,
-	imgui_allocator: DescriptorHeapAllocator,
-
 	tx_depth: Texture,
 	gbuffer: GBuffer,
 	root_signatures: [RootSignatureChoice]^dx.IRootSignature,
@@ -561,7 +557,7 @@ main :: proc() {
 
 	// cleanup
 	{
-		imgui_destoy()
+		imgui_destroy()
 
 		thread.destroy(upload_thread)
 
@@ -796,7 +792,7 @@ init_dx_user :: proc() {
 		&g_resources_resizing, view_flags = {.UAV}, texture_name = "post process output")
 
 	close_and_execute_cmdlist()
-	imgui_init()
+	imgui_init(ct.window, &g_resources_longterm)
 	load_white_texture(&g_resources_longterm)
 
 	// post-process output
@@ -844,7 +840,6 @@ do_main_loop :: proc() {
 		imgui_impl_sdl2.NewFrame()
 		im.NewFrame()
 		update()
-		im.End()
 		im.Render()
 		render()
 		free_all(context.temp_allocator)
@@ -887,6 +882,7 @@ update :: proc() {
 do_imgui_ui :: proc() {
 
 	im.Begin("lucydx12")
+	defer im.End()
 
 	// light count
 	im.DragInt("Light Count", cast(^c.int)&g_config.light_count, v_min = 1, v_max = MAX_LIGHTS)
@@ -1139,7 +1135,7 @@ render :: proc() {
 		g_dx_core.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
 	}
 
-	render_imgui()
+	imgui_end_frame()
 
 	dx_frame_end()
 

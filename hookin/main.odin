@@ -7,6 +7,7 @@ import "core:math/linalg"
 // import "core:math/linalg"
 import sdl "vendor:sdl2"
 import "audio"
+import im "../libs/odin-imgui"
 
 // Importing rendering engine
 import ldx "../src"
@@ -110,6 +111,7 @@ main :: proc() {
 	audio.play_midi(&midi_track)
 
 	for !ldx.window_should_close() {
+		ldx.frame_start()
 		audio.update()
 		kb := ldx.get_keyboard()
 		if kb[sdl.Scancode.ESCAPE] == 1 do break
@@ -207,7 +209,8 @@ main :: proc() {
 			}
 		}
 
-		ldx.present()
+		im.ShowDemoWindow()
+		ldx.frame_end()
 		free_all(context.temp_allocator)
 	}
 
