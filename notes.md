@@ -1,3 +1,65 @@
+# level data structure?
+
+```odin
+Map :: struct {
+	size: v2i,
+	layers: []TileMapLayer,
+	connections: []Connection,
+}
+
+TileMapLayer :: struct {
+	tiles : []TileEntity
+}
+
+TileEntity :: union #no_nil {
+	TileWall, TileGoal, TilePit, TileBox, TileSwitch
+}
+
+TileWall :: struct {}
+TileGoal :: struct {}
+TilePit :: struct {}
+TileBox :: struct {}
+
+Connection :: struct {
+	a, b: Coord,
+	roles, [2]ConnectionRole
+}
+
+// If the entity needs data like an id, you just add it to the struct
+TileSwitch :: struct {
+	id: int,
+	connected_to: Coord,
+}
+
+// Looping through everything
+drawing :: proc() {
+
+	for layer in a_level.layers {
+		for tile in layer.tiles {
+			// here we have a tile entity
+
+			switch ttype in tile {
+			case Wall:
+				// Draw wall... etc
+			
+			}
+			
+		}
+	}
+}
+
+get_tiles_at :: proc(lvl: Map, c: Coord, out_tiles: []TileEntity){
+	for layer, i in lvl.layers {
+		out_tiles[i] = get_tile_at(lvl, c, i)
+	}
+}
+
+get_tile_at :: proc(lvl: Map, c: Coord, layer_id: int) -> TileEntity {
+	return lvl.layers[layer_id][lvl.size.x * c.y + c.x]
+}
+
+```
+
 # LUCY2D - Todo
 
 - think about the API for rendering sprites. the size. should it respect the texture's size? which size is the canon size?

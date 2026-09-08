@@ -32,35 +32,6 @@ COLOR_BLACK :: v4{0,0,0,1}
 CHARACTER_SPEED :: 3
 CHARACTER_SIZE :: 64
 
-// Collision Box
-
-Face :: enum {Left, Right, Top, Bottom}
-Faces :: bit_set[Face; u8]
-
-Box :: struct {
-	pos : v2, // position of top left of the box
-	size: v2, // dimensions
-	vel: v2,  // velocity
-	hittable_faces: Faces
-}
-
-Tile :: enum {
-	Wall,
-	Ground,
-	Pit,
-	CrateWood,
-	CrateStone,
-	Goal,
-	PlayerSpawn
-}
-
-Map :: struct {
-	pos, scale: v2,
-	cell_tex_size: v2,
-	player_spawn_coord: Coord,
-	tiles: [ROW_COUNT][COLUMN_COUNT]Tile,
-}
-
 Textures :: struct {
 	player, crate_wood, ground, wall, crate_stone, goal, pit: int
 }
@@ -71,14 +42,6 @@ Player :: struct {
 	texture_offset: v2,
 	current_coord: Coord,
 	last_input_vel: v2i // determines where the player is facing
-}
-
-BoxCollisionRecord :: struct {
-	map_boxes: []Box,
-	coords: []Coord,
-	box_i: int, //index into map_boxes and coords of box that you hit,
-	col_normal: v2,
-	did_hit: bool,
 }
 
 GameEvent :: enum{
@@ -137,63 +100,9 @@ main :: proc() {
 	ldx.window_cleanup()
 }
 
-map_get_tile_pos_size :: proc(the_map: Map, row_i, column_i: int) -> (v2, v2) {
-	return {
-		the_map.pos.x + cast(f32)column_i * the_map.cell_tex_size.x * the_map.scale.x,
-		the_map.pos.y - cast(f32)row_i * the_map.cell_tex_size.y * the_map.scale.y
-	}, the_map.cell_tex_size * the_map.scale
-}
-
+// TODO: draw all the tiles
 map_draw :: proc(the_map: Map) {
-	for row, row_i in the_map.tiles {
-		for cell, column_i in row {
-			the_tex : int
-			draw_ground: bool
 
-			switch cell {
-			case .Wall: the_tex = g_textures.wall
-			case .Pit: the_tex = g_textures.pit
-			case .Ground, .PlayerSpawn: the_tex = g_textures.ground
-			case .Goal: the_tex = g_textures.goal
-			case .CrateWood : the_tex = g_textures.crate_wood
-			case .CrateStone : the_tex = g_textures.crate_stone
-			}
-
-			pos, size := map_get_tile_pos_size(the_map, row_i, column_i)
-			if cell == .Pit do  ldx.draw_solid_rect(pos, size, COLOR_BLACK)
-
-			// Drawing ground  on certain tile types, before the main element
-			switch cell {
-			case .CrateWood, .CrateStone,.Goal, .Wall:
-				ldx.draw_texture(g_textures.ground, pos, the_map.scale)
-			case .Ground, .Pit, .PlayerSpawn:
-			}
-
-			ldx.draw_texture(the_tex, pos, the_map.scale)
-			if cell == .Goal do  ldx.draw_texture(g_textures.goal, pos, the_map.scale)
-		}
-	}
-}
-
-Interval :: struct{min,max:f32}
-
-interval_collide :: proc(a,b :Interval) -> bool {
-	return a.max > b.min && a.min < b.max
-}
-
-interval_add :: proc(interval : Interval, sum: f32) -> Interval {
-	return {interval.min + sum, interval.max + sum}
-}
-
-AABB :: struct{x, y: Interval}
-
-// True if there's a collision between the AABB's
-aabb_do_collide :: proc(a, b: AABB) -> bool {
-	return interval_collide(a.x, b.x) && interval_collide(a.y, b.y)
-}
-
-aabb_translate :: proc(aabb:AABB, pos: v2) -> AABB {
-	return AABB{interval_add(aabb.x, pos.x), interval_add(aabb.y, pos.y)}
 }
 
 map_coord_to_world_pos :: proc(the_map: Map, coord: Coord) -> v2 {
@@ -212,284 +121,49 @@ v2_to_v2i :: proc(a: v2) -> v2i {
 	return {cast(int)a.x, cast(int)a.y}
 }
 
-box_sweep :: proc(b1, b2 :Box) -> (collision_time: f32, collision_normal: v2) {
-	inv_entry : v2
-	inv_exit : v2
-
-	// find the distance between the objects on the near and far sides for both x and y 
-	if b1.vel.x > 0.0 {
-		inv_entry.x = b2.pos.x - (b1.pos.x + b1.size.x)
-		inv_exit.x = (b2.pos.x + b2.size.x) - b1.pos.x
-	} else {
-		inv_entry.x = (b2.pos.x + b2.size.x) - b1.pos.x
-		inv_exit.x = b2.pos.x - (b1.pos.x + b1.size.x)
-	} 
-
-	if b1.vel.y > 0.0 {
-		inv_entry.y = (b2.pos.y - b2.size.y) - b1.pos.y
-		inv_exit.y = b2.pos.y - (b1.pos.y - b1.size.y)
-	} else {
-		inv_entry.y = b2.pos.y - (b1.pos.y - b1.size.y)
-		inv_exit.y = (b2.pos.y - b2.size.y) - b1.pos.y
-	}
-
-	// find time of collision and time of leaving for each axis (if statement is to prevent divide by zero) 
-	entry, exit: v2
-
-	if (b1.vel.x == 0.0) {
-		// if there's no overlap in X, there is no colission
-		if (b1.pos.x + b1.size.x <= b2.pos.x) || (b1.pos.x >= b2.pos.x + b2.size.x) {
-			return 1.0, {0, 0}
-		}
-		entry.x = math.inf_f32(-1)
-		exit.x = math.inf_f32(1)
-	} else {
-		entry.x = inv_entry.x / b1.vel.x; 
-		exit.x = inv_exit.x / b1.vel.x; 
-	} 
-
-	if (b1.vel.y == 0.0) {
-		// if there's no overlap in Y, there is no colission
-		if (b1.pos.y <= b2.pos.y - b2.size.y) || (b1.pos.y - b1.size.y >= b2.pos.y) {
-			return 1.0, {0, 0}
-		}
-		entry.y = math.inf_f32(-1)
-		exit.y = math.inf_f32(1)
-	} else {
-		entry.y = inv_entry.y / b1.vel.y; 
-		exit.y = inv_exit.y / b1.vel.y; 
-	}
-
-	// find the earliest/latest times of collisionfloat 
-	entry_time := max(entry.x, entry.y)
-	exit_time := min(exit.x, exit.y)
-
-	// if there was no collision
-	if (entry_time >= exit_time) || entry_time < 0 || entry_time > 1 {
-		collision_normal = {0, 0}
-		collision_time = 1.0
-	} else {  // if there was a collision
-		// The normal always opposes the velocity on the axis we entered through.
-		if (entry.x > entry.y) {
-			collision_normal = b1.vel.x > 0 ? {-1,0} : {1, 0}
-		} else {
-			collision_normal = b1.vel.y > 0 ? {0,-1} : {0,1}
-		} 
-		collision_time = entry_time
-	}
-
-	return
-}
-
-// Collision: Testing player against boxes
-move_and_slide :: proc(moving_box: ^Box, static_boxes: []Box) -> (_box_i: int, _col_normal: v2, _did_hit: bool){
-	outer: for _ in 0..<4 {
-
-		col_normal: v2
-		col_time := math.inf_f32(1)
-
-		if moving_box.vel == {0,0} do break
-
-		for static_box, box_i in static_boxes {
-			box_broadphase := box_get_broadphase(moving_box^)
-			if !box_does_hit_box(box_broadphase, static_box) do continue
-			col_time_i, col_normal_i := box_sweep(moving_box^, static_box)
-
-			// Discarding collisions on internal edges
-			is_discarded : bool
-
-			if col_normal_i == {1,0} && .Right not_in static_box.hittable_faces do is_discarded = true
-			if col_normal_i == {-1,0} && .Left not_in static_box.hittable_faces do is_discarded = true
-			if col_normal_i == {0,1} && .Top not_in static_box.hittable_faces do is_discarded = true
-			if col_normal_i == {0,-1} && .Bottom not_in static_box.hittable_faces do is_discarded = true
-
-			if is_discarded {
-				continue
-			}
-
-			if col_time_i < col_time {
-				col_normal = col_normal_i
-				col_time = col_time_i
-
-				// Saving box we hit for return value
-				_box_i = box_i
-			}
-		}
-
-		// there was collision
-		if col_time < 1 {
-
-			// Setting return values
-			_did_hit = true
-			_col_normal = col_normal
-
-			// moving the box right next to the obstacle
-			moving_box.pos += moving_box.vel * col_time
-
-			// Sliding
-			remaining_time := 1.0 - col_time
-			dotprod := (moving_box.vel.x * col_normal.y + moving_box.vel.y * col_normal.x) * remaining_time
-			next_vel := v2{dotprod * col_normal.y, dotprod * col_normal.x}
-			// Setting the box's velocity as the slide velocity, and sweeping again before committing to a move.
-			moving_box.vel = next_vel
-		} else { // no collision. skip all other collision tests
-			break outer
-		}
-	}
-
-	moving_box.pos += moving_box.vel
-	return
-}
-
-box_get_broadphase :: proc(b: Box) -> (broadphase_box: Box) {
-	broadphase_box.pos.x = b.vel.x > 0 ? b.pos.x : b.pos.x + b.vel.x
-	broadphase_box.pos.y = b.vel.y > 0 ? b.pos.y + b.vel.y : b.pos.y
-	broadphase_box.size.x = b.vel.x > 0 ? b.vel.x + b.size.x : b.size.x - b.vel.x  
-	broadphase_box.size.y = b.vel.y > 0 ? b.vel.y + b.size.y : b.size.y - b.vel.y  
-	return
-}
-
-box_does_hit_box :: proc(b1,b2: Box) -> bool {
-	return !((b1.pos.x + b1.size.x < b2.pos.x) ||
-		(b1.pos.x > b2.pos.x + b2.size.x) ||
-		(b1.pos.y < b2.pos.y - b2.size.y) ||
-		(b1.pos.y - b1.size.y > b2.pos.y))
-}
-
-map_get_tile_count :: proc(the_map: Map) -> int {
-	return len(the_map.tiles) * len(the_map.tiles[0])
-}
-
-map_generate_collisions :: proc(the_map: Map) -> ([]Box, []Coord) {
-
-	map_boxes := make([dynamic]Box, 0, map_get_tile_count(the_map), context.temp_allocator)
-	coords := make([dynamic]Coord, 0, map_get_tile_count(the_map), context.temp_allocator)
-
-	for row, row_i in the_map.tiles {
-		for _, column_i in row {
-			if !tile_is_solid(the_map, Coord{column_i, row_i}) do continue
-
-			// Construct Box
-			tile_box : Box
-			tile_box.pos, tile_box.size = map_get_tile_pos_size(the_map, row_i, column_i)
-
-			if !tile_is_solid(the_map, {column_i+1, row_i}) do tile_box.hittable_faces |= {.Right}
-			if !tile_is_solid(the_map, {column_i-1, row_i}) do tile_box.hittable_faces |= {.Left}
-			if !tile_is_solid(the_map, {column_i, row_i + 1}) do tile_box.hittable_faces |= {.Bottom}
-			if !tile_is_solid(the_map, {column_i, row_i - 1}) do tile_box.hittable_faces |= {.Top}
-			append(&map_boxes, tile_box)
-			append(&coords, v2i{column_i, row_i})
-		}
-	}
-
-	return map_boxes[:], coords[:]
-}
-
-tile_is_solid :: proc(the_map: Map, coord: Coord) -> bool {
-	tile, ok := map_get_tile(the_map, coord)
-	if !ok do return true
-
-	switch tile {
-	case .Wall, .CrateWood,.CrateStone:
-		return true
-	case .Ground, .Pit, .Goal, .PlayerSpawn:
-		fallthrough
-	case:
-		return false
-	}
-}
-
-map_world_box_to_coord :: proc(tm : Map, b: Box) -> Coord {
-
-	// determing middle point of box
-	middle_point := b.pos + {b.size.x / 2, -b.size.y / 2}
-	// Flipping y (world space is +y up, coord space is +y down)
-	middle_point.y *= -1
-	map_offset := v2{tm.pos.x, -tm.pos.y}
-
-	// where does this point fall in the grid?
-	cell_size : v2 = tm.cell_tex_size * tm.scale
-
-	return v2_to_v2i((middle_point - map_offset) / cell_size)
-}
-
-@(require_results)
-map_get_tile :: proc(the_map: Map, coord: Coord) -> (tile: Tile, ok: bool = false) {
-	row_size := len(the_map.tiles[0])
-	if !(coord.x >= 0 && coord.x < row_size) do return
-	if !(coord.y >= 0 && coord.y < len(the_map.tiles)) do return
-	return the_map.tiles[coord.y][coord.x], true
-}
-
-map_get_tile_ref :: proc(the_map: ^Map, coord: Coord) -> (tile: ^Tile) {
-	return &the_map.tiles[coord.y][coord.x]
-}
-
-@(require_results)
-map_get_tile_unchecked :: proc(the_map: Map, coord: Coord) -> (tile: Tile) {
-	return the_map.tiles[coord.y][coord.x]
-}
 
 game_restart :: proc() {
 
+	WallTile := Tile {.Wall}
+	PitTile := Tile {.Pit}
+	GroundTile := Tile {.Ground}
+
+	map_size := v2i{10, 6}
+
 	// initting map
-	map_tiles : [ROW_COUNT][COLUMN_COUNT]Tile = {
-		{.Wall, .Wall, .Wall, .Wall, .Wall, .Wall, .Wall},
-		{.Wall, .Ground, .Ground, .CrateStone, .Ground, .Pit, .Wall},
-		{.Wall, .Ground, .Ground, .Ground, .Ground, .CrateWood, .Wall},
-		{.Wall, .Ground, .CrateWood, .Pit, .CrateWood, .Goal, .Wall},
-		{.Wall, .PlayerSpawn, .Ground, .CrateWood, .Ground, .Ground, .Wall},
-		{.Wall, .Ground, .Ground, .Ground, .Ground, .Ground, .Wall},
-		{.Wall, .Wall, .Wall, .Wall, .Wall, .Wall, .Wall}
-	}
+	map_tiles := make([]Tile, map_size.x * map_size.y)
 
-	cell_tex_size := ldx.texture_get_size(g_textures.wall)
-	cell_tex_size_f := v2{cast(f32)cell_tex_size.x, cast(f32)cell_tex_size.y}
-	player_spawn_coord : Coord
-
-	outer: for row_i, y in map_tiles {
-		for col_i, x in row_i {
-			if col_i == .PlayerSpawn {
-				player_spawn_coord = {x, y}
-				break outer
-			}
+	for &t, i in map_tiles {
+		if i < map_size.x {
+			t = WallTile
+		} else {
+			t = GroundTile
 		}
 	}
+
+	cell_tex_size := v2i_to_v2(ldx.texture_get_size(g_textures.wall))
+	entities := make([dynamic]Entity)
+	append(&entities, Entity{.PlayerSpawn, 0, {3, 3}})
 
 	g_map = {
 		v2{50, WINDOW_HEIGHT - 10},
 		v2{1,1},
-		cell_tex_size_f, 
-		player_spawn_coord,
-		map_tiles
+		map_size,
+		cell_tex_size,
+		map_tiles[:],
+		entities
 	}
+
+	psc := map_get_player_spawn_coord(g_map)
 
 	// placing player at spawn position
-	box_place_at_coord(&g_player, g_map.player_spawn_coord)
-	g_player.current_coord = g_map.player_spawn_coord
+	box_place_at_coord(&g_player, psc)
+	g_player.current_coord = psc
 }
 
+// TODO do this one again
 move_box :: proc(tm: ^Map, c_from, c_to: Coord) -> (_box_did_fall: bool) {
-	current_box := map_get_tile_unchecked(tm^, c_from)
-	next_tile := map_get_tile_unchecked(tm^, c_to)
-
-	// We do different things depending on what is the next tile
-	switch next_tile {
-	case .Wall, .CrateWood, .CrateStone: return
-	case .PlayerSpawn, .Ground, .Goal:
-		// move the box
-		tile_prev := map_get_tile_ref(tm, c_from)
-		tile_prev^ = .Ground
-
-		tile_next := map_get_tile_ref(tm, c_to)
-		tile_next^ = current_box
-	case .Pit:
-		// disappear the box
-		tile_prev := map_get_tile_ref(tm, c_from)
-		tile_prev^ = .Ground
-		return true
-	}
-	return
+	return true
 }
 
 player_kill :: proc() {
@@ -514,51 +188,64 @@ player_coord_changed:: proc(coord: Coord, teleport: bool) {
 		return
 	}
 
-	#partial switch tile {
-	case .Goal: // Goal. you won
-		g_times_level_win += 1
-		audio.play_note(.F, 2, 0.1, 127, 9)
-		g_last_event = .BeatLevel
-		// go to the next level i guess?
-		game_restart()
-	case .Pit, .Wall, .CrateWood, .CrateStone:  // landed on pit or something solid. die
+	// // This is now an entity so idk
+	// case .Goal: // Goal. you won
+
+	#partial switch tile.tt {
+	case .Pit:  // landed on pit or something solid. die
 		player_kill()
+	}
+
+	// go through entities
+	for &e in g_map.entities {
+		#partial switch e.et {
+		case .Goal:
+			if e.coord == coord {
+				// goal. u won
+				g_times_level_win += 1
+				audio.play_note(.F, 2, 0.1, 127, 9)
+				g_last_event = .BeatLevel
+				// go to the next level i guess?
+				game_restart()
+			}
+		}
 	}
 
 	g_player.current_coord = coord
 }
 
+// u gotta do this one again
 try_move_box :: proc(bcr: BoxCollisionRecord) {
-	@static box_i_last_hit: int
-	@static hit_counter: int
+	// @static box_i_last_hit: int
+	// @static hit_counter: int
 
-	if bcr.did_hit {
-		tile := map_get_tile_unchecked(g_map, bcr.coords[bcr.box_i])
-		#partial switch tile {
-		case .CrateWood:
+	// if bcr.did_hit {
+	// 	tile := map_get_tile_unchecked(g_map, bcr.coords[bcr.box_i])
+	// 	#partial switch tile {
+	// 	case .CrateWood:
 
-			hit_counter += 1
-			if box_i_last_hit != bcr.box_i {
-				hit_counter = 0
-			}
-			box_i_last_hit = bcr.box_i
-			if hit_counter > 20 {
+	// 		hit_counter += 1
+	// 		if box_i_last_hit != bcr.box_i {
+	// 			hit_counter = 0
+	// 		}
+	// 		box_i_last_hit = bcr.box_i
+	// 		if hit_counter > 20 {
 
-				dir_int := v2_to_v2i(-bcr.col_normal)
-				dir_int.y *= -1
-				coord_from := bcr.coords[bcr.box_i]
-				coord_to := coord_from + dir_int
-				tile_next, ok := map_get_tile(g_map, coord_to)
+	// 			dir_int := v2_to_v2i(-bcr.col_normal)
+	// 			dir_int.y *= -1
+	// 			coord_from := bcr.coords[bcr.box_i]
+	// 			coord_to := coord_from + dir_int
+	// 			tile_next, ok := map_get_tile(g_map, coord_to)
 
-				if ok {
-					move_box(&g_map, coord_from, coord_to)
-					hit_counter = 0
-				}
-			}
-		}
-	} else {
-		hit_counter = 0
-	}
+	// 			if ok {
+	// 				move_box(&g_map, coord_from, coord_to)
+	// 				hit_counter = 0
+	// 			}
+	// 		}
+	// 	}
+	// } else {
+	// 	hit_counter = 0
+	// }
 }
 
 game_update :: #force_inline proc() -> (_should_quit: bool) {
@@ -666,45 +353,48 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 	return false
 }
 
+// TODO:  u gonna have to loop through tiles and also entities now...
 try_do_hook :: proc() {
-	// get current coord and look up coords along last input vel
-	// loop tiles along that vel
+	// // get current coord and look up coords along last input vel
+	// // loop tiles along that vel
 
-	last_vel := g_player.last_input_vel
+	// last_vel := g_player.last_input_vel
 
-	fmt.printfln("last vel %v", last_vel)
+	// fmt.printfln("last vel %v", last_vel)
 
-	lookup_coord := g_player.current_coord + last_vel
+	// lookup_coord := g_player.current_coord + last_vel
 
-	distance : int = 1
-	hit_wooden_box : bool
+	// distance : int = 1
+	// hit_wooden_box : bool
 
-	outer: for {
-		tile, ok := map_get_tile(g_map, lookup_coord)
-		if !ok do break outer
 
-		#partial switch tile {
-		case .Wall, .CrateStone:
-			break outer
-		case .CrateWood:
-			hit_wooden_box = true
-			break outer
-		}
+	// outer: for {
+	// 	tile, ok := map_get_tile(g_map, lookup_coord)
+	// 	if !ok do break outer
 
-		lookup_coord += last_vel
-		distance += 1
-	}
+	// 	#partial switch tile.tt {
+	// 	case .Wall:
+	// 		break outer
+	// 	}
 
-	// Bring crate over if it's distance > 1
-	tile, ok := map_get_tile(g_map, lookup_coord)
-	if !ok do return
+	// 	lookup_coord += last_vel
+	// 	distance += 1
+	// }
 
-	if distance > 1 && tile == .CrateWood {
-		move_box(&g_map, lookup_coord, g_player.current_coord + g_player.last_input_vel)
-		coord_player_to := g_player.current_coord - g_player.last_input_vel
-		// move player
-		player_coord_changed(g_player.current_coord - g_player.last_input_vel, true)
-	}
+	// // Bring crate over if it's distance > 1
+	// tile, ok := map_get_tile(g_map, lookup_coord)
+	// if !ok do return
+
+	// if distance > 1 && tile == .CrateWood {
+	// 	move_box(&g_map, lookup_coord, g_player.current_coord + g_player.last_input_vel)
+
+	// 	// center player in the coord, to avoid bugs
+	// 	box_place_at_coord(&g_player, g_player.current_coord)
+
+	// 	// move player (leave this for a special box. not the normal box)
+	// 	// coord_player_to := g_player.current_coord - g_player.last_input_vel
+	// 	// player_coord_changed(g_player.current_coord - g_player.last_input_vel, true)
+	// }
 }
 
 box_place_at_coord :: proc(b: ^Box, coord: Coord) {
@@ -716,4 +406,32 @@ box_place_at_coord :: proc(b: ^Box, coord: Coord) {
 	box_offset.y *= -1
 
 	b.pos = coord_pos + tile_offset - box_offset
+}
+
+// TODO: generate collisions for boxes too?
+map_generate_collisions :: proc(the_map: Map) -> ([]Box, []Coord) {
+
+	map_boxes := make([dynamic]Box, 0, map_get_tile_count(the_map), context.temp_allocator)
+	coords := make([dynamic]Coord, 0, map_get_tile_count(the_map), context.temp_allocator)
+
+	for t,i in the_map.tilemap {
+
+		// getting coord for tile
+		coord := Coord{i % the_map.size.x, i / the_map.size.y}
+
+		if !tile_is_solid(the_map, coord) do continue
+
+		// Construct Box
+		tile_box : Box
+		tile_box.pos, tile_box.size = map_get_tile_pos_size(the_map, coord)
+
+		if !tile_is_solid(the_map, {coord.x+1, coord.y}) do tile_box.hittable_faces |= {.Right}
+		if !tile_is_solid(the_map, {coord.x-1, coord.y}) do tile_box.hittable_faces |= {.Left}
+		if !tile_is_solid(the_map, {coord.x, coord.y + 1}) do tile_box.hittable_faces |= {.Bottom}
+		if !tile_is_solid(the_map, {coord.x, coord.y - 1}) do tile_box.hittable_faces |= {.Top}
+		append(&map_boxes, tile_box)
+		append(&coords, coord)
+	}
+
+	return map_boxes[:], coords[:]
 }
