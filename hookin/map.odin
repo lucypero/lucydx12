@@ -1,11 +1,18 @@
 package hookin
 
+import mv "core:mem/virtual"
+import "core:mem"
+
+ENTITY_COUNT_MAX :: 20
+Entities :: [dynamic;ENTITY_COUNT_MAX]Entity
+
 Map :: struct {
+	arena: mem.Allocator,
 	pos, scale: v2,
 	size: v2i,
 	cell_tex_size: v2,
 	tilemap: []Tile, // Tiles are static elements in the map
-	entities: [dynamic]Entity
+	entities: Entities,
 }
 
 TileType :: enum { Wall, Pit, Ground }
@@ -72,7 +79,6 @@ map_get_tile_unchecked :: proc(tm: Map, coord: Coord) -> (tile: Tile) {
 	return tm.tilemap[tm.size.x * coord.y + coord.x]
 }
 
-
 map_get_player_spawn_coord :: proc(tm: Map) -> Coord {
 	for e in tm.entities {
 		if e.et == .PlayerSpawn {
@@ -88,4 +94,9 @@ map_get_tile_pos_size :: proc(the_map: Map, coord: Coord) -> (v2, v2) {
 		the_map.pos.x + cast(f32)coord.x * the_map.cell_tex_size.x * the_map.scale.x,
 		the_map.pos.y - cast(f32)coord.y * the_map.cell_tex_size.y * the_map.scale.y
 	}, the_map.cell_tex_size * the_map.scale
+}
+
+// Index into tilemap, to Coord
+map_get_coord :: proc(tm: Map, i: int) -> Coord {
+	return Coord{i % tm.size.x, i / tm.size.x}
 }

@@ -4,6 +4,7 @@ import "core:strings"
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
+import mv "core:mem/virtual"
 // import "core:math/rand"
 // import "core:math/linalg"
 import sdl "vendor:sdl2"
@@ -89,6 +90,7 @@ main :: proc() {
 	g_player.box.size = g_player.texture_size * 0.7
 	g_player.texture_offset = v2{ -10, 10}
 
+	g_map.arena = ldx.arena_allocator_new(context.allocator)
 	game_restart()
 
 	audio.play_midi(&midi_track)
@@ -101,8 +103,28 @@ main :: proc() {
 }
 
 // TODO: draw all the tiles
-map_draw :: proc(the_map: Map) {
+map_draw :: proc(tm: Map) {
+	for tile, i in tm.tilemap {
+		c := map_get_coord(tm, i)
 
+		the_tex : int
+		draw_ground: bool
+
+		pos, size := map_get_tile_pos_size(tm, c)
+
+		switch tile.tt {
+		case .Wall: 
+			ldx.draw_texture(g_textures.ground, pos, tm.scale)
+			the_tex = g_textures.wall
+		case .Pit: 
+			the_tex = g_textures.pit
+			ldx.draw_solid_rect(pos, size, COLOR_BLACK)
+		case .Ground: 
+			the_tex = g_textures.ground
+		}
+
+		ldx.draw_texture(the_tex, pos, tm.scale)
+	}
 }
 
 map_coord_to_world_pos :: proc(the_map: Map, coord: Coord) -> v2 {
@@ -121,42 +143,55 @@ v2_to_v2i :: proc(a: v2) -> v2i {
 	return {cast(int)a.x, cast(int)a.y}
 }
 
-
 game_restart :: proc() {
 
 	WallTile := Tile {.Wall}
 	PitTile := Tile {.Pit}
 	GroundTile := Tile {.Ground}
 
+	free_all(g_map.arena)
+
 	map_size := v2i{10, 6}
 
 	// initting map
-	map_tiles := make([]Tile, map_size.x * map_size.y)
+
+	cell_tex_size := v2i_to_v2(ldx.texture_get_size(g_textures.wall))
+
+	g_map = {
+		g_map.arena,
+		v2{50, WINDOW_HEIGHT - 10},
+		v2{1,1},
+		map_size,
+		cell_tex_size,
+	{},
+	{},
+	}
+
+	// populating map tiles
+	map_tiles := make([]Tile, map_size.x * map_size.y, g_map.arena)
 
 	for &t, i in map_tiles {
-		if i < map_size.x {
+		c := map_get_coord(g_map, i)
+		top_row := i 
+
+		top_bottom_row := c.y == 0 || c.y == g_map.size.y - 1
+		first_last_col := c.x == 0 || c.x == g_map.size.x - 1
+
+		if top_bottom_row || first_last_col {
 			t = WallTile
 		} else {
 			t = GroundTile
 		}
 	}
 
-	cell_tex_size := v2i_to_v2(ldx.texture_get_size(g_textures.wall))
-	entities := make([dynamic]Entity)
-	append(&entities, Entity{.PlayerSpawn, 0, {3, 3}})
+	g_map.tilemap = map_tiles
 
-	g_map = {
-		v2{50, WINDOW_HEIGHT - 10},
-		v2{1,1},
-		map_size,
-		cell_tex_size,
-		map_tiles[:],
-		entities
-	}
-
+	// populating map entities
+	append(&g_map.entities, Entity{.PlayerSpawn, 0, {3, 3}})
 	psc := map_get_player_spawn_coord(g_map)
 
-	// placing player at spawn position
+	// Placing player at spawn position
+
 	box_place_at_coord(&g_player, psc)
 	g_player.current_coord = psc
 }
