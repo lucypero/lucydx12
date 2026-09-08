@@ -1387,6 +1387,13 @@ arena_new :: proc() -> virtual.Arena {
 	return arena
 }
 
+arena_allocator_new :: proc(allocator: mem.Allocator) -> mem.Allocator {
+	arena := new(virtual.Arena, allocator)
+	alloc_err := virtual.arena_init_growing(arena, mem.Megabyte)
+	assert(alloc_err == .None)
+	return virtual.arena_allocator(arena)
+}
+
 arena_destroy :: proc(arena: ^virtual.Arena) {
 	virtual.arena_destroy(arena)
 }
