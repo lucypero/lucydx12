@@ -305,7 +305,7 @@ pso_create :: proc(shader_filename: string, root_signatures: ^[RootSignatureChoi
 	root_signature := root_signatures[parameters.root_signature]
 
 	// Creating the actual PSO
-	pso_dx: ^dx.IPipelineState = create_pso_dx(parameters, root_signature, vs, ps, pso_name)
+	pso_dx: ^dx.IPipelineState = pso_dx_create(parameters, root_signature, vs, ps, pso_name)
 
 	pso_index := len(pool^)
 	append(pool, pso_dx)
@@ -1577,7 +1577,7 @@ PSO :: struct {
 	render_proc: proc(pso: PSO)
 }
 
-create_pso_dx :: proc(parameters: PSOParameters,
+pso_dx_create :: proc(parameters: PSOParameters,
 	root_signature: ^dx.IRootSignature,
 	vs, ps: ^dxc.IBlob,
 	pso_name: string = "") -> ^dx.IPipelineState {
@@ -1686,7 +1686,7 @@ create_pso_dx :: proc(parameters: PSOParameters,
 	return pso_dx
 }
 
-create_pso_compute_dx :: proc(root_signature: ^dx.IRootSignature, cs: ^dxc.IBlob, pso_name: string = "") -> ^dx.IPipelineState {
+pso_compute_dx_create :: proc(root_signature: ^dx.IRootSignature, cs: ^dxc.IBlob, pso_name: string = "") -> ^dx.IPipelineState {
 
 	ct := &g_dx_core
 
@@ -1715,7 +1715,7 @@ pso_compute_create :: proc(shader_filename: string, root_signatures: [RootSignat
 	assert(ok, "could not compile compute shader")
 	defer cs->Release()
 
-	compute_pso_dx := create_pso_compute_dx(root_signatures[.Standard], cs, pso_name)
+	compute_pso_dx := pso_compute_dx_create(root_signatures[.Standard], cs, pso_name)
 	pso_index := len(pool^)
 	append(pool, compute_pso_dx)
 
@@ -1759,7 +1759,7 @@ pso_reload :: proc(pso: ^PSO) {
 			lprintln("Could not compile new shader!! check logs")
 		} else {
 			// create the new PSO to be swapped later
-			pso.pso_swap = create_pso_compute_dx(pso.root_signature, cs, pso.pso_name)
+			pso.pso_swap = pso_compute_dx_create(pso.root_signature, cs, pso.pso_name)
 			cs->Release()
 			lprintfln("Shader reloaded successfully: %v", pso.shader_filename)
 		}
@@ -1770,7 +1770,7 @@ pso_reload :: proc(pso: ^PSO) {
 			lprintln("Could not compile new shader!! check logs")
 		} else {
 			// create the new PSO to be swapped later
-			pso.pso_swap = create_pso_dx(pso.parameters, pso.root_signature, vs, ps, pso.pso_name)
+			pso.pso_swap = pso_dx_create(pso.parameters, pso.root_signature, vs, ps, pso.pso_name)
 			vs->Release()
 			ps->Release()
 			lprintfln("Shader reloaded successfully: %v", pso.shader_filename)
@@ -2074,7 +2074,7 @@ init_dx :: proc(pool: ^DXResourcePool, window: ^sdl.Window, width, height: int) 
 		ct.heap_rtv = uber_heap_create(.RTV, pool)
 	}
 
-	ct.swapchain = create_swapchain(ct.factory, ct.queue, pool, width, height, window)
+	ct.swapchain = swapchain_create(ct.factory, ct.queue, pool, width, height, window)
 
 	// This fence is used to wait for frames to finish
 	{
@@ -2182,7 +2182,7 @@ resource_pool_release :: proc(pool : ^DXResourcePool) {
 
 // Create the swapchain, it's the thing that contains render targets that we draw into.
 //  It has NUM_RENDERTARGETS render targets, giving us double buffering (if it's 2 NUM_RENDERTARGETS).
-create_swapchain :: proc(
+swapchain_create :: proc(
 	factory: ^dxgi.IFactory4,
 	queue: ^dx.ICommandQueue,
 	pool : ^DXResourcePool,
