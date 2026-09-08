@@ -1,6 +1,5 @@
 package hookin
 
-import mv "core:mem/virtual"
 import "core:mem"
 
 ENTITY_COUNT_MAX :: 20
@@ -18,18 +17,17 @@ Map :: struct {
 TileType :: enum { Wall, Pit, Ground }
 
 Tile :: struct {
-	tt: TileType,// tile typ
+	tt: TileType,
 	// extra data? idk
 }
 
 EntityType :: enum { Player, Crate, PlayerSpawn, Goal }
 
 Entity :: struct {
-	et: EntityType, // entity type
+	et: EntityType,
 	id: int,
 	coord: Coord,
 }
-
 
 tile_is_solid :: proc(the_map: Map, coord: Coord) -> bool {
 	tile, ok := map_get_tile(the_map, coord)
@@ -87,7 +85,6 @@ map_get_player_spawn_coord :: proc(tm: Map) -> Coord {
 	}
 	panic("no player spawn in map!!!")
 }
-
 
 map_get_tile_pos_size :: proc(the_map: Map, coord: Coord) -> (v2, v2) {
 	return {
