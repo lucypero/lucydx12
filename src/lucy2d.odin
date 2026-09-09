@@ -42,7 +42,7 @@ Lucy2DContext :: struct {
 	imgui_allocator: DescriptorHeapAllocator,
 }
 
-SPRITE_MAX_COUNT :: 100
+SPRITE_MAX_COUNT :: 1000
 
 // TODO: do the reflection thing that copies your structs to hlsl
 Sprite :: struct {
@@ -334,6 +334,7 @@ pso_quad_render :: proc(pso: PSO) {
 	ctd := &g_dx_core
 	ct := &g_lct
 
+	assert(len(ct.sprites_to_render) <= SPRITE_MAX_COUNT)
 	copy_to_buffer_already_mapped(ct.sb_sprites.gpu_pointer, slice.to_bytes(ct.sprites_to_render[:]))
 
 	// Common render stuff

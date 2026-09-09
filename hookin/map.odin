@@ -2,7 +2,7 @@ package hookin
 
 import "core:mem"
 
-ENTITY_COUNT_MAX :: 20
+ENTITY_COUNT_MAX :: 200
 Entities :: [dynamic;ENTITY_COUNT_MAX]Entity
 
 Map :: struct {
@@ -10,41 +10,15 @@ Map :: struct {
 	pos, scale: v2,
 	size: v2i,
 	cell_tex_size: v2,
-	tilemap: []Tile, // Tiles are static elements in the map
 	entities: Entities,
 }
 
-TileType :: enum { Wall, Pit, Ground }
-
-Tile :: struct {
-	tt: TileType,
-	// extra data? idk
-}
-
-EntityType :: enum { Player, Crate, PlayerSpawn, Goal }
+EntityType :: enum { Player, Crate, PlayerSpawn, Goal, Wall, Pit }
 
 Entity :: struct {
 	et: EntityType,
 	id: int,
 	coord: Coord,
-}
-
-tile_is_solid :: proc(the_map: Map, coord: Coord) -> bool {
-	tile, ok := map_get_tile(the_map, coord)
-	if !ok do return true
-
-	switch tile.tt {
-	case .Wall:
-		return true
-	case .Pit, .Ground:
-		fallthrough
-	case:
-		return false
-	}
-}
-
-map_get_tile_count :: proc(the_map: Map) -> int {
-	return len(the_map.entities)
 }
 
 map_world_box_to_coord :: proc(tm : Map, b: Box) -> Coord {
@@ -59,22 +33,6 @@ map_world_box_to_coord :: proc(tm : Map, b: Box) -> Coord {
 	cell_size : v2 = tm.cell_tex_size * tm.scale
 
 	return v2_to_v2i((middle_point - map_offset) / cell_size)
-}
-
-@(require_results)
-map_get_tile :: proc(tm: Map, coord: Coord) -> (tile: Tile, ok: bool = false) {
-	if !(coord.x >= 0 && coord.x < tm.size.x) do return
-	if !(coord.y >= 0 && coord.y < tm.size.y) do return
-	return tm.tilemap[tm.size.x * coord.y + coord.x], true
-}
-
-map_get_tile_ref :: proc(tm: ^Map, coord: Coord) -> (tile: ^Tile) {
-	return &tm.tilemap[tm.size.x * coord.y + coord.x]
-}
-
-@(require_results)
-map_get_tile_unchecked :: proc(tm: Map, coord: Coord) -> (tile: Tile) {
-	return tm.tilemap[tm.size.x * coord.y + coord.x]
 }
 
 map_get_player_spawn_coord :: proc(tm: Map) -> Coord {
@@ -96,4 +54,35 @@ map_get_tile_pos_size :: proc(the_map: Map, coord: Coord) -> (v2, v2) {
 // Index into tilemap, to Coord
 map_get_coord :: proc(tm: Map, i: int) -> Coord {
 	return Coord{i % tm.size.x, i / tm.size.x}
+}
+
+// Queries the coord. results on temp allocator
+map_tquery :: proc(tm: ^Map, c: Coord) -> []^Entity {
+	out := make([dynamic]^Entity, 0, 3, context.temp_allocator)
+
+	for &e in tm.entities {
+		if e.coord == c {
+			append(&out, &e)
+		}
+	}
+
+	return out[:]
+}
+
+
+entity_is_solid :: proc(e: Entity) -> bool{
+	#partial switch e.et {
+	case .Crate, .Wall:
+		return true
+	case: 
+		return false
+	}
+}
+
+does_coord_have_solid :: proc(tm: Map, c: Coord) -> bool {
+	for e in tm.entities {
+		if e.coord == c && entity_is_solid(e) do return true
+	}
+
+	return false
 }

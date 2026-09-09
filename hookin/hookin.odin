@@ -103,26 +103,34 @@ main :: proc() {
 }
 
 map_draw :: proc(tm: Map) {
-	for tile, i in tm.tilemap {
-		c := map_get_coord(tm, i)
 
+	//first, draw ground
+	for y in 0..<tm.size.y {
+		for x in 0..<tm.size.x {
+			pos, _ := map_get_tile_pos_size(tm, {x,y})
+			ldx.draw_texture(g_textures.ground, pos, tm.scale)
+		}
+	}
+
+	// loop through entities and draw
+
+	for e, i in tm.entities {
 		the_tex : int
 		draw_ground: bool
 
-		pos, size := map_get_tile_pos_size(tm, c)
+		pos, size := map_get_tile_pos_size(tm, e.coord)
 
-		switch tile.tt {
+		// TODO rest
+		#partial switch e.et {
 		case .Wall: 
 			ldx.draw_texture(g_textures.ground, pos, tm.scale)
 			the_tex = g_textures.wall
+			ldx.draw_texture(g_textures.wall, pos, tm.scale)
 		case .Pit: 
 			the_tex = g_textures.pit
 			ldx.draw_solid_rect(pos, size, COLOR_BLACK)
-		case .Ground: 
-			the_tex = g_textures.ground
+			ldx.draw_texture(g_textures.pit, pos, tm.scale)
 		}
-
-		ldx.draw_texture(the_tex, pos, tm.scale)
 	}
 }
 
@@ -144,10 +152,6 @@ v2_to_v2i :: proc(a: v2) -> v2i {
 
 game_restart :: proc() {
 
-	WallTile := Tile {.Wall}
-	PitTile := Tile {.Pit}
-	GroundTile := Tile {.Ground}
-
 	free_all(g_map.arena)
 
 	map_size := v2i{10, 6}
@@ -163,30 +167,24 @@ game_restart :: proc() {
 		map_size,
 		cell_tex_size,
 	{},
-	{},
 	}
-
-	// populating map tiles
-	map_tiles := make([]Tile, map_size.x * map_size.y, g_map.arena)
-
-	for &t, i in map_tiles {
-		c := map_get_coord(g_map, i)
-		top_row := i 
-
-		top_bottom_row := c.y == 0 || c.y == g_map.size.y - 1
-		first_last_col := c.x == 0 || c.x == g_map.size.x - 1
-
-		if top_bottom_row || first_last_col {
-			t = WallTile
-		} else {
-			t = GroundTile
-		}
-	}
-
-	g_map.tilemap = map_tiles
 
 	// populating map entities
 	append(&g_map.entities, Entity{.PlayerSpawn, 0, {3, 3}})
+
+	for y in 0..<map_size.y {
+		for x in 0..<map_size.x {
+
+			top_bottom_row := x == 0 || x == map_size.x - 1
+			left_right_col := y == 0 || y == map_size.y - 1
+
+			if top_bottom_row || left_right_col {
+				append(&g_map.entities, Entity{.Wall, 0, {x,y}})
+			}
+		}
+	}
+
+
 	psc := map_get_player_spawn_coord(g_map)
 
 	// Placing player at spawn position
@@ -216,32 +214,21 @@ player_coord_changed:: proc(coord: Coord, teleport: bool) {
 		box_place_at_coord(&g_player, coord)
 	}
 
-	tile, ok := map_get_tile(g_map, coord)
-	if !ok {
-		player_kill()
-		return
-	}
+	entities_on_coord := map_tquery(&g_map, coord)
 
-	// // This is now an entity so idk
-	// case .Goal: // Goal. you won
-
-	#partial switch tile.tt {
-	case .Pit:  // landed on pit or something solid. die
-		player_kill()
-	}
-
-	// go through entities
-	for &e in g_map.entities {
+	for e in entities_on_coord {
 		#partial switch e.et {
+		case .Pit:
+			// fall to pit
+			player_kill()
+			return
 		case .Goal:
-			if e.coord == coord {
-				// goal. u won
-				g_times_level_win += 1
-				audio.play_note(.F, 2, 0.1, 127, 9)
-				g_last_event = .BeatLevel
-				// go to the next level i guess?
-				game_restart()
-			}
+			// goal. u won
+			g_times_level_win += 1
+			audio.play_note(.F, 2, 0.1, 127, 9)
+			g_last_event = .BeatLevel
+			// go to the next level i guess?
+			game_restart()
 		}
 	}
 
@@ -445,24 +432,24 @@ box_place_at_coord :: proc(b: ^Box, coord: Coord) {
 // TODO: generate collisions for boxes too?
 map_generate_collisions :: proc(the_map: Map) -> ([]Box, []Coord) {
 
-	map_boxes := make([dynamic]Box, 0, map_get_tile_count(the_map), context.temp_allocator)
-	coords := make([dynamic]Coord, 0, map_get_tile_count(the_map), context.temp_allocator)
+	map_boxes := make([dynamic]Box, 0, len(the_map.entities), context.temp_allocator)
+	coords := make([dynamic]Coord, 0, len(the_map.entities), context.temp_allocator)
 
-	for t,i in the_map.tilemap {
+	for t,i in the_map.entities {
 
-		// getting coord for tile
-		coord := map_get_coord(the_map, i)
+		coord := t.coord
 
-		if !tile_is_solid(the_map, coord) do continue
+		if !entity_is_solid(t) do continue
 
 		// Construct Box
 		tile_box : Box
 		tile_box.pos, tile_box.size = map_get_tile_pos_size(the_map, coord)
 
-		if !tile_is_solid(the_map, {coord.x+1, coord.y}) do tile_box.hittable_faces |= {.Right}
-		if !tile_is_solid(the_map, {coord.x-1, coord.y}) do tile_box.hittable_faces |= {.Left}
-		if !tile_is_solid(the_map, {coord.x, coord.y + 1}) do tile_box.hittable_faces |= {.Bottom}
-		if !tile_is_solid(the_map, {coord.x, coord.y - 1}) do tile_box.hittable_faces |= {.Top}
+		if !does_coord_have_solid(the_map, {coord.x+1, coord.y}) do tile_box.hittable_faces |= {.Right}
+		if !does_coord_have_solid(the_map, {coord.x-1, coord.y}) do tile_box.hittable_faces |= {.Left}
+		if !does_coord_have_solid(the_map, {coord.x, coord.y + 1}) do tile_box.hittable_faces |= {.Bottom}
+		if !does_coord_have_solid(the_map, {coord.x, coord.y - 1}) do tile_box.hittable_faces |= {.Top}
+
 		append(&map_boxes, tile_box)
 		append(&coords, coord)
 	}
