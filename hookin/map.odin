@@ -14,7 +14,7 @@ Map :: struct {
 	entities: Entities,
 }
 
-EntityType :: enum { Player, Crate, PlayerSpawn, Goal, Wall, Pit }
+EntityType :: enum { Nothing, Player, Crate, PlayerSpawn, Goal, Wall, Pit }
 
 Entity :: struct {
 	et: EntityType,

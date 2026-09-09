@@ -130,7 +130,7 @@ map_draw :: proc(tm: Map) {
 			ldx.draw_texture(g_textures.goal, pos, tm.scale)
 		case .Crate:
 			ldx.draw_texture(g_textures.crate_wood, pos, tm.scale)
-		case .Player, .PlayerSpawn: // player is drawn separately
+		case .Player, .PlayerSpawn, .Nothing: // player is drawn separately
 		}
 	}
 }
@@ -264,25 +264,31 @@ try_move_box :: proc(bcr: BoxCollisionRecord) {
 
 		for e_q in ents_query {
 			if entity_is_solid(e_q^) {
-				// there's a solid on the other side. abort. the move
+				// there's a solid on the other side. abort the move
 				is_solid_on_other_side = true
 				break
 			}
 		}
 
 		if !is_solid_on_other_side {
-
 			// perform move
-			e.coord = coord_to
-
+			move_box(e, coord_to)
 			hit_counter = 0
 		}
-
-		// if ok {
-		// 	move_box(&g_map, coord_from, coord_to)
-		// 	hit_counter = 0
-		// }
 	}
+}
+
+move_box :: proc(e: ^Entity, c: Coord) {
+	ent_lookup := map_tquery(&g_map, c)
+
+	for eq in ent_lookup {
+		if eq.et == .Pit || entity_is_solid(eq^) {
+			e.et = .Nothing
+			return
+		}
+	}
+
+	e.coord = c
 }
 
 game_update :: #force_inline proc() -> (_should_quit: bool) {
@@ -392,46 +398,40 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 
 // TODO:  u gonna have to loop through tiles and also entities now...
 try_do_hook :: proc() {
-	// // get current coord and look up coords along last input vel
-	// // loop tiles along that vel
+	// get current coord and look up coords along last input vel
+	// loop tiles along that vel
 
-	// last_vel := g_player.last_input_vel
+	last_vel := g_player.last_input_vel
+	lookup_coord := g_player.current_coord + last_vel
 
-	// fmt.printfln("last vel %v", last_vel)
+	distance : int = 1
+	hit_wooden_box : bool
 
-	// lookup_coord := g_player.current_coord + last_vel
+	ent_lookup : []^Entity
 
-	// distance : int = 1
-	// hit_wooden_box : bool
+	outer: for {
+		if distance > 30 do return
 
+		ent_lookup = map_tquery(&g_map, lookup_coord)
 
-	// outer: for {
-	// 	tile, ok := map_get_tile(g_map, lookup_coord)
-	// 	if !ok do break outer
+		for e in ent_lookup {
+			#partial switch e.et {
+			case .Wall:
+				// hit wall. no crate affected. return
+				return
+			case .Crate:
+				// Hook the crate
+				move_box(e, g_player.current_coord + g_player.last_input_vel)
 
-	// 	#partial switch tile.tt {
-	// 	case .Wall:
-	// 		break outer
-	// 	}
+				// center player in the coord, to avoid bugs
+				box_place_at_coord(&g_player, g_player.current_coord)
+				return
+			}
+		}
 
-	// 	lookup_coord += last_vel
-	// 	distance += 1
-	// }
-
-	// // Bring crate over if it's distance > 1
-	// tile, ok := map_get_tile(g_map, lookup_coord)
-	// if !ok do return
-
-	// if distance > 1 && tile == .CrateWood {
-	// 	move_box(&g_map, lookup_coord, g_player.current_coord + g_player.last_input_vel)
-
-	// 	// center player in the coord, to avoid bugs
-	// 	box_place_at_coord(&g_player, g_player.current_coord)
-
-	// 	// move player (leave this for a special box. not the normal box)
-	// 	// coord_player_to := g_player.current_coord - g_player.last_input_vel
-	// 	// player_coord_changed(g_player.current_coord - g_player.last_input_vel, true)
-	// }
+		lookup_coord += last_vel
+		distance += 1
+	}
 }
 
 box_place_at_coord :: proc(b: ^Box, coord: Coord) {
