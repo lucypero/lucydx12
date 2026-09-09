@@ -15,7 +15,7 @@
 	},
 	{
 		"label": "vet everything",
-		"command": "odin check src -debug -define:PROFILE=true -vet-packages:main,sluggish_generator -vet-unused-variables -vet-shadowing -vet-using-stmt -vet-cast -vet-unused-procedures",
+		"command": "odin check src -debug -define:PROFILE=true -vet-packages:main,sluggish_generator -vet-unused-variables -vet-shadowing -vet-using-stmt -vet-cast -vet-unused-procedures -vet-unused-imports",
 		"use_new_terminal": false,
 		"allow_concurrent_runs": false,
 		"reveal": "always",
