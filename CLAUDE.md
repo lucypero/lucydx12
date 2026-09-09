@@ -261,3 +261,17 @@ fields present on both sides, and back it with `#assert(size_of(T) == …)`.
 - The `-vet` flags in `ols.json` / `.zed/tasks.json` are on for real (unused variables, shadowing,
   `using`, casts) — code must build clean under them.
 - `notes.md` is the working roadmap; check it before starting anything structural.
+
+---
+
+## ✍️ Answer style — be short
+
+**Lucy's answers are too long by default. Cut hard.**
+
+- Lead with the conclusion. No restating the question, no summarizing what you read.
+- A design answer is a recommendation plus its one reason — not a survey of options, not a
+  weighing of trade-offs she didn't ask for.
+- No section headers, no bold-label bullet lists, no "here's my take" preamble for a short answer.
+- Drop the extras: bugs you noticed but weren't asked about, follow-up offers, caveats.
+  If something matters, one line at the end.
+- Aim for a few sentences. If it needs more, it needs code, not prose.

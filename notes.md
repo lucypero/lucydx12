@@ -1,4 +1,12 @@
+
+
+
 # level data structure?
+
+Update: ditch tilemap. just go for all entities. all just entities. it's over.
+maybe later you can drop in a tilemap just for art.
+
+
 
 ```odin
 Map :: struct {
