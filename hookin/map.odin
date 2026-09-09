@@ -4,6 +4,7 @@ import "core:mem"
 
 ENTITY_COUNT_MAX :: 200
 Entities :: [dynamic;ENTITY_COUNT_MAX]Entity
+EID :: int
 
 Map :: struct {
 	arena: mem.Allocator,
@@ -17,7 +18,6 @@ EntityType :: enum { Player, Crate, PlayerSpawn, Goal, Wall, Pit }
 
 Entity :: struct {
 	et: EntityType,
-	id: int,
 	coord: Coord,
 }
 
@@ -56,7 +56,7 @@ map_get_coord :: proc(tm: Map, i: int) -> Coord {
 	return Coord{i % tm.size.x, i / tm.size.x}
 }
 
-// Queries the coord. results on temp allocator
+// Queries the coord for entities. stores results on temp allocator
 map_tquery :: proc(tm: ^Map, c: Coord) -> []^Entity {
 	out := make([dynamic]^Entity, 0, 3, context.temp_allocator)
 
@@ -68,7 +68,6 @@ map_tquery :: proc(tm: ^Map, c: Coord) -> []^Entity {
 
 	return out[:]
 }
-
 
 entity_is_solid :: proc(e: Entity) -> bool{
 	#partial switch e.et {
@@ -85,4 +84,13 @@ does_coord_have_solid :: proc(tm: Map, c: Coord) -> bool {
 	}
 
 	return false
+}
+
+entity_new :: proc(tm: ^Map, et: EntityType, c: Coord) -> ^Entity {
+	append(&tm.entities, Entity{et, c})
+	return &tm.entities[len(tm.entities) - 1]
+}
+
+entity_get :: proc(tm: ^Map, eid: EID) -> ^Entity {
+	return &tm.entities[eid]
 }

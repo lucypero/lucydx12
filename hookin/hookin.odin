@@ -115,21 +115,22 @@ map_draw :: proc(tm: Map) {
 	// loop through entities and draw
 
 	for e, i in tm.entities {
-		the_tex : int
 		draw_ground: bool
 
 		pos, size := map_get_tile_pos_size(tm, e.coord)
 
 		// TODO rest
-		#partial switch e.et {
+		switch e.et {
 		case .Wall: 
-			ldx.draw_texture(g_textures.ground, pos, tm.scale)
-			the_tex = g_textures.wall
 			ldx.draw_texture(g_textures.wall, pos, tm.scale)
 		case .Pit: 
-			the_tex = g_textures.pit
 			ldx.draw_solid_rect(pos, size, COLOR_BLACK)
 			ldx.draw_texture(g_textures.pit, pos, tm.scale)
+		case .Goal:
+			ldx.draw_texture(g_textures.goal, pos, tm.scale)
+		case .Crate:
+			ldx.draw_texture(g_textures.crate_wood, pos, tm.scale)
+		case .Player, .PlayerSpawn: // player is drawn separately
 		}
 	}
 }
@@ -169,8 +170,8 @@ game_restart :: proc() {
 	{},
 	}
 
-	// populating map entities
-	append(&g_map.entities, Entity{.PlayerSpawn, 0, {3, 3}})
+	// populating ap entities
+	entity_new(&g_map, .PlayerSpawn, {3,3})
 
 	for y in 0..<map_size.y {
 		for x in 0..<map_size.x {
@@ -179,23 +180,19 @@ game_restart :: proc() {
 			left_right_col := y == 0 || y == map_size.y - 1
 
 			if top_bottom_row || left_right_col {
-				append(&g_map.entities, Entity{.Wall, 0, {x,y}})
+				entity_new(&g_map, .Wall, {x,y})
 			}
 		}
 	}
 
-
-	psc := map_get_player_spawn_coord(g_map)
+	entity_new(&g_map, .Pit, {6,3})
+	entity_new(&g_map, .Goal, {7,3})
+	entity_new(&g_map, .Crate, {5,2})
 
 	// Placing player at spawn position
-
+	psc := map_get_player_spawn_coord(g_map)
 	box_place_at_coord(&g_player, psc)
 	g_player.current_coord = psc
-}
-
-// TODO do this one again
-move_box :: proc(tm: ^Map, c_from, c_to: Coord) -> (_box_did_fall: bool) {
-	return true
 }
 
 player_kill :: proc() {
@@ -237,36 +234,55 @@ player_coord_changed:: proc(coord: Coord, teleport: bool) {
 
 // u gotta do this one again
 try_move_box :: proc(bcr: BoxCollisionRecord) {
-	// @static box_i_last_hit: int
-	// @static hit_counter: int
+	@static box_i_last_hit: int
+	@static hit_counter: int
 
-	// if bcr.did_hit {
-	// 	tile := map_get_tile_unchecked(g_map, bcr.coords[bcr.box_i])
-	// 	#partial switch tile {
-	// 	case .CrateWood:
+	if !bcr.did_hit {
+		hit_counter = 0
+		return
+	}
 
-	// 		hit_counter += 1
-	// 		if box_i_last_hit != bcr.box_i {
-	// 			hit_counter = 0
-	// 		}
-	// 		box_i_last_hit = bcr.box_i
-	// 		if hit_counter > 20 {
+	e := entity_get(&g_map, bcr.eids[bcr.box_i])
 
-	// 			dir_int := v2_to_v2i(-bcr.col_normal)
-	// 			dir_int.y *= -1
-	// 			coord_from := bcr.coords[bcr.box_i]
-	// 			coord_to := coord_from + dir_int
-	// 			tile_next, ok := map_get_tile(g_map, coord_to)
+	#partial switch e.et {
+	case .Crate:
 
-	// 			if ok {
-	// 				move_box(&g_map, coord_from, coord_to)
-	// 				hit_counter = 0
-	// 			}
-	// 		}
-	// 	}
-	// } else {
-	// 	hit_counter = 0
-	// }
+		hit_counter += 1
+		if box_i_last_hit != bcr.box_i {
+			hit_counter = 0
+		}
+		box_i_last_hit = bcr.box_i
+		if hit_counter < 20 do break
+
+		dir_int := v2_to_v2i(-bcr.col_normal)
+		dir_int.y *= -1
+		coord_from := e.coord
+		coord_to := coord_from + dir_int
+		ents_query := map_tquery(&g_map, coord_to)
+
+		is_solid_on_other_side: bool
+
+		for e_q in ents_query {
+			if entity_is_solid(e_q^) {
+				// there's a solid on the other side. abort. the move
+				is_solid_on_other_side = true
+				break
+			}
+		}
+
+		if !is_solid_on_other_side {
+
+			// perform move
+			e.coord = coord_to
+
+			hit_counter = 0
+		}
+
+		// if ok {
+		// 	move_box(&g_map, coord_from, coord_to)
+		// 	hit_counter = 0
+		// }
+	}
 }
 
 game_update :: #force_inline proc() -> (_should_quit: bool) {
@@ -314,9 +330,9 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 		if vel != {0,0} {
 			vel = linalg.normalize(vel) * CHARACTER_SPEED
 			g_player.vel = vel
-			map_boxes, coords := map_generate_collisions(g_map)
+			map_boxes, ids := generate_collisions(g_map)
 			box_i, col_normal, did_hit := move_and_slide(&g_player.box, map_boxes[:])
-			bcr := BoxCollisionRecord { map_boxes, coords, box_i, col_normal, did_hit }
+			bcr := BoxCollisionRecord { map_boxes, ids, box_i, col_normal, did_hit }
 			try_move_box(bcr)
 		} else {
 			g_player.vel = {}
@@ -430,10 +446,10 @@ box_place_at_coord :: proc(b: ^Box, coord: Coord) {
 }
 
 // TODO: generate collisions for boxes too?
-map_generate_collisions :: proc(the_map: Map) -> ([]Box, []Coord) {
+generate_collisions :: proc(the_map: Map) -> ([]Box, []int) {
 
 	map_boxes := make([dynamic]Box, 0, len(the_map.entities), context.temp_allocator)
-	coords := make([dynamic]Coord, 0, len(the_map.entities), context.temp_allocator)
+	ids := make([dynamic]int, 0, len(the_map.entities), context.temp_allocator)
 
 	for t,i in the_map.entities {
 
@@ -451,8 +467,8 @@ map_generate_collisions :: proc(the_map: Map) -> ([]Box, []Coord) {
 		if !does_coord_have_solid(the_map, {coord.x, coord.y - 1}) do tile_box.hittable_faces |= {.Top}
 
 		append(&map_boxes, tile_box)
-		append(&coords, coord)
+		append(&ids, i)
 	}
 
-	return map_boxes[:], coords[:]
+	return map_boxes[:], ids[:]
 }

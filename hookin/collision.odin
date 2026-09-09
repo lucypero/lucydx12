@@ -160,7 +160,7 @@ box_does_hit_box :: proc(b1,b2: Box) -> bool {
 
 BoxCollisionRecord :: struct {
 	map_boxes: []Box,
-	coords: []Coord,
+	eids: []EID,
 	box_i: int, //index into map_boxes and coords of box that you hit,
 	col_normal: v2,
 	did_hit: bool,
