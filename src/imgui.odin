@@ -132,3 +132,7 @@ imgui_do_text :: proc(format:string, args: ..any) {
 	cst, _ := strings.to_cstring(&sb)
 	im.Text(cst)
 }
+
+imgui_process_sdl_event :: proc(event: ^sdl.Event) {
+	imgui_impl_sdl2.ProcessEvent(event)
+}

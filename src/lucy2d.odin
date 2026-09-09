@@ -9,13 +9,6 @@ import "core:strings"
 import "core:fmt"
 import "core:mem/virtual"
 
-// imgui
-import im "../libs/odin-imgui"
-// imgui sdl2 implementation
-import "../libs/odin-imgui/imgui_impl_sdl2"
-// imgui dx12 implementation
-import "../libs/odin-imgui/imgui_impl_dx12"
-
 Color :: v4
 
 PSOName :: enum {
@@ -247,10 +240,6 @@ window_clear :: proc(color: Color) {
 	g_lct.clear_color_issued = color
 }
 
-draw_sprite :: proc(sprite: Sprite) {
-	append(&g_lct.sprites_to_render, sprite)
-}
-
 // draws all the stuff, and resets frame state
 frame_end :: proc() {
 
@@ -290,7 +279,7 @@ frame_start :: proc() {
 	sdl.PumpEvents()
 
 	for e: sdl.Event; sdl.PollEvent(&e); {
-		imgui_impl_sdl2.ProcessEvent(&e)
+		imgui_process_sdl_event(&e)
 		#partial switch e.type {
 		case .QUIT:
 			g_lct.window_should_close = true
