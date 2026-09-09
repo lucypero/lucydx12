@@ -102,7 +102,6 @@ main :: proc() {
 	ldx.window_cleanup()
 }
 
-// TODO: draw all the tiles
 map_draw :: proc(tm: Map) {
 	for tile, i in tm.tilemap {
 		c := map_get_coord(tm, i)
@@ -452,7 +451,7 @@ map_generate_collisions :: proc(the_map: Map) -> ([]Box, []Coord) {
 	for t,i in the_map.tilemap {
 
 		// getting coord for tile
-		coord := Coord{i % the_map.size.x, i / the_map.size.y}
+		coord := map_get_coord(the_map, i)
 
 		if !tile_is_solid(the_map, coord) do continue
 
