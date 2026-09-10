@@ -1,5 +1,6 @@
 package hookin
 
+import "core:c"
 import "core:strings"
 import "core:fmt"
 import "core:math"
@@ -18,8 +19,6 @@ v2i :: ldx.v2i
 v2 :: ldx.v2
 v4 :: ldx.v4
 
-// Map coordinate. origin at TOP LEFT of the map, visually and in data the_map[0][0]
-Coord :: v2i
 
 AUDIO_ENABLE :: false
 
@@ -62,6 +61,13 @@ g_last_event: GameEvent
 
 // TODO do keyboard system on lucy2d (snapshot of prev frame keys and current frame to see which one started being pressed now)
 g_was_space_pressed: bool
+g_was_tab_pressed: bool
+g_mouse_clicked: bool
+
+g_play_mode : enum {Play, Editor}
+
+g_mouse_buttons: u32
+g_mouse_world_pos: v2
 
 main :: proc() {
 	ldx.window_new("hookin", WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -96,11 +102,40 @@ main :: proc() {
 	g_player.texture_offset = v2{ -10, 10}
 
 	g_map.arena = ldx.arena_allocator_new(context.allocator)
+
 	game_restart()
 
+	outer: for !ldx.window_should_close() {
+		ldx.frame_start()
+		kb := ldx.get_keyboard()
 
-	for !ldx.window_should_close() {
-		if game_update() do break
+		// get mouse pos
+		m_x, m_y: c.int
+		g_mouse_buttons = sdl.GetMouseState(&m_x, &m_y)
+		g_mouse_world_pos = v2{cast(f32)m_x, cast(f32)-m_y + WINDOW_HEIGHT}
+
+		when AUDIO_ENABLE {
+		audio.update()
+		}
+
+		defer {
+			ldx.frame_end()
+			free_all(context.temp_allocator)
+
+			// doing kb stuff
+
+			// TODO: super crude temporary code. do input system on lucy2d now!
+			g_was_space_pressed = kb[sdl.Scancode.SPACE] == 1
+			g_was_tab_pressed = kb[sdl.Scancode.TAB] == 1
+			g_mouse_clicked = g_mouse_buttons & 0x01 != 0
+		}
+
+		switch g_play_mode {
+		case .Play:
+			if game_update(kb) do break outer
+		case .Editor:
+			if editor_update(kb) do break outer
+		}
 	}
 
 	ldx.window_cleanup()
@@ -139,14 +174,6 @@ map_draw :: proc(tm: Map) {
 	}
 }
 
-map_coord_to_world_pos :: proc(the_map: Map, coord: Coord) -> v2 {
-
-	coord_f := v2i_to_v2(coord)
-	coord_f.y *= -1
-
-	return the_map.pos + the_map.cell_tex_size * the_map.scale * coord_f
-}
-
 v2i_to_v2 :: proc(coord: v2i) -> v2 {
 	return {cast(f32)coord.x, cast(f32)coord.y}
 }
@@ -162,7 +189,6 @@ game_restart :: proc() {
 	map_size := v2i{10, 6}
 
 	// initting map
-
 	cell_tex_size := v2i_to_v2(ldx.texture_get_size(g_textures.wall))
 
 	g_map = {
@@ -299,16 +325,16 @@ move_box :: proc(e: ^Entity, c: Coord) {
 	e.coord = c
 }
 
-game_update :: #force_inline proc() -> (_should_quit: bool) {
-	ldx.frame_start()
-	defer {
-		ldx.frame_end()
-		free_all(context.temp_allocator)
+game_update :: #force_inline proc(kb: []u8) -> (_should_quit: bool) {
+
+	if kb[sdl.Scancode.TAB] == 1 && !g_was_tab_pressed {
+		// switching to editor mode
+		editor_init()
+		fmt.printfln("switching to editor mode")
+		g_play_mode = .Editor
+		return false
 	}
-	when AUDIO_ENABLE {
-	audio.update()
-	}
-	kb := ldx.get_keyboard()
+
 	if kb[sdl.Scancode.ESCAPE] == 1 do return true
 	ldx.window_clear(COLOR_BACKGROUND)
 
@@ -361,12 +387,6 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 			try_do_hook()
 		}
 
-		// TODO: super crude temporary code. do input system on lucy2d now!
-		if kb[sdl.Scancode.SPACE] == 1 {
-			g_was_space_pressed = true
-		} else {
-			g_was_space_pressed = false
-		}
 	}
 
 	// Drawing everything

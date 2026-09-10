@@ -6,6 +6,9 @@ ENTITY_COUNT_MAX :: 200
 Entities :: [dynamic;ENTITY_COUNT_MAX]Entity
 EID :: int
 
+// Map coordinate. origin at TOP LEFT of the map. Y down. X right
+Coord :: v2i
+
 Map :: struct {
 	arena: mem.Allocator,
 	pos, scale: v2,
@@ -19,20 +22,6 @@ EntityType :: enum { Nothing, Player, Crate, PlayerSpawn, Goal, Wall, Pit }
 Entity :: struct {
 	et: EntityType,
 	coord: Coord,
-}
-
-map_world_box_to_coord :: proc(tm : Map, b: Box) -> Coord {
-
-	// determing middle point of box
-	middle_point := b.pos + {b.size.x / 2, -b.size.y / 2}
-	// Flipping y (world space is +y up, coord space is +y down)
-	middle_point.y *= -1
-	map_offset := v2{tm.pos.x, -tm.pos.y}
-
-	// where does this point fall in the grid?
-	cell_size : v2 = tm.cell_tex_size * tm.scale
-
-	return v2_to_v2i((middle_point - map_offset) / cell_size)
 }
 
 map_get_player_spawn_coord :: proc(tm: Map) -> Coord {
@@ -93,4 +82,37 @@ entity_new :: proc(tm: ^Map, et: EntityType, c: Coord) -> ^Entity {
 
 entity_get :: proc(tm: ^Map, eid: EID) -> ^Entity {
 	return &tm.entities[eid]
+}
+
+map_coord_to_world_pos :: proc(the_map: Map, coord: Coord) -> v2 {
+
+	coord_f := v2i_to_v2(coord)
+	coord_f.y *= -1
+
+	return the_map.pos + the_map.cell_tex_size * the_map.scale * coord_f
+}
+
+world_to_coord :: proc(tm: Map, pos: v2) -> Coord {
+	pos := pos
+	pos.y *= -1
+
+	map_offset := v2{tm.pos.x, -tm.pos.y}
+	// where does this point fall in the grid?
+	cell_size : v2 = tm.cell_tex_size * tm.scale
+
+	return v2_to_v2i((pos - map_offset) / cell_size)
+}
+
+map_world_box_to_coord :: proc(tm : Map, b: Box) -> Coord {
+
+	// determing middle point of box
+	middle_point := b.pos + {b.size.x / 2, -b.size.y / 2}
+	// Flipping y (world space is +y up, coord space is +y down)
+	middle_point.y *= -1
+	map_offset := v2{tm.pos.x, -tm.pos.y}
+
+	// where does this point fall in the grid?
+	cell_size : v2 = tm.cell_tex_size * tm.scale
+
+	return v2_to_v2i((middle_point - map_offset) / cell_size)
 }
