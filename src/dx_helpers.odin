@@ -2119,7 +2119,6 @@ dx_log_debug_callback :: proc "c" (
 	severity_string, _ := reflect.enum_name_from_value(severity)
 	cat, _ := reflect.enum_name_from_value(category)
 
-	lprintfln("hello")
 	lprintfln("%v: (%v) %v", severity_string, cat, msg)
 
 	// printing stack trace
