@@ -428,7 +428,7 @@ compile_individual_shader :: proc(shader_filename: string, source_buffer: ^dxc.B
 
 	arguments : [dynamic; 10]string 
 
-	append(&arguments, "-E", "???", "-T", "???", "-O3")
+	append(&arguments, "-E", "???", "-T", "???", "-O3", "-Wall")
 
 	switch shader_kind {
 	case .Vertex:
@@ -1793,16 +1793,11 @@ pso_hotswap_init :: proc(pso : ^PSO) {
 }
 
 pso_hotswap_swap :: proc(pso: ^PSO, pool: ^DXResourcePool) {
-	if pso.pso_swap != nil {
-		pso.pipeline_state->Release()
-		pso.pipeline_state = pso.pso_swap
-		// replace pointer from freeing queue
-		pso_pointer := pool[pso.pso_index]
-		// Referencing the IUnknown directly to prevent Odin bug
-		// Issue link: https://github.com/odin-lang/Odin/issues/7433
-		pso_pointer^ = pso.pipeline_state.id3d12pageable.id3d12object.iunknown
-		pso.pso_swap = nil
-	}
+	if pso.pso_swap == nil do return
+	pso.pipeline_state->Release()
+	pso.pipeline_state = pso.pso_swap
+	pool[pso.pso_index] = pso.pipeline_state // replace pointer from freeing queue
+	pso.pso_swap = nil
 }
 
 odin_base_type_to_hlsl_type :: proc(base_type: ^runtime.Type_Info) -> string {

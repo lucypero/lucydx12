@@ -78,11 +78,14 @@ float4 PSMain(VSOut input) : SV_Target {
 	}
 
 	if(input.border_thickness > 0) {
-		// float distance = input.uvs;
-		float2 dist_to_center = ((input.uvs - float2(0.5, 0.5)) * 2) * input.size;
-		dist_to_center = abs(dist_to_center);
-		if(dist_to_center.x < input.size.x - input.border_thickness &&
-			dist_to_center.y < input.size.y - input.border_thickness) discard;
+		float2 dist_to_center = input.uvs - float2(0.5, 0.5); // vec from uv point to center point
+		dist_to_center *= input.size; // (-0.5, 0.5) -> (-quad_size / 2, quad_size / 2)
+		dist_to_center = abs(dist_to_center); // (-0.5, 0.5) -> (.5,.5)
+
+		// 0 = distance is less than (quad_size / 2) minus the border = in the transparent zone
+		float2 in_border = step( (input.size / 2) - input.border_thickness, dist_to_center);
+
+		color *= max(in_border.x,in_border.y); // masking out the color inside the quad
 	}
 
 	return color;
