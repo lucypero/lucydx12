@@ -13,7 +13,6 @@ Box :: struct {
 	hittable_faces: Faces
 }
 
-
 box_sweep :: proc(b1, b2 :Box) -> (collision_time: f32, collision_normal: v2) {
 	inv_entry : v2
 	inv_exit : v2

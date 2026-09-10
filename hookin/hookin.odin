@@ -316,10 +316,10 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 	if kb[sdl.Scancode.R] == 1 do game_restart()
 
 	// What tile is the player in?
-	coord := map_world_box_to_coord(g_map, g_player.box)
+	player_coord := map_world_box_to_coord(g_map, g_player.box)
 
-	if coord != g_player.current_coord {
-		player_coord_changed(coord, false)
+	if player_coord != g_player.current_coord {
+		player_coord_changed(player_coord, false)
 	}
 
 	// Player update Logic
@@ -380,8 +380,8 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 		// ldx.draw_solid_rect(g_player.pos, g_player.size, {1,0,0,0.5})
 
 		// draw where player is on the coord screen
-		// p_coord_pos := map_coord_to_world_pos(g_map, coord)
-		// ldx.draw_solid_rect(p_coord_pos, g_map.cell_tex_size, {1,1,0,0.5})
+		p_coord_pos := map_coord_to_world_pos(g_map, player_coord)
+		ldx.draw_wirebox(p_coord_pos, g_map.cell_tex_size, {0,1,0, 1.0}, 5)
 
 		// drawing amount of lives
 		for i in 0..<g_lives {

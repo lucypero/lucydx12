@@ -7,6 +7,7 @@ struct Sprite
 	float2 size;
 	float4 color;
 	int tex_idx;
+	float border_thickness;
 };
 
 SamplerState g_sampler : register(s1); // nearest neighbor sampler
@@ -22,6 +23,8 @@ struct VSOut {
 	float4 color : COLOR0;
 	float2 uvs : TEXTUREUV;
 	nointerpolation int tex_idx : TEXTUREIDX;
+	nointerpolation float border_thickness : BORDER;
+	nointerpolation float2 size : SIZE;
 };
 
 VSOut VSMain(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
@@ -36,6 +39,8 @@ VSOut VSMain(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
 	output.pos.z = 1;
 	output.pos.w = 1;
 	output.tex_idx = sprite.tex_idx;
+	output.border_thickness = sprite.border_thickness;
+	output.size = sprite.size;
 
 	switch (vid) {
 	case 0: // top left
@@ -70,6 +75,14 @@ float4 PSMain(VSOut input) : SV_Target {
 	if(input.tex_idx > 0) {
 		Texture2D<float4> tex = ResourceDescriptorHeap[input.tex_idx];
 		color = tex.Sample(g_sampler, input.uvs);
+	}
+
+	if(input.border_thickness > 0) {
+		// float distance = input.uvs;
+		float2 dist_to_center = ((input.uvs - float2(0.5, 0.5)) * 2) * input.size;
+		dist_to_center = abs(dist_to_center);
+		if(dist_to_center.x < input.size.x - input.border_thickness &&
+			dist_to_center.y < input.size.y - input.border_thickness) discard;
 	}
 
 	return color;
