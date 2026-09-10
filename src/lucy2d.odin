@@ -42,7 +42,8 @@ Sprite :: struct {
 	pos: v2,
 	size: v2,
 	color: v4,
-	tex_idx: i32
+	tex_idx: i32,
+	border_thickness: f32,
 }
 
 GeneralConstants :: struct #align (256) {
@@ -60,7 +61,7 @@ window_new :: proc(window_name:string, width, height: int) {
 	g_lct.upload_thread = thread.create_and_start(lucy2d_upload_thread_start)
 
 	// Set up dynamic fields
-	g_lct.sprites_to_render = make([dynamic]Sprite, 0, 20)
+	g_lct.sprites_to_render = make([dynamic]Sprite, 0, 100)
 	g_lct.loaded_textures = make(map[int]Texture)
 
 	// setting up resource pool for buffers tied to window size
@@ -269,10 +270,14 @@ frame_end :: proc() {
 
 	imgui_end_frame()
 	dx_frame_end()
+
+	// hot swap handling
+	for &pso in ct.psos {
+		pso_hotswap_swap(&pso, &ct.resources_longterm)
+	}
 }
 
 frame_start :: proc() {
-
 	ct := &g_lct
 	ct.clear_color_issued = nil
 	clear(&ct.sprites_to_render)
@@ -294,6 +299,10 @@ frame_start :: proc() {
 	}
 
 	imgui_start_frame()
+
+	for &pso in ct.psos {
+		pso_hotswap_watch(&pso)
+	}
 }
 
 get_keyboard :: proc() -> []u8 {
@@ -374,6 +383,15 @@ draw_solid_rect :: proc(pos, size: v2, color: Color) {
 		pos = pos,
 		size = size,
 		color = color
+	})
+}
+
+draw_wirebox :: proc(pos, size: v2, color: Color, border_thickness: f32) {
+	append(&g_lct.sprites_to_render, Sprite{
+		pos = pos,
+		size = size,
+		color = color,
+		border_thickness = border_thickness
 	})
 }
 
