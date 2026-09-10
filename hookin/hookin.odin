@@ -21,6 +21,8 @@ v4 :: ldx.v4
 // Map coordinate. origin at TOP LEFT of the map, visually and in data the_map[0][0]
 Coord :: v2i
 
+AUDIO_ENABLE :: false
+
 ROW_COUNT :: 7
 COLUMN_COUNT :: 7
 
@@ -65,6 +67,7 @@ main :: proc() {
 	ldx.window_new("hookin", WINDOW_WIDTH, WINDOW_HEIGHT)
 	g_lives = 3
 
+	when AUDIO_ENABLE {
 	ok := audio.init()
 	if !ok {
 		// handle error
@@ -73,6 +76,8 @@ main :: proc() {
 	if !success {
 		// handle error
 		fmt.println("could not load midi file.")
+	}
+	audio.play_midi(&midi_track)
 	}
 
 	g_textures.player = ldx.texture_load("hookin_sprites/sokoban-pack/Player/player_01.png")
@@ -93,7 +98,6 @@ main :: proc() {
 	g_map.arena = ldx.arena_allocator_new(context.allocator)
 	game_restart()
 
-	audio.play_midi(&midi_track)
 
 	for !ldx.window_should_close() {
 		if game_update() do break
@@ -198,7 +202,9 @@ game_restart :: proc() {
 player_kill :: proc() {
 	g_last_event = .PlayerDied
 	g_lives -= 1
+	when AUDIO_ENABLE {
 	audio.play_note(.A, 2, 0.1, 127, 9)
+	}
 	game_restart()
 }
 
@@ -222,7 +228,9 @@ player_coord_changed:: proc(coord: Coord, teleport: bool) {
 		case .Goal:
 			// goal. u won
 			g_times_level_win += 1
+			when AUDIO_ENABLE {
 			audio.play_note(.F, 2, 0.1, 127, 9)
+			}
 			g_last_event = .BeatLevel
 			// go to the next level i guess?
 			game_restart()
@@ -297,7 +305,9 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 		ldx.frame_end()
 		free_all(context.temp_allocator)
 	}
+	when AUDIO_ENABLE {
 	audio.update()
+	}
 	kb := ldx.get_keyboard()
 	if kb[sdl.Scancode.ESCAPE] == 1 do return true
 	ldx.window_clear(COLOR_BACKGROUND)
