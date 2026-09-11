@@ -65,6 +65,14 @@ editor_update :: #force_inline proc(kb: []u8) -> (_should_quit: bool){
 		ldx.imgui_do_text("mouse pos: %v, coord: %v",
 			g_mouse_world_pos,
 			g_editor.mouse_coord)
+
+		@static tex_offset : int = 0
+
+		gpu_ptr := ldx.get_descriptor_heap_gpu_address(ldx.g_dx_core.heap_cbv_srv_uav, tex_offset)
+		tex_id : im.TextureID = gpu_ptr.ptr
+		if im.ImageButton("asd", tex_id, {100, 100}) {
+			tex_offset += 1
+		}
 	}
 
 	return false

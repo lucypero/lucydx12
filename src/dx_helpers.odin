@@ -1297,7 +1297,17 @@ get_descriptor_heap_cpu_address :: proc(
 ) -> (
 	cpu_descriptor_handle: dx.CPU_DESCRIPTOR_HANDLE,
 ) {
-	cpu_descriptor_handle.ptr += uint(heap.heap_start_cpu.ptr + cast(uint)offset * cast(uint)heap.heap_handle_increment)
+	cpu_descriptor_handle.ptr = uint(heap.heap_start_cpu.ptr + cast(uint)offset * cast(uint)heap.heap_handle_increment)
+	return
+}
+
+get_descriptor_heap_gpu_address :: proc(
+	heap: UberDescriptorHeap,
+	offset: int = 0,
+) -> (
+	gpu_descriptor_handle: dx.GPU_DESCRIPTOR_HANDLE,
+) {
+	gpu_descriptor_handle.ptr = u64(heap.heap_start_gpu.ptr + cast(u64)offset * cast(u64)heap.heap_handle_increment)
 	return
 }
 
