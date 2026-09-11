@@ -11,6 +11,8 @@ import "core:mem/virtual"
 
 Color :: v4
 
+COLOR_WHITE : v4 : {1,1,1,1}
+
 PSOName :: enum {
 	Quad
 }
@@ -362,14 +364,15 @@ texture_load :: proc(image_filepath: string) -> int {
 }
 
 // Draws texture at the texture's resolution, scaled up given a `scale`
-draw_texture :: proc(tex_id: int, pos: v2, scale := v2{1,1}) {
+draw_texture :: proc(tex_id: int, pos: v2, scale := v2{1,1}, tint: Color = COLOR_WHITE) {
 	tex, found := &g_lct.loaded_textures[tex_id]
 	ensure(found)
 
 	append(&g_lct.sprites_to_render, Sprite{
 		pos = pos,
 		size = v2{cast(f32)tex.width, cast(f32)tex.height} * scale,
-		tex_idx = cast(i32)tex.srv_index
+		tex_idx = cast(i32)tex.srv_index,
+		color = tint
 	})
 }
 
