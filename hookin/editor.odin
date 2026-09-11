@@ -15,17 +15,30 @@ import "core:c"
 // Importing rendering engine
 import ldx "../src"
 
-editor_init :: proc() {
+EntityBrush :: struct {
+	text_id: int,
+	et: EntityType
+}
 
+editor_init :: proc() {
+	g_editor.entity_brushes = {
+		{g_textures.wall, .Wall},
+		{g_textures.pit, .Pit},
+		{g_textures.crate_wood, .Crate},
+	}
 }
 
 Editor :: struct {
-	mouse_coord: Coord
+	mouse_coord: Coord,
+	entity_brushes: [3]EntityBrush,
+	brush_selected: int
 }
 
 g_editor : Editor
 
 editor_update :: #force_inline proc(kb: []u8) -> (_should_quit: bool){
+
+	bs := &g_editor.entity_brushes[g_editor.brush_selected]
 
 	ldx.window_clear(COLOR_BACKGROUND)
 
@@ -44,7 +57,7 @@ editor_update :: #force_inline proc(kb: []u8) -> (_should_quit: bool){
 	// Left click
 	if g_mouse_buttons & 0x01 != 0 && !g_mouse_clicked{
 		fmt.println("clicked")
-		entity_new(&g_start_map, .Wall, g_editor.mouse_coord)
+		entity_new(&g_start_map, bs.et, g_editor.mouse_coord)
 	}
 
 	// Drawing
@@ -52,7 +65,7 @@ editor_update :: #force_inline proc(kb: []u8) -> (_should_quit: bool){
 		map_draw(g_start_map)
 
 		p_coord_pos := map_coord_to_world_pos(g_start_map, g_editor.mouse_coord)
-		ldx.draw_wirebox(p_coord_pos, g_start_map.cell_tex_size, {0,1,0, 0.8}, 5)
+		ldx.draw_texture(bs.text_id, p_coord_pos, tint = {1,1,1,0.5})
 	}
 
 	// Imgui stuff
@@ -66,13 +79,26 @@ editor_update :: #force_inline proc(kb: []u8) -> (_should_quit: bool){
 			g_mouse_world_pos,
 			g_editor.mouse_coord)
 
-		@static tex_offset : int = 0
+		// @static tex_offset : int = 0
 
-		gpu_ptr := ldx.get_descriptor_heap_gpu_address(ldx.g_dx_core.heap_cbv_srv_uav, tex_offset)
-		tex_id : im.TextureID = gpu_ptr.ptr
-		if im.ImageButton("asd", tex_id, {100, 100}) {
-			tex_offset += 1
+		for eb, i in g_editor.entity_brushes {
+			im.PushID(fmt.ctprintf("%v", i))
+			defer im.PopID()
+
+			gpu_ptr := ldx.get_descriptor_heap_gpu_address(ldx.g_dx_core.heap_cbv_srv_uav, eb.text_id)
+
+			if im.ImageButton("asd", gpu_ptr.ptr, {30, 30}) {
+				g_editor.brush_selected = i
+				fmt.printfln("Selected %v", g_editor.entity_brushes[i].et)
+			}
+
+			// Rows of 4
+			if (i % 4 != 3) && i != len(g_editor.entity_brushes) - 1 {
+				im.SameLine()
+			}
 		}
+
+		im.ShowDemoWindow()
 	}
 
 	return false

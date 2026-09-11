@@ -74,7 +74,7 @@ float4 PSMain(VSOut input) : SV_Target {
 
 	if(input.tex_idx > 0) {
 		Texture2D<float4> tex = ResourceDescriptorHeap[input.tex_idx];
-		color = tex.Sample(g_sampler, input.uvs);
+		color = tex.Sample(g_sampler, input.uvs) * input.color;
 	}
 
 	if(input.border_thickness > 0) {

@@ -21,6 +21,7 @@ v4 :: ldx.v4
 
 
 AUDIO_ENABLE :: false
+START_ON_EDITOR :: true
 
 ROW_COUNT :: 7
 COLUMN_COUNT :: 7
@@ -69,6 +70,8 @@ g_play_mode : enum {Play, Editor}
 
 g_mouse_buttons: u32
 g_mouse_world_pos: v2
+
+g_frame_i : int
 
 main :: proc() {
 	ldx.window_new("hookin", WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -128,6 +131,8 @@ main :: proc() {
 			g_was_space_pressed = kb[sdl.Scancode.SPACE] == 1
 			g_was_tab_pressed = kb[sdl.Scancode.TAB] == 1
 			g_mouse_clicked = g_mouse_buttons & 0x01 != 0
+
+			g_frame_i += 1
 		}
 
 		switch g_play_mode {
@@ -136,6 +141,7 @@ main :: proc() {
 		case .Editor:
 			if editor_update(kb) do break outer
 		}
+
 	}
 
 	ldx.window_cleanup()
@@ -293,7 +299,8 @@ move_box :: proc(e: ^Entity, c: Coord) {
 
 game_update :: #force_inline proc(kb: []u8) -> (_should_quit: bool) {
 
-	if kb[sdl.Scancode.TAB] == 1 && !g_was_tab_pressed {
+	if (kb[sdl.Scancode.TAB] == 1 && !g_was_tab_pressed) || 
+	(START_ON_EDITOR && g_frame_i == 1) {
 		// switching to editor mode
 		editor_init()
 		fmt.printfln("switching to editor mode")
