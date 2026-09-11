@@ -1,6 +1,7 @@
 package hookin
 
 import "core:mem"
+import ldx "../src"
 
 ENTITY_COUNT_MAX :: 200
 Entities :: [dynamic;ENTITY_COUNT_MAX]Entity
@@ -10,7 +11,6 @@ EID :: int
 Coord :: v2i
 
 Map :: struct {
-	arena: mem.Allocator,
 	pos, scale: v2,
 	size: v2i,
 	cell_tex_size: v2,
@@ -115,4 +115,44 @@ map_world_box_to_coord :: proc(tm : Map, b: Box) -> Coord {
 	cell_size : v2 = tm.cell_tex_size * tm.scale
 
 	return v2_to_v2i((middle_point - map_offset) / cell_size)
+}
+
+map_start_default :: proc(tm: ^Map) {
+
+	map_size := v2i{10, 6}
+
+	// initting map
+	cell_tex_size := v2i_to_v2(ldx.texture_get_size(g_textures.wall))
+
+	tm^ = {
+		v2{50, WINDOW_HEIGHT - 10},
+		v2{1,1},
+		map_size,
+		cell_tex_size,
+	{},
+	}
+
+	// populating map entities
+	entity_new(tm, .PlayerSpawn, {3,3})
+
+	for y in 0..<map_size.y {
+		for x in 0..<map_size.x {
+
+			top_bottom_row := x == 0 || x == map_size.x - 1
+			left_right_col := y == 0 || y == map_size.y - 1
+
+			if top_bottom_row || left_right_col {
+				entity_new(tm, .Wall, {x,y})
+			}
+		}
+	}
+
+	entity_new(tm, .Pit, {6,3})
+	entity_new(tm, .Goal, {7,3})
+	entity_new(tm, .Crate, {5,2})
+}
+
+// Copies state from one map to another. 
+map_copy :: proc(md: ^Map, ms: Map) {
+	md^ = ms
 }

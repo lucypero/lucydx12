@@ -52,6 +52,7 @@ GameEvent :: enum{
 	BeatLevel
 }
 
+g_start_map: Map
 g_map: Map
 g_textures: Textures
 g_player : Player
@@ -101,8 +102,7 @@ main :: proc() {
 	g_player.box.size = g_player.texture_size * 0.7
 	g_player.texture_offset = v2{ -10, 10}
 
-	g_map.arena = ldx.arena_allocator_new(context.allocator)
-
+	map_start_default(&g_start_map)
 	game_restart()
 
 	outer: for !ldx.window_should_close() {
@@ -183,41 +183,7 @@ v2_to_v2i :: proc(a: v2) -> v2i {
 }
 
 game_restart :: proc() {
-
-	free_all(g_map.arena)
-
-	map_size := v2i{10, 6}
-
-	// initting map
-	cell_tex_size := v2i_to_v2(ldx.texture_get_size(g_textures.wall))
-
-	g_map = {
-		g_map.arena,
-		v2{50, WINDOW_HEIGHT - 10},
-		v2{1,1},
-		map_size,
-		cell_tex_size,
-	{},
-	}
-
-	// populating ap entities
-	entity_new(&g_map, .PlayerSpawn, {3,3})
-
-	for y in 0..<map_size.y {
-		for x in 0..<map_size.x {
-
-			top_bottom_row := x == 0 || x == map_size.x - 1
-			left_right_col := y == 0 || y == map_size.y - 1
-
-			if top_bottom_row || left_right_col {
-				entity_new(&g_map, .Wall, {x,y})
-			}
-		}
-	}
-
-	entity_new(&g_map, .Pit, {6,3})
-	entity_new(&g_map, .Goal, {7,3})
-	entity_new(&g_map, .Crate, {5,2})
+	map_copy(&g_map, g_start_map)
 
 	// Placing player at spawn position
 	psc := map_get_player_spawn_coord(g_map)

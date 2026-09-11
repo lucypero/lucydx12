@@ -39,20 +39,20 @@ editor_update :: #force_inline proc(kb: []u8) -> (_should_quit: bool){
 
 	if kb[sdl.Scancode.ESCAPE] == 1 do return true
 
-	g_editor.mouse_coord = world_to_coord(g_map, g_mouse_world_pos)
+	g_editor.mouse_coord = world_to_coord(g_start_map, g_mouse_world_pos)
 
 	// Left click
 	if g_mouse_buttons & 0x01 != 0 && !g_mouse_clicked{
 		fmt.println("clicked")
-		entity_new(&g_map, .Wall, g_editor.mouse_coord)
+		entity_new(&g_start_map, .Wall, g_editor.mouse_coord)
 	}
 
 	// Drawing
 	{
-		map_draw(g_map)
+		map_draw(g_start_map)
 
-		p_coord_pos := map_coord_to_world_pos(g_map, g_editor.mouse_coord)
-		ldx.draw_wirebox(p_coord_pos, g_map.cell_tex_size, {0,1,0, 0.8}, 5)
+		p_coord_pos := map_coord_to_world_pos(g_start_map, g_editor.mouse_coord)
+		ldx.draw_wirebox(p_coord_pos, g_start_map.cell_tex_size, {0,1,0, 0.8}, 5)
 	}
 
 
@@ -61,7 +61,7 @@ editor_update :: #force_inline proc(kb: []u8) -> (_should_quit: bool){
 		im.Begin("Level editor")
 		defer im.End()
 
-		ldx.imgui_do_text("map pos: %v", g_map.pos)
+		ldx.imgui_do_text("map pos: %v", g_start_map.pos)
 
 		ldx.imgui_do_text("mouse pos: %v, coord: %v",
 			g_mouse_world_pos,
