@@ -55,7 +55,6 @@ editor_update :: #force_inline proc(kb: []u8) -> (_should_quit: bool){
 		ldx.draw_wirebox(p_coord_pos, g_start_map.cell_tex_size, {0,1,0, 0.8}, 5)
 	}
 
-
 	// Imgui stuff
 	{
 		im.Begin("Level editor")
@@ -67,7 +66,6 @@ editor_update :: #force_inline proc(kb: []u8) -> (_should_quit: bool){
 			g_mouse_world_pos,
 			g_editor.mouse_coord)
 	}
-
 
 	return false
 }

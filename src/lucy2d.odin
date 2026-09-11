@@ -29,10 +29,6 @@ Lucy2DContext :: struct {
 	clear_color_issued: Maybe(v4),
 	window_should_close: bool,
 	loaded_textures: map[int]Texture,
-
-	/// imgui stuff
-	imgui_descriptor_heap: ^dx.IDescriptorHeap,
-	imgui_allocator: DescriptorHeapAllocator,
 }
 
 SPRITE_MAX_COUNT :: 1000

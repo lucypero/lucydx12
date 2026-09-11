@@ -98,6 +98,10 @@ DXResourcePool :: [dynamic]^dx.IUnknown
 
 UberDescriptorHeap :: struct {
 	heap: ^dx.IDescriptorHeap,
+	heap_type : dx.DESCRIPTOR_HEAP_TYPE,
+	heap_start_cpu: dx.CPU_DESCRIPTOR_HANDLE,
+	heap_start_gpu: dx.GPU_DESCRIPTOR_HANDLE,
+	heap_handle_increment: u32,
 	next_descriptor_index: int,
 }
 
@@ -136,10 +140,19 @@ uber_heap_create :: proc(type: dx.DESCRIPTOR_HEAP_TYPE, pool: ^DXResourcePool) -
 	check(hr, "Failed creating descriptor heap")
 	append(pool, heap)
 
-	return UberDescriptorHeap {
+	res := UberDescriptorHeap {
 		heap = heap,
+		heap_type = type,
 		next_descriptor_index = 0
 	}
+
+	heap->GetCPUDescriptorHandleForHeapStart(&res.heap_start_cpu)
+	if res.heap_type == .CBV_SRV_UAV {
+		heap->GetGPUDescriptorHandleForHeapStart(&res.heap_start_gpu)
+	}
+	res.heap_handle_increment = g_dx_core.device->GetDescriptorHandleIncrementSize(res.heap_type)
+
+	return res
 }
 
 uber_heap_count :: proc(heap: ^UberDescriptorHeap) {
