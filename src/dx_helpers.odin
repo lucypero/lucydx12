@@ -67,7 +67,7 @@ swapchain_present :: proc() {
 swapchain_clear :: proc(clear_color: v4) {
 	clear_color := clear_color
 	tex_swapchain := swapchain_get_current_target()
-	handle_swapchain := get_descriptor_heap_cpu_address(g_dx_core.heap_rtv.heap, tex_swapchain.rtv_index)
+	handle_swapchain := get_descriptor_heap_cpu_address(g_dx_core.heap_rtv, tex_swapchain.rtv_index)
 	g_dx_core.cmdlist->ClearRenderTargetView(handle_swapchain, &clear_color, 0, nil)
 }
 
@@ -161,12 +161,12 @@ uber_heap_count :: proc(heap: ^UberDescriptorHeap) {
 
 // gets next cpu address to create the next view
 uber_heap_get_next_cpu_addr :: proc(uber_heap: UberDescriptorHeap) -> dx.CPU_DESCRIPTOR_HANDLE {
-	return get_descriptor_heap_cpu_address(uber_heap.heap, uber_heap.next_descriptor_index)
+	return get_descriptor_heap_cpu_address(uber_heap, uber_heap.next_descriptor_index)
 }
 
 // returns cpu descriptor handle of resource at offset `index`
 uber_heap_get_cpu_addr :: proc(uber_heap: UberDescriptorHeap, index: int) -> dx.CPU_DESCRIPTOR_HANDLE {
-	return get_descriptor_heap_cpu_address(uber_heap.heap, index)
+	return get_descriptor_heap_cpu_address(uber_heap, index)
 }
 
 BlendState :: enum {
@@ -788,7 +788,7 @@ create_srv :: proc(res : ^dx.IResource, srv_desc : ^dx.SHADER_RESOURCE_VIEW_DESC
 
 create_srv_at :: proc(res : ^dx.IResource, srv_desc : ^dx.SHADER_RESOURCE_VIEW_DESC = nil, new_srv_index: int) {
 	ct := &g_dx_core
-	ct.device->CreateShaderResourceView(res, srv_desc, get_descriptor_heap_cpu_address(ct.heap_cbv_srv_uav.heap, new_srv_index))
+	ct.device->CreateShaderResourceView(res, srv_desc, get_descriptor_heap_cpu_address(ct.heap_cbv_srv_uav, new_srv_index))
 }
 
 // creates a UAV for the resource on the uber SRV heap
@@ -802,7 +802,7 @@ create_uav :: proc(res : ^dx.IResource) -> (uav_index: int) {
 
 create_uav_at :: proc(res : ^dx.IResource, new_uav_index: int) {
 	ct := &g_dx_core
-	ct.device->CreateUnorderedAccessView(res, nil, nil, get_descriptor_heap_cpu_address(ct.heap_cbv_srv_uav.heap, new_uav_index))
+	ct.device->CreateUnorderedAccessView(res, nil, nil, get_descriptor_heap_cpu_address(ct.heap_cbv_srv_uav, new_uav_index))
 }
 
 create_cbv :: proc(cbv_desc : ^dx.CONSTANT_BUFFER_VIEW_DESC) -> (srv_index: int) {
@@ -833,7 +833,7 @@ create_dsv_at :: proc(res: ^dx.IResource, format: dxgi.FORMAT, dsv_index: int) {
 		Format = format,
 	}
 
-	ct.device->CreateDepthStencilView(res, &dsv_desc, get_descriptor_heap_cpu_address(ct.heap_dsv.heap, dsv_index))
+	ct.device->CreateDepthStencilView(res, &dsv_desc, get_descriptor_heap_cpu_address(ct.heap_dsv, dsv_index))
 }
 
 create_rtv :: proc(res: ^dx.IResource) -> (rtv_index: int) {
@@ -845,7 +845,7 @@ create_rtv :: proc(res: ^dx.IResource) -> (rtv_index: int) {
 
 create_rtv_at :: proc(res: ^dx.IResource, new_rtv_index: int) {
 	ct := &g_dx_core
-	ct.device->CreateRenderTargetView(res, nil, get_descriptor_heap_cpu_address(ct.heap_rtv.heap, new_rtv_index))
+	ct.device->CreateRenderTargetView(res, nil, get_descriptor_heap_cpu_address(ct.heap_rtv, new_rtv_index))
 }
 
 close_and_execute_cmdlist :: proc() {
@@ -1292,16 +1292,12 @@ lprintfln :: proc(fmt_s: string, args: ..any) {
 }
 
 get_descriptor_heap_cpu_address :: proc(
-	heap: ^dx.IDescriptorHeap,
+	heap: UberDescriptorHeap,
 	offset: int = 0,
 ) -> (
 	cpu_descriptor_handle: dx.CPU_DESCRIPTOR_HANDLE,
 ) {
-	heap->GetCPUDescriptorHandleForHeapStart(&cpu_descriptor_handle)
-	desc: dx.DESCRIPTOR_HEAP_DESC
-	heap->GetDesc(&desc)
-	increment := g_dx_core.device->GetDescriptorHandleIncrementSize(desc.Type)
-	cpu_descriptor_handle.ptr += uint(cast(uint)offset * cast(uint)increment)
+	cpu_descriptor_handle.ptr += uint(heap.heap_start_cpu.ptr + cast(uint)offset * cast(uint)heap.heap_handle_increment)
 	return
 }
 
@@ -1388,7 +1384,7 @@ load_white_texture :: proc(pool: ^DXResourcePool) {
 		pool, {}, texture_name = "white")
 
 	// creating srv on uber heap
-	cpu_addr := get_descriptor_heap_cpu_address(ct.heap_cbv_srv_uav.heap, TEXTURE_WHITE_INDEX)
+	cpu_addr := get_descriptor_heap_cpu_address(ct.heap_cbv_srv_uav, TEXTURE_WHITE_INDEX)
 	ct.device->CreateShaderResourceView(texture.buffer, nil, cpu_addr)
 }
 

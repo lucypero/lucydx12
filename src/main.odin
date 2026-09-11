@@ -1129,7 +1129,7 @@ render :: proc() {
 	// Setting swapchain as render target (for imgui drawing)
 	{
 		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
-			get_descriptor_heap_cpu_address(ctd.heap_rtv.heap, ctd.swapchain.targets[ctd.swapchain.frame_index].rtv_index),
+			get_descriptor_heap_cpu_address(ctd.heap_rtv, ctd.swapchain.targets[ctd.swapchain.frame_index].rtv_index),
 		}
 
 		g_dx_core.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
@@ -1500,7 +1500,7 @@ pso_lighting_render :: proc(pso: PSO) {
 	// Setting render target (lighting out). Clearing RTV.
 	{
 		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
-			get_descriptor_heap_cpu_address(ctd.heap_rtv.heap, ct.tx_lighting_out.rtv_index),
+			get_descriptor_heap_cpu_address(ctd.heap_rtv, ct.tx_lighting_out.rtv_index),
 		}
 
 		ctd.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
@@ -1572,7 +1572,7 @@ pso_gizmos_render :: proc (pso: PSO) {
 	// Setting render target (lighting out). Clearing RTV.
 	{
 		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
-			get_descriptor_heap_cpu_address(ctd.heap_rtv.heap, ct.tx_lighting_out.rtv_index),
+			get_descriptor_heap_cpu_address(ctd.heap_rtv, ct.tx_lighting_out.rtv_index),
 		}
 
 		dsv_handle := texture_get_dsv_cpu_address(ct.tx_depth)
