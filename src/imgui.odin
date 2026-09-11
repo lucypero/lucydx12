@@ -13,13 +13,6 @@ import "../libs/odin-imgui/imgui_impl_sdl2"
 // imgui dx12 implementation
 import "../libs/odin-imgui/imgui_impl_dx12"
 
-ImguiContext :: struct {
-	imgui_descriptor_heap: ^dx.IDescriptorHeap,
-	imgui_allocator: DescriptorHeapAllocator,
-}
-
-g_imgui_context: ImguiContext
-
 imgui_init :: proc(window: ^sdl.Window, pool: ^DXResourcePool) {
 
 	// initting dear imgui
@@ -42,36 +35,19 @@ imgui_init :: proc(window: ^sdl.Window, pool: ^DXResourcePool) {
 	// create a shader resource view  heap (srv)
 	ctd := &g_dx_core
 
-	// creating descriptor heap
-
-	// if it goes above 3, we are dead
-	srv_descriptor_heap_desc := dx.DESCRIPTOR_HEAP_DESC {
-		NumDescriptors = 3,
-		Type = .CBV_SRV_UAV,
-		Flags = {.SHADER_VISIBLE},
-	}
-
-	hr := ctd.device->CreateDescriptorHeap(
-		&srv_descriptor_heap_desc,
-		dx.IDescriptorHeap_UUID,
-		(^rawptr)(&g_imgui_context.imgui_descriptor_heap),
-	)
-	check(hr, "could ont create imgui descriptor heap")
-	g_imgui_context.imgui_descriptor_heap->SetName("imgui's cbv srv uav descriptor heap")
-	append(pool, g_imgui_context.imgui_descriptor_heap)
-
-	g_imgui_context.imgui_allocator = descriptor_heap_allocator_create(g_imgui_context.imgui_descriptor_heap, .CBV_SRV_UAV)
-
 	allocfn := proc "c" (
 		info: ^imgui_impl_dx12.InitInfo,
 		out_cpu_desc_handle: ^dx.CPU_DESCRIPTOR_HANDLE,
 		out_gpu_desc_handle: ^dx.GPU_DESCRIPTOR_HANDLE,
 	) {
 		context = runtime.default_context()
-		// they want a global here.. what do i do
-		cpu, gpu := descriptor_heap_allocator_alloc(&g_imgui_context.imgui_allocator)
-		out_cpu_desc_handle.ptr = cpu.ptr
-		out_gpu_desc_handle.ptr = gpu.ptr
+		h := &g_dx_core.heap_cbv_srv_uav
+
+		next_i := g_dx_core.heap_cbv_srv_uav.next_descriptor_index
+		out_cpu_desc_handle.ptr = h.heap_start_cpu.ptr + cast(uint)(cast(u32)next_i * h.heap_handle_increment)
+		out_gpu_desc_handle.ptr = h.heap_start_gpu.ptr + cast(u64)(cast(u32)next_i * h.heap_handle_increment)
+
+		uber_heap_count(h)
 	}
 
 	freefn := proc "c" (
@@ -79,8 +55,10 @@ imgui_init :: proc(window: ^sdl.Window, pool: ^DXResourcePool) {
 		cpu_desc_handle: dx.CPU_DESCRIPTOR_HANDLE,
 		gpu_desc_handle: dx.GPU_DESCRIPTOR_HANDLE,
 	) {
-		context = runtime.default_context()
-		descriptor_heap_allocator_free(&g_imgui_context.imgui_allocator, cpu_desc_handle, gpu_desc_handle)
+		// NO-OP
+		// TODO: implement a free list on uber heap! to handle freeing
+		// context = runtime.default_context()
+		// descriptor_heap_allocator_free(&g_imgui_context.imgui_allocator, cpu_desc_handle, gpu_desc_handle)
 	}
 
 	dx12_init := imgui_impl_dx12.InitInfo {
@@ -90,7 +68,7 @@ imgui_init :: proc(window: ^sdl.Window, pool: ^DXResourcePool) {
 		NumFramesInFlight = 2,
 		RTVFormat = .R8G8B8A8_UNORM,
 		DSVFormat = .D32_FLOAT,
-		SrvDescriptorHeap = g_imgui_context.imgui_descriptor_heap,
+		SrvDescriptorHeap = g_dx_core.heap_cbv_srv_uav.heap,
 		SrvDescriptorAllocFn = allocfn,
 		SrvDescriptorFreeFn = freefn,
 	}
@@ -110,7 +88,7 @@ imgui_end_frame :: proc() {
 	// setting imgui's descriptor heap
 	// if i don't do this, it errors out. seems like RenderDrawData doesn't set it
 	//  by itself
-	g_dx_core.cmdlist->SetDescriptorHeaps(1, &g_imgui_context.imgui_descriptor_heap)
+	g_dx_core.cmdlist->SetDescriptorHeaps(1, &g_dx_core.heap_cbv_srv_uav.heap)
 	imgui_impl_dx12.RenderDrawData(im.GetDrawData(), g_dx_core.cmdlist)
 	io := im.GetIO()
 	if .ViewportsEnable in io.ConfigFlags {
