@@ -61,16 +61,7 @@ g_lives : int
 g_times_level_win: int
 g_last_event: GameEvent
 
-// TODO do keyboard system on lucy2d (snapshot of prev frame keys and current frame to see which one started being pressed now)
-g_was_space_pressed: bool
-g_was_tab_pressed: bool
-g_mouse_clicked: bool
-
 g_play_mode : enum {Play, Editor}
-
-g_mouse_buttons: u32
-g_mouse_world_pos: v2
-
 g_frame_i : int
 
 main :: proc() {
@@ -110,12 +101,6 @@ main :: proc() {
 
 	outer: for !ldx.window_should_close() {
 		ldx.frame_start()
-		kb := ldx.get_keyboard()
-
-		// get mouse pos
-		m_x, m_y: c.int
-		g_mouse_buttons = sdl.GetMouseState(&m_x, &m_y)
-		g_mouse_world_pos = v2{cast(f32)m_x, cast(f32)-m_y + WINDOW_HEIGHT}
 
 		when AUDIO_ENABLE {
 		audio.update()
@@ -126,20 +111,14 @@ main :: proc() {
 			free_all(context.temp_allocator)
 
 			// doing kb stuff
-
-			// TODO: super crude temporary code. do input system on lucy2d now!
-			g_was_space_pressed = kb[sdl.Scancode.SPACE] == 1
-			g_was_tab_pressed = kb[sdl.Scancode.TAB] == 1
-			g_mouse_clicked = g_mouse_buttons & 0x01 != 0
-
 			g_frame_i += 1
 		}
 
 		switch g_play_mode {
 		case .Play:
-			if game_update(kb) do break outer
+			if game_update() do break outer
 		case .Editor:
-			if editor_update(kb) do break outer
+			if editor_update() do break outer
 		}
 
 	}
@@ -297,9 +276,9 @@ move_box :: proc(e: ^Entity, c: Coord) {
 	e.coord = c
 }
 
-game_update :: #force_inline proc(kb: []u8) -> (_should_quit: bool) {
+game_update :: #force_inline proc() -> (_should_quit: bool) {
 
-	if (kb[sdl.Scancode.TAB] == 1 && !g_was_tab_pressed) || 
+	if ldx.key_is_just_pressed(.TAB) || 
 	(START_ON_EDITOR && g_frame_i == 1) {
 		// switching to editor mode
 		editor_init()
@@ -308,11 +287,11 @@ game_update :: #force_inline proc(kb: []u8) -> (_should_quit: bool) {
 		return false
 	}
 
-	if kb[sdl.Scancode.ESCAPE] == 1 do return true
+	if ldx.key_is_just_pressed(.ESCAPE) do return true
 	ldx.window_clear(COLOR_BACKGROUND)
 
 	// Update game logic
-	if kb[sdl.Scancode.R] == 1 do game_restart()
+	if ldx.key_is_just_pressed(.R) do game_restart()
 
 	// What tile is the player in?
 	player_coord := map_world_box_to_coord(g_map, g_player.box)
@@ -325,19 +304,19 @@ game_update :: #force_inline proc(kb: []u8) -> (_should_quit: bool) {
 	{
 		vel : v2
 
-		if kb[sdl.Scancode.A] == 1 {
+		if ldx.key_is_down(.A) {
 			vel.x = -1 
 			g_player.last_input_vel = {-1, 0}
 		}
-		if kb[sdl.Scancode.D] == 1 {
+		if ldx.key_is_down(.D) {
 			vel.x = 1
 			g_player.last_input_vel = {1, 0}
 		}
-		if kb[sdl.Scancode.W] == 1 {
+		if ldx.key_is_down(.W) {
 			vel.y = 1
 			g_player.last_input_vel = {0, -1}
 		} 
-		if kb[sdl.Scancode.S] == 1 {
+		if ldx.key_is_down(.S) {
 			vel.y = -1
 			g_player.last_input_vel = {0, 1}
 		}
@@ -356,7 +335,7 @@ game_update :: #force_inline proc(kb: []u8) -> (_should_quit: bool) {
 
 	// Hook mechanic
 	{
-		if kb[sdl.Scancode.SPACE] == 1 && !g_was_space_pressed {
+		if ldx.key_is_just_pressed(.SPACE) {
 			try_do_hook()
 		}
 

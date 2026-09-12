@@ -36,13 +36,13 @@ Editor :: struct {
 
 g_editor : Editor
 
-editor_update :: #force_inline proc(kb: []u8) -> (_should_quit: bool){
+editor_update :: #force_inline proc() -> (_should_quit: bool){
 
 	bs := &g_editor.entity_brushes[g_editor.brush_selected]
 
 	ldx.window_clear(COLOR_BACKGROUND)
 
-	if kb[sdl.Scancode.TAB] == 1 && !g_was_tab_pressed{
+	if ldx.key_is_just_pressed(.TAB) {
 		// switching to play mode
 		game_restart()
 		fmt.printfln("switching to play mode")
@@ -50,12 +50,12 @@ editor_update :: #force_inline proc(kb: []u8) -> (_should_quit: bool){
 		return false
 	}
 
-	if kb[sdl.Scancode.ESCAPE] == 1 do return true
+	if ldx.key_is_just_pressed(.ESCAPE) do return true
 
-	g_editor.mouse_coord = world_to_coord(g_start_map, g_mouse_world_pos)
+	g_editor.mouse_coord = world_to_coord(g_start_map, ldx.get_mouse_pos())
 
 	// Left click
-	if g_mouse_buttons & 0x01 != 0 && !g_mouse_clicked{
+	if ldx.mouse_button_is_just_pressed(.Left) {
 		fmt.println("clicked")
 		entity_new(&g_start_map, bs.et, g_editor.mouse_coord)
 	}
@@ -76,7 +76,7 @@ editor_update :: #force_inline proc(kb: []u8) -> (_should_quit: bool){
 		ldx.imgui_do_text("map pos: %v", g_start_map.pos)
 
 		ldx.imgui_do_text("mouse pos: %v, coord: %v",
-			g_mouse_world_pos,
+			ldx.get_mouse_pos(),
 			g_editor.mouse_coord)
 
 		// @static tex_offset : int = 0
@@ -91,6 +91,7 @@ editor_update :: #force_inline proc(kb: []u8) -> (_should_quit: bool){
 				g_editor.brush_selected = i
 				fmt.printfln("Selected %v", g_editor.entity_brushes[i].et)
 			}
+			im.SetItemTooltip(fmt.ctprintf("%v", eb.et))
 
 			// Rows of 4
 			if (i % 4 != 3) && i != len(g_editor.entity_brushes) - 1 {

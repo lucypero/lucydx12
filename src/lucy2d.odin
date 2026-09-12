@@ -1,5 +1,6 @@
 package main
 
+import "core:c"
 import "core:slice"
 import "core:thread"
 import dx "vendor:directx/d3d12"
@@ -17,6 +18,9 @@ PSOName :: enum {
 	Quad
 }
 
+MouseButton :: enum u32 {Left, Right, Middle}
+MouseButtonSet :: bit_set[MouseButton;u32]
+
 Lucy2DContext :: struct {
 	upload_thread : ^thread.Thread,
 	resources_resizing : [dynamic]^dx.IUnknown,
@@ -31,6 +35,15 @@ Lucy2DContext :: struct {
 	clear_color_issued: Maybe(v4),
 	window_should_close: bool,
 	loaded_textures: map[int]Texture,
+
+	kb_prev: []u8,
+	kb_cur: []u8,
+
+	mouse_prev: MouseButtonSet,
+	mouse_cur: MouseButtonSet,
+	mouse_pos: v2,
+
+	imgui_capturing_input: bool
 }
 
 SPRITE_MAX_COUNT :: 1000
@@ -90,6 +103,10 @@ window_new :: proc(window_name:string, width, height: int) {
 		fmt.eprintln(sdl.GetError())
 		return
 	}
+
+	kb_slice := sdl.GetKeyboardStateAsSlice()
+	g_lct.kb_cur = make([]u8, len(kb_slice))
+	g_lct.kb_prev = make([]u8, len(kb_slice))
 
 	init_dx(&g_lct.resources_longterm, ct.window, width, height)
 
@@ -279,6 +296,17 @@ frame_start :: proc() {
 	ct := &g_lct
 	ct.clear_color_issued = nil
 	clear(&ct.sprites_to_render)
+
+	// capturing kb input
+	copy(g_lct.kb_prev,g_lct.kb_cur)
+	copy(g_lct.kb_cur,sdl.GetKeyboardStateAsSlice())
+
+	// capturing mouse input
+	m_x, m_y: c.int
+	g_lct.mouse_prev = g_lct.mouse_cur
+	g_lct.mouse_cur = transmute(MouseButtonSet)sdl.GetMouseState(&m_x, &m_y)
+	g_lct.mouse_pos = v2{cast(f32)m_x, cast(f32)-m_y + cast(f32)g_lct.window_dimensions.y}
+
 	sdl.PumpEvents()
 
 	for e: sdl.Event; sdl.PollEvent(&e); {
@@ -296,15 +324,31 @@ frame_start :: proc() {
 		}
 	}
 
-	imgui_start_frame()
+	g_lct.imgui_capturing_input = imgui_start_frame()
 
 	for &pso in ct.psos {
 		pso_hotswap_watch(&pso)
 	}
 }
 
-get_keyboard :: proc() -> []u8 {
-	return sdl.GetKeyboardStateAsSlice()
+get_mouse_pos :: proc() -> v2 {
+	return g_lct.mouse_pos
+}
+
+mouse_button_is_down :: proc(mouse_button: MouseButton) -> bool {
+	return !g_lct.imgui_capturing_input && (mouse_button in g_lct.mouse_cur)
+}
+
+mouse_button_is_just_pressed :: proc(mouse_button: MouseButton) -> bool {
+	return !g_lct.imgui_capturing_input && (mouse_button in g_lct.mouse_cur && mouse_button not_in g_lct.mouse_prev)
+}
+
+key_is_down :: proc(key: sdl.Scancode) -> bool {
+	return !g_lct.imgui_capturing_input && (g_lct.kb_cur[key] == 1)
+}
+
+key_is_just_pressed :: proc(key: sdl.Scancode) -> bool {
+	return !g_lct.imgui_capturing_input && (g_lct.kb_cur[key] == 1 && g_lct.kb_prev[key] != 1)
 }
 
 lucy2d_upload_thread_start :: proc() {
