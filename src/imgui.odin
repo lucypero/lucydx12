@@ -97,10 +97,13 @@ imgui_end_frame :: proc() {
 	}
 }
 
-imgui_start_frame :: proc() {
+imgui_start_frame :: proc() -> (_wants_input: bool){
 	imgui_impl_dx12.NewFrame()
 	imgui_impl_sdl2.NewFrame()
 	im.NewFrame()
+
+	io := im.GetIO()
+	return io.WantCaptureMouse
 }
 
 // helper functions
