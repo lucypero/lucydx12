@@ -36,7 +36,7 @@ CHARACTER_SPEED :: 3
 CHARACTER_SIZE :: 64
 
 Textures :: struct {
-	player, crate_wood, ground, wall, crate_stone, goal, pit: int
+	player, crate_wood, ground, wall, crate_stone, goal, pit, move_hand: int
 }
 
 Player :: struct {
@@ -88,6 +88,7 @@ main :: proc() {
 	g_textures.crate_stone = ldx.texture_load("hookin_sprites/sokoban-pack/Blocks/block_02.png")
 	g_textures.goal = ldx.texture_load("hookin_sprites/sokoban-pack/Environment/environment_10.png")
 	g_textures.pit = ldx.texture_load("hookin_sprites/sokoban-pack/Environment/environment_06.png")
+	g_textures.move_hand = ldx.texture_load("hookin_sprites/hand.png")
 
 	char_tex_size_i := ldx.texture_get_size(g_textures.player)
 
@@ -268,7 +269,7 @@ move_box :: proc(e: ^Entity, c: Coord) {
 
 	for eq in ent_lookup {
 		if eq.et == .Pit || entity_is_solid(eq^) {
-			e.et = .Nothing
+			entity_delete(&g_map, e)
 			return
 		}
 	}
@@ -428,10 +429,10 @@ box_place_at_coord :: proc(b: ^Box, coord: Coord) {
 }
 
 // TODO: generate collisions for boxes too?
-generate_collisions :: proc(the_map: Map) -> ([]Box, []int) {
+generate_collisions :: proc(the_map: Map) -> ([]Box, []EID) {
 
 	map_boxes := make([dynamic]Box, 0, len(the_map.entities), context.temp_allocator)
-	ids := make([dynamic]int, 0, len(the_map.entities), context.temp_allocator)
+	ids := make([dynamic]EID, 0, len(the_map.entities), context.temp_allocator)
 
 	for t,i in the_map.entities {
 
@@ -449,7 +450,7 @@ generate_collisions :: proc(the_map: Map) -> ([]Box, []int) {
 		if !does_coord_have_solid(the_map, {coord.x, coord.y - 1}) do tile_box.hittable_faces |= {.Top}
 
 		append(&map_boxes, tile_box)
-		append(&ids, i)
+		append(&ids, EID{i, t.gen})
 	}
 
 	return map_boxes[:], ids[:]

@@ -5,7 +5,7 @@ import ldx "../src"
 
 ENTITY_COUNT_MAX :: 200
 Entities :: [dynamic;ENTITY_COUNT_MAX]Entity
-EID :: int
+EID :: struct {slot: int, gen: i32}
 
 // Map coordinate. origin at TOP LEFT of the map. Y down. X right
 Coord :: v2i
@@ -21,6 +21,7 @@ EntityType :: enum { Nothing, Player, Crate, PlayerSpawn, Goal, Wall, Pit }
 
 Entity :: struct {
 	et: EntityType,
+	gen: i32,
 	coord: Coord,
 }
 
@@ -50,7 +51,7 @@ map_tquery :: proc(tm: ^Map, c: Coord) -> []^Entity {
 	out := make([dynamic]^Entity, 0, 3, context.temp_allocator)
 
 	for &e in tm.entities {
-		if e.coord == c {
+		if e.coord == c && e.et != .Nothing {
 			append(&out, &e)
 		}
 	}
@@ -76,12 +77,37 @@ does_coord_have_solid :: proc(tm: Map, c: Coord) -> bool {
 }
 
 entity_new :: proc(tm: ^Map, et: EntityType, c: Coord) -> ^Entity {
-	append(&tm.entities, Entity{et, c})
+
+	for &e, i in tm.entities {
+		if e.et == .Nothing {
+			e = Entity{et, e.gen, c}
+			return &e
+		}
+	}
+
+	append(&tm.entities, Entity{et, 0, c})
 	return &tm.entities[len(tm.entities) - 1]
 }
 
+entity_delete :: proc{entity_delete_eid, entity_delete_ptr}
+
+entity_delete_eid :: proc(tm: ^Map, eid: EID) {
+	e := entity_get(tm, eid)
+	entity_delete_ptr(tm, e)
+}
+
+entity_delete_ptr :: proc(tm: ^Map, e: ^Entity) {
+	if e != nil {
+		e.et = .Nothing
+		e.gen += 1
+	} else {
+		ldx.lprintfln("tried to delete entity that isn't valid")
+	}
+}
+
 entity_get :: proc(tm: ^Map, eid: EID) -> ^Entity {
-	return &tm.entities[eid]
+	e := &tm.entities[eid.slot]
+	return (e.et != .Nothing && e.gen == eid.gen) ? e : nil
 }
 
 map_coord_to_world_pos :: proc(the_map: Map, coord: Coord) -> v2 {
