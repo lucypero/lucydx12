@@ -36,7 +36,7 @@ CHARACTER_SPEED :: 3
 CHARACTER_SIZE :: 64
 
 Textures :: struct {
-	player, crate_wood, ground, wall, crate_stone, goal, pit, move_hand, trash: int
+	player, crate_wood, ground, wall, crate_stone, goal, pit, move_hand, trash, spawn: int
 }
 
 Player :: struct {
@@ -90,6 +90,7 @@ main :: proc() {
 	g_textures.pit = ldx.texture_load("hookin_sprites/sokoban-pack/Environment/environment_06.png")
 	g_textures.move_hand = ldx.texture_load("hookin_sprites/hand.png")
 	g_textures.trash = ldx.texture_load("hookin_sprites/trashcanOpen.png")
+	g_textures.spawn = ldx.texture_load("hookin_sprites/d42.png")
 
 	char_tex_size_i := ldx.texture_get_size(g_textures.player)
 
@@ -128,7 +129,7 @@ main :: proc() {
 	ldx.window_cleanup()
 }
 
-map_draw :: proc(tm: Map) {
+map_draw :: proc(tm: Map, edit_mode: bool) {
 
 	//first, draw ground
 	for y in 0..<tm.size.y {
@@ -139,8 +140,9 @@ map_draw :: proc(tm: Map) {
 	}
 
 	// loop through entities and draw
-
 	for e, i in tm.entities {
+		if e.et == .Nothing do continue
+
 		draw_ground: bool
 
 		pos, size := map_get_tile_pos_size(tm, e.coord)
@@ -156,7 +158,9 @@ map_draw :: proc(tm: Map) {
 			ldx.draw_texture(g_textures.goal, pos, tm.scale)
 		case .Crate:
 			ldx.draw_texture(g_textures.crate_wood, pos, tm.scale)
-		case .Player, .PlayerSpawn, .Nothing: // player is drawn separately
+		case .PlayerSpawn:
+			if edit_mode do  ldx.draw_texture(g_textures.spawn, pos, tm.scale)
+		case .Player, .Nothing: // player is drawn separately
 		}
 	}
 }
@@ -345,7 +349,7 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 
 	// Drawing everything
 	{
-		map_draw(g_map)
+		map_draw(g_map, edit_mode = false)
 
 		// Draw the player
 		ldx.draw_texture(g_textures.player, g_player.pos + g_player.texture_offset)

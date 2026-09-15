@@ -27,15 +27,17 @@ editor_init :: proc() {
 	g_editor.entity_brushes = {
 		{g_textures.move_hand, .Nothing, .SelectTool},
 		{g_textures.trash, .Nothing, .DeleteTool},
+		{g_textures.spawn, .PlayerSpawn, .Entity},
 		{g_textures.wall, .Wall, .Entity},
 		{g_textures.pit, .Pit, .Entity},
 		{g_textures.crate_wood, .Crate, .Entity},
+		{g_textures.goal, .Goal, .Entity},
 	}
 }
 
 Editor :: struct {
 	mouse_coord: Coord,
-	entity_brushes: [5]EntityBrush,
+	entity_brushes: [7]EntityBrush,
 	brush_selected: int,
 
 	coord_selected: Coord,
@@ -88,7 +90,7 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 
 	// Drawing
 	{
-		map_draw(g_start_map)
+		map_draw(g_start_map, edit_mode =  true)
 		if bs.tool_type == .Entity {
 			ldx.draw_texture(bs.text_id, p_coord_pos, tint = {1,1,1,0.5})
 		}
