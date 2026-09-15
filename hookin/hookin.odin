@@ -36,7 +36,7 @@ CHARACTER_SPEED :: 3
 CHARACTER_SIZE :: 64
 
 Textures :: struct {
-	player, crate_wood, ground, wall, crate_stone, goal, pit, move_hand: int
+	player, crate_wood, ground, wall, crate_stone, goal, pit, move_hand, trash: int
 }
 
 Player :: struct {
@@ -89,6 +89,7 @@ main :: proc() {
 	g_textures.goal = ldx.texture_load("hookin_sprites/sokoban-pack/Environment/environment_10.png")
 	g_textures.pit = ldx.texture_load("hookin_sprites/sokoban-pack/Environment/environment_06.png")
 	g_textures.move_hand = ldx.texture_load("hookin_sprites/hand.png")
+	g_textures.trash = ldx.texture_load("hookin_sprites/trashcanOpen.png")
 
 	char_tex_size_i := ldx.texture_get_size(g_textures.player)
 

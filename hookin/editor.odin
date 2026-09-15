@@ -20,12 +20,13 @@ lprint :: ldx.lprintfln
 EntityBrush :: struct {
 	text_id: int,
 	et: EntityType,
-	tool_type: enum {Entity, SelectTool}
+	tool_type: enum {Entity, SelectTool, DeleteTool}
 }
 
 editor_init :: proc() {
 	g_editor.entity_brushes = {
 		{g_textures.move_hand, .Nothing, .SelectTool},
+		{g_textures.trash, .Nothing, .DeleteTool},
 		{g_textures.wall, .Wall, .Entity},
 		{g_textures.pit, .Pit, .Entity},
 		{g_textures.crate_wood, .Crate, .Entity},
@@ -34,7 +35,7 @@ editor_init :: proc() {
 
 Editor :: struct {
 	mouse_coord: Coord,
-	entity_brushes: [4]EntityBrush,
+	entity_brushes: [5]EntityBrush,
 	brush_selected: int,
 
 	coord_selected: Coord,
@@ -76,6 +77,12 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 			g_editor.coord_selected = g_editor.mouse_coord
 			g_editor.entity_in_coord_selected = 0
 			lprint("clicked on coord %v. selecting.", g_editor.mouse_coord)
+		case .DeleteTool:
+
+			ets := map_tquery(&g_start_map, g_editor.mouse_coord)
+			for e in ets {
+				entity_delete(&g_start_map, e)
+			}
 		}
 	}
 
