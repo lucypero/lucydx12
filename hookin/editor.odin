@@ -73,7 +73,9 @@ Editor :: struct {
 
 	// level_files
 	level_files: [dynamic]string,
-	level_selected: int
+	level_selected: int,
+
+	rename_field: [256]u8
 }
 
 g_editor : Editor
@@ -235,16 +237,33 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 
 		im.SameLine()
 		if im.Button("New level") {
-			map_save(&g_start_map, fmt.tprintf("%v\\new_level%v.json", LEVELS_DIR, len(g_editor.level_files)), .Save)
+			new_file_name_buffer : [256]u8
+			new_filename_i := len(g_editor.level_files)
+			sb := strings.builder_from_bytes(new_file_name_buffer[:])
+
+			for {
+				strings.builder_reset(&sb)
+				fmt.sbprintf(&sb, "%v\\new_level%v.json", LEVELS_DIR, new_filename_i)
+				if !os.exists(strings.to_string(sb)) do break
+				new_filename_i += 1
+			}
+
+			map_save(&g_start_map, strings.to_string(sb), .Save)
 			load_levels()
 		}
+
 		im.SameLine()
 
 		// TODO use stacked popups for rename and delete
 		// https://codebrowser.dev/imgui/imgui/imgui_demo.cpp.html#5487
 		if im.Button("Rename") {
-
-
+			// set the default rename string
+			b := strings.builder_from_bytes(g_editor.rename_field[:])
+			old_name := g_editor.level_files[g_editor.level_selected]
+			strings.builder_reset(&b)
+			strings.write_string(&b, old_name)
+			append(&b.buf, 0) // making it a cstring
+			im.OpenPopup("Rename Popup")
 		}
 		im.SameLine()
 		if im.Button("Delete##") {
@@ -254,6 +273,31 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 				lprint("error deleting level from disk")
 			}
 			load_levels()
+		}
+
+		if im.BeginPopupModal("Rename Popup") {
+
+			ldx.imgui_do_text("Rename Level to:")
+
+			im.InputText("new name", cstring(raw_data(g_editor.rename_field[:])), cast(c.size_t)len(g_editor.rename_field))
+
+			if im.Button("Rename##Rename") {
+				new_name := string(cstring(raw_data(g_editor.rename_field[:])))
+				old_name := g_editor.level_files[g_editor.level_selected]
+				rename_err := os.rename(old_name, new_name)
+				if rename_err != os.General_Error.None {
+					lprint("error renaming level")
+				}
+				im.CloseCurrentPopup()
+				load_levels()
+			}
+			im.SameLine()
+
+			if im.Button("Cancel##Rename") {
+				im.CloseCurrentPopup()
+			}
+
+			im.EndPopup()
 		}
 
 		im.ShowDemoWindow()
