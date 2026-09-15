@@ -59,8 +59,8 @@ map_tquery :: proc(tm: ^Map, c: Coord) -> []^Entity {
 	return out[:]
 }
 
-entity_is_solid :: proc(e: Entity) -> bool{
-	#partial switch e.et {
+entity_is_solid :: proc(e: EntityType) -> bool{
+	#partial switch e {
 	case .Crate, .Wall:
 		return true
 	case: 
@@ -70,7 +70,7 @@ entity_is_solid :: proc(e: Entity) -> bool{
 
 does_coord_have_solid :: proc(tm: Map, c: Coord) -> bool {
 	for e in tm.entities {
-		if e.coord == c && entity_is_solid(e) do return true
+		if e.coord == c && entity_is_solid(e.et) do return true
 	}
 
 	return false
@@ -89,7 +89,14 @@ entity_new :: proc(tm: ^Map, et: EntityType, c: Coord) -> ^Entity {
 	return &tm.entities[len(tm.entities) - 1]
 }
 
-entity_delete :: proc{entity_delete_eid, entity_delete_ptr}
+entity_delete :: proc{entity_delete_eid, entity_delete_ptr, entity_delete_kind}
+
+entity_delete_kind :: proc(tm: ^Map, et: EntityType) {
+	for &e in tm.entities {
+		if e.et == .Nothing do continue
+		if e.et == et do entity_delete_ptr(tm, &e)
+	}
+}
 
 entity_delete_eid :: proc(tm: ^Map, eid: EID) {
 	e := entity_get(tm, eid)

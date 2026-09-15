@@ -72,7 +72,25 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 
 		switch bs.tool_type {
 		case .Entity:
-			entity_new(&g_start_map, bs.et, g_editor.mouse_coord)
+
+			// Check: Only one solid per coord
+
+			good_to_insert := true
+
+			has_solid := does_coord_have_solid(g_start_map, g_editor.mouse_coord)
+			if entity_is_solid(bs.et) && has_solid {
+				lprint("This coordinate already has a solid entity.")
+				good_to_insert = false
+			}
+
+			// Uniqueness check ( delete previous ones)
+			if bs.et == .PlayerSpawn do entity_delete_kind(&g_start_map, .PlayerSpawn)
+			if bs.et == .Goal do entity_delete_kind(&g_start_map, .Goal)
+
+			if good_to_insert {
+				entity_new(&g_start_map, bs.et, g_editor.mouse_coord)
+			}
+
 		case .SelectTool:
 			// clicked on a coord with the select tool. select the coord.
 			// selected coord change.
@@ -107,9 +125,7 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 
 		brush_selected := &g_editor.entity_brushes[g_editor.brush_selected]
 
-		ldx.imgui_do_text("mouse pos: %v, coord: %v",
-			ldx.get_mouse_pos(),
-			g_editor.mouse_coord)
+		ldx.imgui_do_text("Pointing at coord: %v", g_editor.mouse_coord)
 
 		// Errors with level here.
 		im.Separator()
@@ -147,7 +163,8 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 
 		// Info about selected brush
 		im.Separator()
-		ldx.imgui_do_text("Current Brush Selected: %v", brush_selected.et)
+
+		ldx.imgui_do_text("Current Brush Selected: %v", brush_to_string(brush_selected^))
 
 
 		im.Separator()
@@ -174,4 +191,13 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 	}
 
 	return false
+}
+
+brush_to_string :: proc(b: EntityBrush) -> string {
+	#partial switch b.tool_type {
+	case .Entity:
+		return fmt.tprint(b.et)
+	case:
+		return fmt.tprint(b.tool_type)
+	}
 }

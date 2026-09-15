@@ -254,7 +254,7 @@ try_move_box :: proc(bcr: BoxCollisionRecord) {
 		is_solid_on_other_side: bool
 
 		for e_q in ents_query {
-			if entity_is_solid(e_q^) {
+			if entity_is_solid(e_q.et) {
 				// there's a solid on the other side. abort the move
 				is_solid_on_other_side = true
 				break
@@ -273,7 +273,7 @@ move_box :: proc(e: ^Entity, c: Coord) {
 	ent_lookup := map_tquery(&g_map, c)
 
 	for eq in ent_lookup {
-		if eq.et == .Pit || entity_is_solid(eq^) {
+		if eq.et == .Pit || entity_is_solid(eq.et) {
 			entity_delete(&g_map, e)
 			return
 		}
@@ -443,7 +443,7 @@ generate_collisions :: proc(the_map: Map) -> ([]Box, []EID) {
 
 		coord := t.coord
 
-		if !entity_is_solid(t) do continue
+		if !entity_is_solid(t.et) do continue
 
 		// Construct Box
 		tile_box : Box
