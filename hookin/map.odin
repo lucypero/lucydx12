@@ -2,6 +2,8 @@ package hookin
 
 import "core:mem"
 import ldx "../src"
+import "core:encoding/json"
+import "core:os"
 
 ENTITY_COUNT_MAX :: 200
 Entities :: [dynamic;ENTITY_COUNT_MAX]Entity
@@ -188,4 +190,32 @@ map_start_default :: proc(tm: ^Map) {
 // Copies state from one map to another. 
 map_copy :: proc(md: ^Map, ms: Map) {
 	md^ = ms
+}
+
+map_save :: proc(m: ^Map, file_name:string, save: enum{Save, Load}) {
+	JSON_SPEC :: json.Specification.Bitsquid
+	switch save {
+	case .Save:
+		json_data, err := json.marshal(m^, {
+			pretty         = true,
+			use_enum_names = true,
+			spec = JSON_SPEC
+		})
+		assert(err == nil)
+		werr := os.write_entire_file(file_name, json_data)
+		if werr == .Exist {
+			lprint("file already exists. overwriting.")
+		} else if werr != os.General_Error.None {
+			lprint("error while writing file.")
+		}
+	case .Load:
+		data, read_err := os.read_entire_file(file_name, context.temp_allocator)
+		if read_err == os.General_Error.Not_Exist {
+			lprint("level %v does not exist.", file_name)
+			return
+		}
+		assert(read_err == nil)
+		unmarshal_err := json.unmarshal(data, m, JSON_SPEC, context.temp_allocator)
+		assert(unmarshal_err == nil)
+	}
 }

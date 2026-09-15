@@ -1,5 +1,6 @@
 package hookin
 
+import "core:container/intrusive/list"
 import "core:strings"
 import "core:fmt"
 import "core:math"
@@ -11,11 +12,14 @@ import sdl "vendor:sdl2"
 import "audio"
 import im "../libs/odin-imgui"
 import "core:c"
+import "core:os"
 
 // Importing rendering engine
 import ldx "../src"
 
 lprint :: ldx.lprintfln
+
+LEVELS_DIR :: "hookin\\levels"
 
 EntityBrush :: struct {
 	text_id: int,
@@ -33,6 +37,30 @@ editor_init :: proc() {
 		{g_textures.crate_wood, .Crate, .Entity},
 		{g_textures.goal, .Goal, .Entity},
 	}
+
+	// Loading levels
+	load_levels()
+
+	ls := g_editor.level_files[g_editor.level_selected]
+	map_save(&g_start_map, ls, .Load)
+}
+
+load_levels :: proc() {
+	// deleting previous scan
+	for lf in g_editor.level_files do delete(lf)
+	delete(g_editor.level_files)
+
+	g_editor.level_files = make([dynamic]string, 0, 20, context.allocator)
+	ldx.search_for_files_with_ext(LEVELS_DIR, ".json", &g_editor.level_files, context.allocator)
+
+	if len(g_editor.level_files) == 0 {
+		// create empty level
+		lprint("no levels found. creating an empty one.")
+		map_save(&g_start_map, LEVELS_DIR + "\\new map.json", .Save)
+		load_levels()
+	}
+
+	g_editor.level_selected = clamp(g_editor.level_selected, 0, len(g_editor.level_files) - 1)
 }
 
 Editor :: struct {
@@ -42,6 +70,10 @@ Editor :: struct {
 
 	coord_selected: Coord,
 	entity_in_coord_selected: int,
+
+	// level_files
+	level_files: [dynamic]string,
+	level_selected: int
 }
 
 g_editor : Editor
@@ -134,18 +166,15 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 		im.Separator()
 
 		ldx.imgui_do_text("Entities At: %v", g_editor.coord_selected)
-		entities_cstrings := make([dynamic]cstring, context.temp_allocator)
+		entities_str := make([dynamic]string, context.temp_allocator)
 		entities := map_tquery(&g_start_map, g_editor.coord_selected)
+
 		for e in entities {
-			append(&entities_cstrings, fmt.ctprintf("%v", e.et))
+			append(&entities_str, fmt.tprint(e.et))
 		}
 
-		if len(entities_cstrings) > 1 {
-			if im.ListBox("Entities At coord:",
-				cast(^c.int)&g_editor.entity_in_coord_selected,
-				&entities_cstrings[0],
-				cast(i32)len(entities_cstrings)
-			) {
+		if len(entities_str) > 1 {
+			if ldx.imgui_do_listbox("Entities at coord:", &g_editor.entity_in_coord_selected, entities_str[:]) {
 				fmt.printfln("clicked somewhere on table")
 			}
 		}
@@ -179,12 +208,52 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 				g_editor.brush_selected = i
 				fmt.printfln("Selected %v", g_editor.entity_brushes[i].et)
 			}
-			im.SetItemTooltip(fmt.ctprintf("%v", eb.et))
+			im.SetItemTooltip(fmt.ctprintf("%v", brush_to_string(eb)))
 
 			// Rows of 4
 			if (i % 4 != 3) && i != len(g_editor.entity_brushes) - 1 {
 				im.SameLine()
 			}
+		}
+
+		// Level lister
+		im.Separator()
+
+		// list
+		if len(g_editor.level_files) > 0 && ldx.imgui_do_listbox("Level List", &g_editor.level_selected, g_editor.level_files[:]) {
+			// load clicked level
+			ls := g_editor.level_files[g_editor.level_selected]
+			map_save(&g_start_map, ls, .Load)
+		}
+
+		// Row of buttons "save, load, rename, delete"
+
+		if im.Button("Save") {
+			ls := g_editor.level_files[g_editor.level_selected]
+			map_save(&g_start_map, ls, .Save)
+		}
+
+		im.SameLine()
+		if im.Button("New level") {
+			map_save(&g_start_map, fmt.tprintf("%v\\new_level%v.json", LEVELS_DIR, len(g_editor.level_files)), .Save)
+			load_levels()
+		}
+		im.SameLine()
+
+		// TODO use stacked popups for rename and delete
+		// https://codebrowser.dev/imgui/imgui/imgui_demo.cpp.html#5487
+		if im.Button("Rename") {
+
+
+		}
+		im.SameLine()
+		if im.Button("Delete##") {
+			ls := g_editor.level_files[g_editor.level_selected]
+			err := os.remove(ls)
+			if err != os.General_Error.None {
+				lprint("error deleting level from disk")
+			}
+			load_levels()
 		}
 
 		im.ShowDemoWindow()

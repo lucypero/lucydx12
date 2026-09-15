@@ -358,8 +358,8 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 		// ldx.draw_solid_rect(g_player.pos, g_player.size, {1,0,0,0.5})
 
 		// draw where player is on the coord screen
-		p_coord_pos := map_coord_to_world_pos(g_map, player_coord)
-		ldx.draw_wirebox(p_coord_pos, g_map.cell_tex_size, {0,1,0, 1.0}, 5)
+		// p_coord_pos := map_coord_to_world_pos(g_map, player_coord)
+		// ldx.draw_wirebox(p_coord_pos, g_map.cell_tex_size, {0,1,0, 1.0}, 5)
 
 		// drawing amount of lives
 		for i in 0..<g_lives {

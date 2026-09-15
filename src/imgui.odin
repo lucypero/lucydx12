@@ -1,5 +1,6 @@
 package main
 
+import "core:c"
 import "core:fmt"
 import "core:strings"
 import "base:runtime"
@@ -116,4 +117,19 @@ imgui_do_text :: proc(format:string, args: ..any) {
 
 imgui_process_sdl_event :: proc(event: ^sdl.Event) {
 	imgui_impl_sdl2.ProcessEvent(event)
+}
+
+imgui_do_listbox :: proc(list_name: string, selected: ^int, list: []string) -> bool {
+
+	list_c := make([]cstring, len(list), context.temp_allocator)
+
+	for entry, i in list {
+		list_c[i] = tc(entry)
+	}
+
+	return im.ListBox(tc(list_name), cast(^c.int)selected, &list_c[0], cast(i32)len(list))
+}
+
+tc :: proc(str: string) -> cstring {
+	return strings.clone_to_cstring(str, context.temp_allocator)
 }
