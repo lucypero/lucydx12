@@ -44,6 +44,7 @@ Player :: struct {
 	texture_size: v2,
 	texture_offset: v2,
 	current_coord: Coord,
+	vis: Visualization,
 	last_input_vel: v2i // determines where the player is facing
 }
 
@@ -60,6 +61,7 @@ g_player : Player
 g_lives : int
 g_times_level_win: int
 g_last_event: GameEvent
+g_input_disabled: bool
 
 g_play_mode : enum {Play, Editor}
 g_frame_i : int
@@ -110,6 +112,7 @@ main :: proc() {
 		}
 
 		tweens_update()
+		timers_tick()
 
 		defer {
 			ldx.frame_end()
@@ -186,12 +189,15 @@ game_restart :: proc() {
 }
 
 player_kill :: proc() {
+	disable_input_for(0.5)
+	old_pos := g_player.pos
 	g_last_event = .PlayerDied
 	g_lives -= 1
 	when AUDIO_ENABLE {
 	audio.play_note(.A, 2, 0.1, 127, 9)
 	}
 	game_restart()
+	tween_v2(&g_player.vis.offset, old_pos - g_player.pos, {}, 0.3, .EaseOutCubic)
 }
 
 // teleport = true: teleport player's pos to the middle of coord
@@ -266,6 +272,7 @@ try_move_box :: proc(bcr: BoxCollisionRecord) {
 
 		if !is_solid_on_other_side {
 			// perform move
+			disable_input_for(0.3)
 			move_box(e, coord_to)
 			hit_counter = 0
 		}
@@ -314,19 +321,19 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 	{
 		vel : v2
 
-		if ldx.key_is_down(.A) {
+		if !g_input_disabled && ldx.key_is_down(.A) {
 			vel.x = -1 
 			g_player.last_input_vel = {-1, 0}
 		}
-		if ldx.key_is_down(.D) {
+		if !g_input_disabled && ldx.key_is_down(.D) {
 			vel.x = 1
 			g_player.last_input_vel = {1, 0}
 		}
-		if ldx.key_is_down(.W) {
+		if !g_input_disabled && ldx.key_is_down(.W) {
 			vel.y = 1
 			g_player.last_input_vel = {0, -1}
 		} 
-		if ldx.key_is_down(.S) {
+		if !g_input_disabled && ldx.key_is_down(.S) {
 			vel.y = -1
 			g_player.last_input_vel = {0, 1}
 		}
@@ -345,7 +352,7 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 
 	// Hook mechanic
 	{
-		if ldx.key_is_just_pressed(.SPACE) {
+		if !g_input_disabled && ldx.key_is_just_pressed(.SPACE) {
 			try_do_hook()
 		}
 
@@ -356,7 +363,7 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 		map_draw(g_map, edit_mode = false)
 
 		// Draw the player
-		ldx.draw_texture(g_textures.player, g_player.pos + g_player.texture_offset)
+		ldx.draw_texture(g_textures.player, g_player.pos + g_player.texture_offset + g_player.vis.offset)
 
 		// Draw player hitbox
 		// ldx.draw_solid_rect(g_player.pos, g_player.size, {1,0,0,0.5})
@@ -412,11 +419,17 @@ try_do_hook :: proc() {
 				// hit wall. no crate affected. return
 				return
 			case .Crate:
+				if distance <= 1 do return
+
+				disable_input_for(0.4)
+
 				// Hook the crate
 				move_box(e, g_player.current_coord + g_player.last_input_vel)
 
 				// center player in the coord, to avoid bugs
+				old_pos := g_player.pos
 				box_place_at_coord(&g_player, g_player.current_coord)
+				tween_v2(&g_player.vis.offset, old_pos - g_player.pos, {}, 0.3, .EaseOutCubic)
 				return
 			}
 		}
@@ -502,8 +515,7 @@ tweens_update :: proc() {
 		if t.target == nil do continue
 		// advance t
 
-		t.t += (cast(f32)ldx.get_dt() / 1000) * (1 / t.duration)
-
+		t.t += ldx.get_dt_sec() * (1 / t.duration)
 		// ease out cubic
 		the_t :f32 
 
@@ -526,4 +538,50 @@ tweens_update :: proc() {
 			t.target^ = next_val
 		}
 	}
+}
+
+// Timers
+
+TIMERS_MAX :: 20
+
+Timer :: struct {
+	duration: f32,
+	data: rawptr,
+	trigger: proc(data: rawptr)
+}
+
+g_timers : [TIMERS_MAX]Timer
+
+timer :: proc(dur: f32, trigger: proc(data: rawptr), data: rawptr = nil) {
+	// Getting a timer
+	tim: ^Timer
+	for &t in g_timers {
+		if t.duration <= 0 {
+			tim = &t
+			break
+		}
+	}
+
+	if tim == nil {
+		panic("too many timers")
+	}
+
+	tim^ = Timer {
+		dur, data, trigger
+	}
+}
+
+timers_tick :: proc() {
+	for &t in g_timers {
+		if t.duration <= 0 do continue
+		t.duration -= cast(f32)ldx.get_dt_sec()
+		if t.duration <= 0 {
+			t.trigger(t.data)
+		}
+	}
+}
+
+disable_input_for :: proc(dur: f32) {
+	g_input_disabled = true
+	timer(dur, proc(d:rawptr) {g_input_disabled = false})
 }
