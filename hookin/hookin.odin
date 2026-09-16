@@ -282,7 +282,7 @@ move_box :: proc(e: ^Entity, c: Coord) {
 		}
 	}
 
-	tween_v2(&e.vis.offset, map_coord_to_world_pos(g_map, e.coord) - map_coord_to_world_pos(g_map, c), {}, 0.6)
+	tween_v2(&e.vis.offset, map_coord_to_world_pos(g_map, e.coord) - map_coord_to_world_pos(g_map, c), {}, 0.6, .EaseOutCubic)
 
 	e.coord = c
 }
@@ -293,7 +293,6 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 	(START_ON_EDITOR && g_frame_i == 1) {
 		// switching to editor mode
 		editor_init()
-		fmt.printfln("switching to editor mode")
 		g_play_mode = .Editor
 		return false
 	}
@@ -472,17 +471,20 @@ TWEENS_MAX_COUNT :: 20
 
 g_tweens: [TWEENS_MAX_COUNT]Tween
 
+TweenEasing :: enum {Linear, EaseOutCubic, EaseOutCirc}
+
 Tween :: struct {
 	target: ^v2,
 	from, to: v2,
-	t, duration: f32
+	t, duration: f32,
+	easing: TweenEasing
 }
 
-tween_v2 :: proc(target: ^v2, from, to: v2, time: f32) {
+tween_v2 :: proc(target: ^v2, from, to: v2, time: f32, ease: TweenEasing) {
 	// getting a tween
 	t := tween_get(target)
 	target^ = from
-	t^ = Tween{target, from, to, 0, time}
+	t^ = Tween{target, from, to, 0, time, ease}
 }
 
 tween_get :: proc(target: ^v2) -> ^Tween {
@@ -503,7 +505,16 @@ tweens_update :: proc() {
 		t.t += (cast(f32)ldx.get_dt() / 1000) * (1 / t.duration)
 
 		// ease out cubic
-		the_t := 1 - linalg.pow(1 - t.t, 3)
+		the_t :f32 
+
+		switch t.easing {
+		case .Linear:
+			the_t = t.t
+		case .EaseOutCubic:
+			the_t = 1 - linalg.pow(1 - t.t, 3)
+		case .EaseOutCirc:
+			the_t = linalg.sqrt(1.0 - linalg.pow(t.t - 1.0, 2.0))
+		}
 
 		if t.t >= 1 {
 			// finish tween

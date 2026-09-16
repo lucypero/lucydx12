@@ -25,6 +25,7 @@ import "core:math"
 import dxma "../libs/odin-d3d12ma"
 import im "../libs/odin-imgui"
 import sdl "vendor:sdl2"
+import "core:debug/trace"
 
 /*
 transition_resource_from_copy_to_read :: proc(res: ^dx.IResource, cmd_list: ^dx.IGraphicsCommandList) {
@@ -1966,7 +1967,7 @@ search_for_files_with_ext :: proc(base_path: string, ext: string, files_out: ^[d
 }
 
 // inits all basic dx resources in g_dx_core.
-init_dx :: proc(pool: ^DXResourcePool, window: ^sdl.Window, width, height: int) {
+dx_init :: proc(pool: ^DXResourcePool, window: ^sdl.Window, width, height: int) {
 
 	ct := &g_dx_core
 
@@ -2140,25 +2141,26 @@ dx_log_debug_callback :: proc "c" (
 
 	lprintfln("%v: (%v) %v", severity_string, cat, msg)
 
-	// printing stack trace
-	// TODO: replace with new debug/trace library
+	capture := trace.capture()
+	locations, err := trace.resolve(capture)
+	if err != nil {
+		fmt.eprintfln("trace error: %v", err)
+		return
+	}
+	defer trace.locations_destroy(locations)
 
-	// if !trace.in_resolve(&g_global_trace_ctx) {
-	// 	buf: [64]trace.Frame
-	// 	max_frames_display :: 3
-	// 	frames := trace.frames(&g_global_trace_ctx, 1, buf[:])
+	wd, _ := os.get_working_directory(context.temp_allocator)
+	locs_filtered := make([]trace.Location, len(locations), context.temp_allocator)
+	locs_f_i : int
 
-	// 	// filtering by frames where we actually have info
-	// 	real_counter := 0
+	for loc, i in locations {
+		if i == 0 do continue
+		if !strings.contains(loc.file_path, wd) do continue
+		locs_filtered[locs_f_i] = loc
+		locs_f_i += 1
+	}
 
-	// 	for f in frames {
-	// 		fl := trace.resolve(&g_global_trace_ctx, f, context.temp_allocator)
-	// 		if fl.loc.file_path == "" && fl.loc.line == 0 do continue
-	// 		if real_counter == 0 do lprintfln("At:")
-	// 		real_counter += 1
-	// 		if real_counter <= max_frames_display do lprintfln("--- %v - Frame %v", fl.loc, real_counter)
-	// 	}
-	// }
+	trace.print(locs_filtered[:locs_f_i])
 }
 
 // end of frame bureocracy

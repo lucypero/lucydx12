@@ -112,7 +112,7 @@ window_new :: proc(window_name:string, width, height: int) {
 	g_lct.kb_cur = make([]u8, len(kb_slice))
 	g_lct.kb_prev = make([]u8, len(kb_slice))
 
-	init_dx(&g_lct.resources_longterm, ct.window, width, height)
+	dx_init(&g_lct.resources_longterm, ct.window, width, height)
 
 	g_lct.root_signatures = create_root_signatures(&g_lct.resources_longterm)
 	g_lct.cb_general = cb_upload_create(size_of(GeneralConstants), &g_lct.resources_longterm, name = "general constants cbv")
@@ -382,6 +382,8 @@ lucy2d_upload_thread_start :: proc() {
 pso_quad_render :: proc(pso: PSO) {
 	ctd := &g_dx_core
 	ct := &g_lct
+
+	if len(ct.sprites_to_render) <= 0 do return
 
 	assert(len(ct.sprites_to_render) <= SPRITE_MAX_COUNT)
 	copy_to_buffer_already_mapped(ct.sb_sprites.gpu_pointer, slice.to_bytes(ct.sprites_to_render[:]))

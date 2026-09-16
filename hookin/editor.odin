@@ -89,7 +89,6 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 	if ldx.key_is_just_pressed(.TAB) {
 		// switching to play mode
 		game_restart()
-		fmt.printfln("switching to play mode")
 		g_play_mode = .Play
 		return false
 	}
@@ -102,8 +101,6 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 
 	// Left click
 	if ldx.mouse_button_is_just_pressed(.Left) {
-		fmt.println("clicked")
-
 		switch bs.tool_type {
 		case .Entity:
 
@@ -130,7 +127,6 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 			// selected coord change.
 			g_editor.coord_selected = g_editor.mouse_coord
 			g_editor.entity_in_coord_selected = 0
-			lprint("clicked on coord %v. selecting.", g_editor.mouse_coord)
 		case .DeleteTool:
 
 			ets := map_tquery(&g_start_map, g_editor.mouse_coord)
@@ -177,7 +173,7 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 
 		if len(entities_str) > 1 {
 			if ldx.imgui_do_listbox("Entities at coord:", &g_editor.entity_in_coord_selected, entities_str[:]) {
-				fmt.printfln("clicked somewhere on table")
+				// fmt.printfln("clicked somewhere on table")
 			}
 		}
 
@@ -205,10 +201,9 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 			defer im.PopID()
 
 			gpu_ptr := ldx.get_descriptor_heap_gpu_address(ldx.g_dx_core.heap_cbv_srv_uav, eb.text_id)
-
-			if im.ImageButton("asd", gpu_ptr.ptr, {30, 30}) {
+			texture_ref := im.TextureRef {_TexID = gpu_ptr.ptr}
+			if im.ImageButton("asd", texture_ref, {30, 30}) {
 				g_editor.brush_selected = i
-				fmt.printfln("Selected %v", g_editor.entity_brushes[i].et)
 			}
 			im.SetItemTooltip(fmt.ctprintf("%v", brush_to_string(eb)))
 
