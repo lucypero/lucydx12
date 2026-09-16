@@ -3,6 +3,7 @@
 #pragma pack_matrix(column_major)
 #include "src/shaders/shader_common.hlsl"
 
+
 struct VSInput {
 	float3 position : POSITION;
 	// instance data

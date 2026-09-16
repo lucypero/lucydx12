@@ -52,7 +52,6 @@ Lucy2DContext :: struct {
 
 SPRITE_MAX_COUNT :: 1000
 
-// TODO: do the reflection thing that copies your structs to hlsl
 Sprite :: struct {
 	pos: v2,
 	size: v2,
@@ -62,8 +61,8 @@ Sprite :: struct {
 }
 
 GeneralConstants :: struct #align (256) {
-	sb_sprites_idx: u32,
-	inv_screen: v2,
+	sb_sprites_idx: u32, // index of the sprite structured buffer into the resource heap
+	inv_screen: v2, // 1.0 / (width, height)
 }
 
 g_lct : Lucy2DContext
@@ -113,6 +112,8 @@ window_new :: proc(window_name:string, width, height: int) {
 	g_lct.kb_prev = make([]u8, len(kb_slice))
 
 	dx_init(&g_lct.resources_longterm, ct.window, width, height)
+
+	dx_generate_hlsl_types({Sprite, GeneralConstants})
 
 	g_lct.root_signatures = create_root_signatures(&g_lct.resources_longterm)
 	g_lct.cb_general = cb_upload_create(size_of(GeneralConstants), &g_lct.resources_longterm, name = "general constants cbv")

@@ -688,22 +688,7 @@ create_root_signatures :: proc() {
 dx_init_user :: proc() {
 	ct := &g_dx_context
 
-	// Generating HLSL file with all the structs
-	{
-		sb := strings.builder_make_none(context.temp_allocator)
-		fmt.sbprintfln(&sb, "// Generated file from odin. DO NOT MODIFY")
-		fmt.sbprintfln(&sb, "// Contains structs that mirror structs in Odin\n")
-
-		fmt.sbprintfln(&sb, "#pragma once")
-		fmt.sbprintfln(&sb, "#pragma pack_matrix(column_major)\n")
-
-		for type in TYPES_FOR_HLSL {
-			fmt.sbprintfln(&sb, "\n%v", convert_struct_odin_to_hlsl(type, context.temp_allocator))
-		}
-
-		err := os.write_entire_file_from_string("src/shaders/gen/structs.gen.hlsl", strings.to_string(sb))
-		assert(err == os.General_Error.None)
-	}
+	dx_generate_hlsl_types(TYPES_FOR_HLSL[:])
 
 	// Creating all root signatures
 	create_root_signatures()
