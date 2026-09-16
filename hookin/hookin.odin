@@ -109,6 +109,8 @@ main :: proc() {
 		audio.update()
 		}
 
+		tweens_update()
+
 		defer {
 			ldx.frame_end()
 			free_all(context.temp_allocator)
@@ -146,6 +148,7 @@ map_draw :: proc(tm: Map, edit_mode: bool) {
 		draw_ground: bool
 
 		pos, size := map_get_tile_pos_size(tm, e.coord)
+		pos += e.vis.offset
 
 		// TODO rest
 		switch e.et {
@@ -278,6 +281,8 @@ move_box :: proc(e: ^Entity, c: Coord) {
 			return
 		}
 	}
+
+	tween_v2(&e.vis.offset, map_coord_to_world_pos(g_map, e.coord) - map_coord_to_world_pos(g_map, c), {}, 0.6)
 
 	e.coord = c
 }
@@ -459,4 +464,55 @@ generate_collisions :: proc(the_map: Map) -> ([]Box, []EID) {
 	}
 
 	return map_boxes[:], ids[:]
+}
+
+// tweening
+
+TWEENS_MAX_COUNT :: 20
+
+g_tweens: [TWEENS_MAX_COUNT]Tween
+
+Tween :: struct {
+	target: ^v2,
+	from, to: v2,
+	t, duration: f32
+}
+
+tween_v2 :: proc(target: ^v2, from, to: v2, time: f32) {
+	// getting a tween
+	t := tween_get(target)
+	target^ = from
+	t^ = Tween{target, from, to, 0, time}
+}
+
+tween_get :: proc(target: ^v2) -> ^Tween {
+	tret : ^Tween
+	for &t in g_tweens {
+		if target == t.target do return &t
+		if t.target == nil && tret == nil do tret = &t
+	}
+	assert(tret != nil, "tweens are full")
+	return tret
+}
+
+tweens_update :: proc() {
+	for &t in g_tweens {
+		if t.target == nil do continue
+		// advance t
+
+		t.t += (cast(f32)ldx.get_dt() / 1000) * (1 / t.duration)
+
+		// ease out cubic
+		the_t := 1 - linalg.pow(1 - t.t, 3)
+
+		if t.t >= 1 {
+			// finish tween
+			t.target^ = t.to
+			t.target = nil
+		} else {
+			// set value according to T
+			next_val := (1 - the_t) * t.from + the_t * t.to
+			t.target^ = next_val
+		}
+	}
 }

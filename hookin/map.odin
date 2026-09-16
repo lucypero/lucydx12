@@ -21,10 +21,15 @@ Map :: struct {
 
 EntityType :: enum { Nothing, Player, Crate, PlayerSpawn, Goal, Wall, Pit }
 
+Visualization :: struct {
+	offset: v2
+}
+
 Entity :: struct {
 	et: EntityType,
 	gen: i32,
 	coord: Coord,
+	vis: Visualization
 }
 
 map_get_player_spawn_coord :: proc(tm: Map) -> Coord {
@@ -82,12 +87,12 @@ entity_new :: proc(tm: ^Map, et: EntityType, c: Coord) -> ^Entity {
 
 	for &e, i in tm.entities {
 		if e.et == .Nothing {
-			e = Entity{et, e.gen, c}
+			e = Entity{et, e.gen, c, {}}
 			return &e
 		}
 	}
 
-	append(&tm.entities, Entity{et, 0, c})
+	append(&tm.entities, Entity{et, 0, c, {}})
 	return &tm.entities[len(tm.entities) - 1]
 }
 
