@@ -1,5 +1,6 @@
 package main
 
+import "core:time"
 import "core:c"
 import "core:slice"
 import "core:thread"
@@ -43,7 +44,10 @@ Lucy2DContext :: struct {
 	mouse_cur: MouseButtonSet,
 	mouse_pos: v2,
 
-	imgui_capturing_input: bool
+	imgui_capturing_input: bool,
+
+	frame_dt: f64,
+	last_time: time.Time
 }
 
 SPRITE_MAX_COUNT :: 1000
@@ -286,6 +290,11 @@ frame_end :: proc() {
 	imgui_end_frame()
 	dx_frame_end()
 
+	new_time := time.now()
+	dur := time.diff(ct.last_time, new_time)
+	ct.frame_dt = time.duration_milliseconds(dur)
+	ct.last_time = new_time
+
 	// hot swap handling
 	for &pso in ct.psos {
 		pso_hotswap_swap(&pso, &ct.resources_longterm)
@@ -442,4 +451,8 @@ texture_get_size :: proc(tex_id: int) -> v2i {
 	tex, found := &g_lct.loaded_textures[tex_id]
 	ensure(found)
 	return {tex.width, tex.height}
+}
+
+get_dt :: proc() -> f64 {
+	return g_lct.frame_dt
 }

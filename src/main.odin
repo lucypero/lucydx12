@@ -958,10 +958,7 @@ do_imgui_ui :: proc() {
 
 	// Drawing delta time
 	{
-		sb := strings.builder_make_len_cap(0, 30, context.temp_allocator)
-		fmt.sbprintfln(&sb, "DT: %.2f", g_frame_dt)
-		dt_cstring := strings.to_cstring(&sb)
-		im.Text(dt_cstring)
+		imgui_do_text("DT: %.2f", g_frame_dt)
 	}
 
 	// Drawing cam position
