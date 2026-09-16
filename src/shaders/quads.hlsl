@@ -1,22 +1,8 @@
 #pragma pack_matrix(column_major)
-
-// TODO auto-generate this struct from odin.
-struct Sprite
-{
-	float2 pos;
-	float2 size;
-	float4 color;
-	int tex_idx;
-	float border_thickness;
-};
+#include "src/shaders/gen/structs.gen.hlsl"
 
 SamplerState g_sampler : register(s1); // nearest neighbor sampler
 int cbv_index: register (b0); // index of my big CBV into the srv heap
-
-struct GeneralConstants {
-	uint sb_sprites_idx; // index of the sprite structured buffer into the resource heap
-	float2 inv_screen; // 1.0 / (width, height)
-};
 
 struct VSOut {
 	float4 pos   : SV_Position;
