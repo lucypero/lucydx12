@@ -459,3 +459,7 @@ texture_get_size :: proc(tex_id: int) -> v2i {
 get_dt :: proc() -> f64 {
 	return g_lct.frame_dt
 }
+
+get_dt_sec :: proc() -> f32 {
+	return cast(f32)g_lct.frame_dt / 1000
+}
