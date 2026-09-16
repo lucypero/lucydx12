@@ -546,9 +546,9 @@ main :: proc() {
 
 	defer sdl.DestroyWindow(ct.window)
 
-	init_dx(&g_resources_longterm, ct.window, WINDOW_WIDTH, WINDOW_HEIGHT)
+	dx_init(&g_resources_longterm, ct.window, WINDOW_WIDTH, WINDOW_HEIGHT)
 
-	init_dx_user()
+	dx_init_user()
 	context_init(ct)
 
 	g_start_time = time.now()
@@ -685,7 +685,7 @@ create_root_signatures :: proc() {
 }
 
 @(private="file")
-init_dx_user :: proc() {
+dx_init_user :: proc() {
 	ct := &g_dx_context
 
 	// Generating HLSL file with all the structs

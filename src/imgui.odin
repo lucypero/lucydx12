@@ -78,19 +78,17 @@ imgui_init :: proc(window: ^sdl.Window, pool: ^DXResourcePool) {
 }
 
 imgui_destroy :: proc() {
-	imgui_impl_sdl2.Shutdown() // here
 	imgui_impl_dx12.Shutdown()
+	imgui_impl_sdl2.Shutdown()
 	im.DestroyContext()
 }
 
 // call this right before swapchain present
 imgui_end_frame :: proc() {
 	im.Render()
-	// setting imgui's descriptor heap
-	// if i don't do this, it errors out. seems like RenderDrawData doesn't set it
-	//  by itself
+	draw_data := im.GetDrawData()
 	g_dx_core.cmdlist->SetDescriptorHeaps(1, &g_dx_core.heap_cbv_srv_uav.heap)
-	imgui_impl_dx12.RenderDrawData(im.GetDrawData(), g_dx_core.cmdlist)
+	imgui_impl_dx12.RenderDrawData(draw_data, g_dx_core.cmdlist)
 	io := im.GetIO()
 	if .ViewportsEnable in io.ConfigFlags {
 		im.UpdatePlatformWindows()
