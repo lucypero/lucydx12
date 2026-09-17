@@ -456,10 +456,24 @@ texture_get_size :: proc(tex_id: int) -> v2i {
 	return {tex.width, tex.height}
 }
 
+texture_get_size_v2 :: proc(tex_id: int) -> v2 {
+	tex, found := &g_lct.loaded_textures[tex_id]
+	ensure(found)
+	return v2i_to_v2({tex.width, tex.height})
+}
+
 get_dt :: proc() -> f64 {
 	return g_lct.frame_dt
 }
 
 get_dt_sec :: proc() -> f32 {
 	return cast(f32)g_lct.frame_dt / 1000
+}
+
+v2i_to_v2 :: proc(coord: v2i) -> v2 {
+	return {cast(f32)coord.x, cast(f32)coord.y}
+}
+
+v2_to_v2i :: proc(a: v2) -> v2i {
+	return {cast(int)a.x, cast(int)a.y}
 }

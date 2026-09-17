@@ -36,7 +36,7 @@ CHARACTER_SPEED :: 3
 CHARACTER_SIZE :: 64
 
 Textures :: struct {
-	player, crate_wood, ground, wall, crate_stone, goal, pit, move_hand, trash, spawn: int
+	player, crate_wood, ground, wall, crate_stone, goal, pit, move_hand, trash, spawn, hook: int
 }
 
 Player :: struct {
@@ -66,6 +66,14 @@ g_input_disabled: bool
 g_play_mode : enum {Play, Editor}
 g_frame_i : int
 
+HookVisual :: struct {
+	distance: int,
+	from, to: Coord,
+	visible: bool
+}
+
+g_hook: HookVisual
+
 main :: proc() {
 	ldx.window_new("hookin", WINDOW_WIDTH, WINDOW_HEIGHT)
 	g_lives = 3
@@ -93,11 +101,12 @@ main :: proc() {
 	g_textures.move_hand = ldx.texture_load("hookin_sprites/hand.png")
 	g_textures.trash = ldx.texture_load("hookin_sprites/trashcanOpen.png")
 	g_textures.spawn = ldx.texture_load("hookin_sprites/d42.png")
+	g_textures.hook = ldx.texture_load("hookin_sprites/arrow_e.png")
 
 	char_tex_size_i := ldx.texture_get_size(g_textures.player)
 
 	// initializing player
-	g_player.texture_size = v2i_to_v2(char_tex_size_i)
+	g_player.texture_size = ldx.v2i_to_v2(char_tex_size_i)
 	g_player.box.size = g_player.texture_size * 0.7
 	g_player.texture_offset = v2{ -10, 10}
 
@@ -169,14 +178,6 @@ map_draw :: proc(tm: Map, edit_mode: bool) {
 		case .Player, .Nothing: // player is drawn separately
 		}
 	}
-}
-
-v2i_to_v2 :: proc(coord: v2i) -> v2 {
-	return {cast(f32)coord.x, cast(f32)coord.y}
-}
-
-v2_to_v2i :: proc(a: v2) -> v2i {
-	return {cast(int)a.x, cast(int)a.y}
 }
 
 game_restart :: proc() {
@@ -254,7 +255,7 @@ try_move_box :: proc(bcr: BoxCollisionRecord) {
 		box_i_last_hit = bcr.box_i
 		if hit_counter < 20 do break
 
-		dir_int := v2_to_v2i(-bcr.col_normal)
+		dir_int := ldx.v2_to_v2i(-bcr.col_normal)
 		dir_int.y *= -1
 		coord_from := e.coord
 		coord_to := coord_from + dir_int
@@ -372,6 +373,31 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 		// p_coord_pos := map_coord_to_world_pos(g_map, player_coord)
 		// ldx.draw_wirebox(p_coord_pos, g_map.cell_tex_size, {0,1,0, 1.0}, 5)
 
+		// drawing hook
+		if g_hook.visible {
+			h := &g_hook
+			times_to_render := (h.distance - 1) * 3
+			for i in 0..<times_to_render {
+				t : f32 = cast(f32)i / cast(f32) times_to_render
+
+				hook_from := map_coord_to_world_pos_center(g_map, h.from)
+				hook_to := map_coord_to_world_pos_center(g_map, h.to)
+
+				hook_scale :: 2
+
+				// pivot_offset
+				tex_pivot_offset : v2 = ldx.texture_get_size_v2(g_textures.hook) * hook_scale / 2
+				tex_pivot_offset.y *= -1
+
+				hook_to -= tex_pivot_offset
+				hook_from -= tex_pivot_offset
+
+				// make the center the pivot
+				ldx.draw_texture(g_textures.hook, t * hook_from + (1 - t) * hook_to, {hook_scale, hook_scale}, {1 * t,1,1,1})
+			}
+
+		}
+
 		// drawing amount of lives
 		for i in 0..<g_lives {
 			ldx.draw_solid_rect({10 + 55 * cast(f32)i, 5 + 50}, {50, 50}, {1,0,0,1})
@@ -421,6 +447,7 @@ try_do_hook :: proc() {
 			case .Crate:
 				if distance <= 1 do return
 
+
 				disable_input_for(0.4)
 
 				// Hook the crate
@@ -430,6 +457,13 @@ try_do_hook :: proc() {
 				old_pos := g_player.pos
 				box_place_at_coord(&g_player, g_player.current_coord)
 				tween_v2(&g_player.vis.offset, old_pos - g_player.pos, {}, 0.3, .EaseOutCubic)
+
+				// Performing the hook!!!
+				g_hook = HookVisual {
+					distance, g_player.current_coord, lookup_coord, true
+				}
+				timer(0.3, proc(_:rawptr) {g_hook.visible = false})
+
 				return
 			}
 		}
@@ -449,6 +483,8 @@ box_place_at_coord :: proc(b: ^Box, coord: Coord) {
 
 	b.pos = coord_pos + tile_offset - box_offset
 }
+
+
 
 // TODO: generate collisions for boxes too?
 generate_collisions :: proc(the_map: Map) -> ([]Box, []EID) {

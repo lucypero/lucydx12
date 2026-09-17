@@ -1,0 +1,466 @@
+pos: [
+	50.00000000
+	790.00000000
+]
+scale: [
+	1.00000000
+	1.00000000
+]
+size: [
+	10
+	6
+]
+cell_tex_size: [
+	64.00000000
+	64.00000000
+]
+entities: [
+	{
+		et: "PlayerSpawn"
+		gen: 0
+		coord: [
+			3
+			3
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			0
+			0
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			1
+			0
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			2
+			0
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			3
+			0
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			4
+			0
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			5
+			0
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			6
+			0
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			7
+			0
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			8
+			0
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			9
+			0
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			0
+			1
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			9
+			1
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			0
+			2
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			9
+			2
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			0
+			3
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			9
+			3
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			0
+			4
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			9
+			4
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			0
+			5
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			1
+			5
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			2
+			5
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			3
+			5
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			4
+			5
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			5
+			5
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			6
+			5
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			7
+			5
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			8
+			5
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Wall"
+		gen: 0
+		coord: [
+			9
+			5
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Pit"
+		gen: 0
+		coord: [
+			6
+			3
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Goal"
+		gen: 0
+		coord: [
+			7
+			3
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+	{
+		et: "Crate"
+		gen: 0
+		coord: [
+			5
+			2
+		]
+		vis: {
+			offset: [
+				0.00000000
+				0.00000000
+			]
+		}
+	}
+]
