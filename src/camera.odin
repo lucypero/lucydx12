@@ -142,13 +142,13 @@ cam_get_direction :: proc(cam: Camera) -> v3 {
 	return linalg.normalize(direction)
 }
 
-get_view_projection :: proc(cam: Camera) -> (dxm, dxm) {
+get_view_projection :: proc(cam: Camera) -> (view: dxm, proj: dxm) {
 
 	fov_deg :: 90.0
 
 	look_at := cam.pos + cam_get_direction(cam)
 
-	view := linalg.matrix4_look_at_f32(cam.pos, look_at, {0, 1, 0}, true)
+	view = linalg.matrix4_look_at_f32(cam.pos, look_at, {0, 1, 0}, true)
 
 	fov := linalg.to_radians(f32(fov_deg))
 	aspect := f32(WINDOW_WIDTH) / f32(WINDOW_HEIGHT)
@@ -156,7 +156,7 @@ get_view_projection :: proc(cam: Camera) -> (dxm, dxm) {
 
 	// this function is supposedly more correct
 	// has correct depth values
-	proj := matrix4_perspective_z0_f32(fov, aspect, cam.near, cam.far)
+	proj = matrix4_perspective_z0_f32(fov, aspect, cam.near, cam.far)
 
 	return view, proj
 	// return view * proj

@@ -63,6 +63,10 @@ Sprite :: struct {
 GeneralConstants :: struct #align (256) {
 	sb_sprites_idx: u32, // index of the sprite structured buffer into the resource heap
 	inv_screen: v2, // 1.0 / (width, height)
+	screen: v2,
+	view: dxm,
+	projection: dxm,
+	inverse_view_proj: dxm,
 }
 
 g_lct : Lucy2DContext
@@ -476,4 +480,11 @@ v2i_to_v2 :: proc(coord: v2i) -> v2 {
 
 v2_to_v2i :: proc(a: v2) -> v2i {
 	return {cast(int)a.x, cast(int)a.y}
+}
+
+// Camera stuff
+
+// rename to Camera
+Camera2D :: struct {
+
 }
