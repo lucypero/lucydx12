@@ -91,17 +91,19 @@ main :: proc() {
 	audio.play_midi(&midi_track)
 	}
 
-	g_textures.player = ldx.texture_load("hookin_sprites/sokoban-pack/Player/player_01.png")
-	g_textures.crate_wood = ldx.texture_load("hookin_sprites/sokoban-pack/Crates/crate_07.png")
-	g_textures.ground = ldx.texture_load("hookin_sprites/sokoban-pack/Ground/ground_01.png")
-	g_textures.wall = ldx.texture_load("hookin_sprites/sokoban-pack/Blocks/block_01.png")
-	g_textures.crate_stone = ldx.texture_load("hookin_sprites/sokoban-pack/Blocks/block_02.png")
-	g_textures.goal = ldx.texture_load("hookin_sprites/sokoban-pack/Environment/environment_10.png")
-	g_textures.pit = ldx.texture_load("hookin_sprites/sokoban-pack/Environment/environment_06.png")
-	g_textures.move_hand = ldx.texture_load("hookin_sprites/hand.png")
-	g_textures.trash = ldx.texture_load("hookin_sprites/trashcanOpen.png")
-	g_textures.spawn = ldx.texture_load("hookin_sprites/d42.png")
-	g_textures.hook = ldx.texture_load("hookin_sprites/arrow_e.png")
+	HOOKIN_ASSETS_DIR :: "hookin/assets"
+
+	g_textures.player = ldx.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Player/player_01.png")
+	g_textures.crate_wood = ldx.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Crates/crate_07.png")
+	g_textures.ground = ldx.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Ground/ground_01.png")
+	g_textures.wall = ldx.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Blocks/block_01.png")
+	g_textures.crate_stone = ldx.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Blocks/block_02.png")
+	g_textures.goal = ldx.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Environment/environment_10.png")
+	g_textures.pit = ldx.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Environment/environment_06.png")
+	g_textures.move_hand = ldx.texture_load(HOOKIN_ASSETS_DIR+"/hand.png")
+	g_textures.trash = ldx.texture_load(HOOKIN_ASSETS_DIR+"/trashcanOpen.png")
+	g_textures.spawn = ldx.texture_load(HOOKIN_ASSETS_DIR+"/d42.png")
+	g_textures.hook = ldx.texture_load(HOOKIN_ASSETS_DIR+"/arrow_e.png")
 
 	char_tex_size_i := ldx.texture_get_size(g_textures.player)
 
