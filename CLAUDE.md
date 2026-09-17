@@ -108,7 +108,7 @@ the repo root, never from inside `src/` or `hookin/`.
 │       ├── shader_common.hlsl            # shared bindings/helpers
 │       └── gen/structs.gen.hlsl          # GENERATED from Odin at startup — never edit by hand
 ├── hookin/main.odin                      # the game
-├── hookin_sprites/                       # game art (PNG)
+├── hookin/assets/                       # game art (PNG)
 ├── libs/                                 # odin-imgui, odin-d3d12ma
 ├── models/                               # glTF assets (gitignored, fetched by dl_scenes.bat)
 ├── cache/                                # BC7 .dds texture cache, keyed by hashed source path
