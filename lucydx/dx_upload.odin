@@ -1,14 +1,10 @@
 #+private file
-package main
-
-import "core:thread"
-import "core:mem/virtual"
+package lucydx
 
 import "core:mem"
 import dx "vendor:directx/d3d12"
 import "core:slice"
 import dxma "../libs/odin-d3d12ma"
-import "core:sync"
 
 UPLOAD_BUFFER_SIZE :: mem.Gigabyte * 1
 
@@ -209,60 +205,6 @@ dx_upload_texture_trigger :: proc(up_service: ^DXUploadService, resource_dest : 
 }
 
 @(private="package")
-lucydx12_upload_thread_start :: proc() {
-
-	context.allocator = mem.tracking_allocator(&g_track)
-
-	// make temp allocator for upload thread
-	upload_temp_arena := arena_new()
-	upload_temp_allocator := virtual.arena_allocator(&upload_temp_arena)
-	context.temp_allocator = upload_temp_allocator
-
-	// TODO: do proper thread wake-up on condition
-	for {
-		// scanning for .Loading scenes
-
-		found_scene: bool
-		the_scene : ^Scene
-
-		for &scene in g_scenes {
-			if scene_status_load(&scene.status) == .Loading {
-				found_scene = true
-				the_scene = &scene
-				break
-			}
-		}
-
-		if !found_scene {
-			// sleep thread
-			thread.yield()
-		} else {
-			// loading first scene found that is scheduled for loading
-
-			scene_from_gltf(the_scene)
-
-			// Move scene to main thread by setting status as ready
-			scene_status_store(&the_scene.status, .Ready)
-			virtual.arena_free_all(&upload_temp_arena)
-		}
-
-		if g_is_app_shutting_down {
-			break
-		}
-	}
-}
-
-@(private="package")
 queue_wait_on_upload_fence :: proc(queue: ^dx.ICommandQueue, fence_value: u64) {
 	queue->Wait(g_upload_service.fence, fence_value)
-}
-
-@(private="package")
-scene_status_load :: #force_inline proc(status: ^SceneStatus) -> SceneStatus {
-	return sync.atomic_load_explicit(status, .Acquire)
-}
-
-@(private="package")
-scene_status_store :: #force_inline proc(status: ^SceneStatus, new_status: SceneStatus) {
-	sync.atomic_store_explicit(status, new_status, .Release)
 }

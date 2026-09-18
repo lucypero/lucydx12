@@ -1,4 +1,4 @@
-package main
+package lucydx
 
 import "core:strconv"
 import "core:time"
@@ -27,11 +27,87 @@ import im "../libs/odin-imgui"
 import sdl "vendor:sdl2"
 import "core:debug/trace"
 
+// Core types
+
+v2 :: linalg.Vector2f32
+v3 :: linalg.Vector3f32
+v4 :: linalg.Vector4f32
+v2i :: [2]int
+dxm :: matrix[4, 4]f32
+
 /*
 transition_resource_from_copy_to_read :: proc(res: ^dx.IResource, cmd_list: ^dx.IGraphicsCommandList) {
 	transition_resource(res, cmd_list, {.COPY_DEST}, dx.RESOURCE_STATE_GENERIC_READ)
 }
 */
+
+ConstantBufferUpload :: struct {
+	buffer: ^dx.IResource,
+	gpu_pointer: rawptr, // only valid if it's on upload heap
+	buffer_size: u32,
+	srv_index: int // index as constant buffer view in the uber heap
+}
+
+// created buffer on the upload heap, and maps it. keeps it mapped
+cb_upload_create :: proc(size_in_bytes: u32, pool: ^DXResourcePool, name: string = "") -> ConstantBufferUpload {
+
+	vb: ^dx.IResource
+
+	// For now we'll just store stuff in an upload heap.
+	// it's not optimal for most things but it's more practical for me
+
+	resource_desc := dx.RESOURCE_DESC {
+		Dimension = .BUFFER,
+		Alignment = 0,
+		Width = u64(size_in_bytes),
+		Height = 1,
+		DepthOrArraySize = 1,
+		MipLevels = 1,
+		Format = .UNKNOWN,
+		SampleDesc = {Count = 1, Quality = 0},
+		Layout = .ROW_MAJOR,
+		Flags = {},
+	}
+
+	allocation : ^dxma.Allocation
+	hr := dxma.Allocator_CreateResource(
+		pSelf = g_dx_core.dxma_allocator,
+		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .UPLOAD, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
+		pResourceDesc = &resource_desc,
+		InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
+		pOptimizedClearValue = nil,
+		ppAllocation = &allocation,
+		riidResource = nil,
+		ppvResource = nil
+	)
+	check(hr, "Failed creating upload buffer")
+	vb = dxma.Allocation_GetResource(allocation)
+	append(pool, cast(^dxgi.IUnknown)allocation)
+
+	gpu_data: rawptr
+	vb->Map(0, &dx.RANGE{}, &gpu_data)
+
+	if len(name) > 0 {
+		name_cstring := windows.utf8_to_wstring_alloc(name, allocator = context.temp_allocator)
+		vb->SetName(name_cstring)
+	}
+
+	// creating our constant buffer
+	srv_index := create_cbv(&dx.CONSTANT_BUFFER_VIEW_DESC{
+		BufferLocation = vb->GetGPUVirtualAddress(),
+		SizeInBytes = size_in_bytes
+	})
+
+	return ConstantBufferUpload {
+		buffer = vb,
+		gpu_pointer = gpu_data,
+		buffer_size = size_in_bytes,
+		srv_index = srv_index
+	}
+}
+
+NUM_RENDERTARGETS :: 2
+SWAPCHAIN_FORMAT :: dxgi.FORMAT.R8G8B8A8_UNORM
 
 Swapchain :: struct {
 	swapchain: ^dxgi.ISwapChain3,
@@ -57,7 +133,6 @@ swapchain_transition :: proc(state_before, state_after: dx.RESOURCE_STATES) {
 }
 
 swapchain_present :: proc() {
-	when PROFILE do spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, name = "Present")
 	flags: dxgi.PRESENT
 	params: dxgi.PRESENT_PARAMETERS
 	hr := g_dx_core.swapchain.swapchain->Present1(1, flags, &params)
@@ -431,6 +506,11 @@ compile_shader_compute :: proc(compiler: ^dxc.ICompiler3, shader_filename: strin
 	return cs, true
 }
 
+// TODO: if true, adds a define to all compiled shaders.
+// Only used for the lucy3d package
+// The proper thing to do is to pass arbitrary defines in runtime
+FXAA_ENABLED :: true
+
 ShaderKind :: enum {
 	Vertex,
 	Pixel,
@@ -439,7 +519,7 @@ ShaderKind :: enum {
 
 compile_individual_shader :: proc(shader_filename: string, source_buffer: ^dxc.Buffer, compiler: ^dxc.ICompiler3, shader_kind: ShaderKind) -> (res:^dxc.IBlob, ok: bool) {
 
-	arguments : [dynamic; 10]string 
+	arguments : [dynamic; 20]string 
 
 	append(&arguments, "-E", "???", "-T", "???", "-O3", "-Wall")
 
@@ -462,13 +542,10 @@ compile_individual_shader :: proc(shader_filename: string, source_buffer: ^dxc.B
 
 	// sb := strings.builder_make_none(context.temp_allocator)
 	// fmt.sbprintf("%v.pdb")
-
 	}
 
-	switch g_config.aa_options {
-	case .NoAA:
-	case .FXAA:
-		append(&arguments, "-D", "FXAA_ENABLE")
+	when FXAA_ENABLED {
+	append(&arguments, "-D", "FXAA_ENABLE")
 	}
 
 	arguments_wide := make([]windows.wstring, len(arguments), context.temp_allocator)
@@ -855,6 +932,17 @@ close_and_execute_cmdlist :: proc() {
 	g_dx_core.queue->ExecuteCommandLists(len(cmdlists), (^^dx.ICommandList)(&cmdlists[0]))
 }
 
+// Data associated with a vertex buffer
+// this could be an instance buffer too. it's the same to dx12.
+VertexBuffer :: struct {
+	buffer: ^dx.IResource,
+	gpu_pointer: rawptr, // only valid if it's on upload heap
+	vbv: dx.VERTEX_BUFFER_VIEW,
+	vertex_count: u32, // vertex count or instance count
+	buffer_size: u32,
+	buffer_stride: u32,
+}
+
 // it's a vertex buffer in the upload heap.
 // meant for buffers that are modified often.
 // keeps it mapped
@@ -912,63 +1000,6 @@ create_vertex_buffer_upload :: proc(stride_in_bytes, size_in_bytes: u32, pool: ^
 	}
 }
 
-// created buffer on the upload heap, and maps it. keeps it mapped
-cb_upload_create :: proc(size_in_bytes: u32, pool: ^DXResourcePool, name: string = "") -> ConstantBufferUpload {
-
-	vb: ^dx.IResource
-
-	// For now we'll just store stuff in an upload heap.
-	// it's not optimal for most things but it's more practical for me
-
-	resource_desc := dx.RESOURCE_DESC {
-		Dimension = .BUFFER,
-		Alignment = 0,
-		Width = u64(size_in_bytes),
-		Height = 1,
-		DepthOrArraySize = 1,
-		MipLevels = 1,
-		Format = .UNKNOWN,
-		SampleDesc = {Count = 1, Quality = 0},
-		Layout = .ROW_MAJOR,
-		Flags = {},
-	}
-
-	allocation : ^dxma.Allocation
-	hr := dxma.Allocator_CreateResource(
-		pSelf = g_dx_core.dxma_allocator,
-		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .UPLOAD, ExtraHeapFlags = dx.HEAP_FLAG_ALLOW_ALL_BUFFERS_AND_TEXTURES},
-		pResourceDesc = &resource_desc,
-		InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
-		pOptimizedClearValue = nil,
-		ppAllocation = &allocation,
-		riidResource = nil,
-		ppvResource = nil
-	)
-	check(hr, "Failed creating upload buffer")
-	vb = dxma.Allocation_GetResource(allocation)
-	append(pool, cast(^dxgi.IUnknown)allocation)
-
-	gpu_data: rawptr
-	vb->Map(0, &dx.RANGE{}, &gpu_data)
-
-	if len(name) > 0 {
-		name_cstring := windows.utf8_to_wstring_alloc(name, allocator = context.temp_allocator)
-		vb->SetName(name_cstring)
-	}
-
-	// creating our constant buffer
-	srv_index := create_cbv(&dx.CONSTANT_BUFFER_VIEW_DESC{
-		BufferLocation = vb->GetGPUVirtualAddress(),
-		SizeInBytes = size_in_bytes
-	})
-
-	return ConstantBufferUpload {
-		buffer = vb,
-		gpu_pointer = gpu_data,
-		buffer_size = size_in_bytes,
-		srv_index = srv_index
-	}
-}
 
 generate_uv_sphere :: proc(meridians: u32, parallels: u32, allocator: runtime.Allocator) -> ([]v3, []u32) {
 
@@ -1311,93 +1342,6 @@ get_descriptor_heap_gpu_address :: proc(
 	return
 }
 
-proc_walk :: proc(node: Node, scene: Scene, data: rawptr)
-
-// Walks through the scene tree and runs a proc per node
-scene_walk :: proc(scene: Scene, data: rawptr, thing_to_do: proc_walk) {
-	nodes := scene.nodes
-
-	for root_node in scene.root_nodes {
-		node_i := scene.nodes[root_node]
-
-		// algorithm state
-		cur_child_i: uint = 0
-		depth := 0
-		child_i_levels: [10]uint
-		children_are_explored: bool
-
-		for {
-
-			if !children_are_explored {
-
-				// do the stuff here
-				thing_to_do(node_i, scene, data)
-			}
-
-			if node_i.children == nil || children_are_explored {
-				children_are_explored = false
-
-				// go to next sibling
-				cur_child_i += 1
-
-				if node_i.parent == -1 {
-					break
-				}
-
-				// if there is no next sibling, go up
-
-				node_parent := nodes[node_i.parent]
-
-				if cur_child_i >= len(node_parent.children) {
-
-					depth -= 1
-
-					// if the current's node's parent doesn't have a parent, we're done!
-					if node_parent.parent == -1 {
-						break
-					}
-
-					// check if this one has a sibling
-
-					node_grandparent := nodes[node_parent.parent]
-
-					node_i = nodes[node_grandparent.children[child_i_levels[depth]]]
-					cur_child_i = child_i_levels[depth]
-					children_are_explored = true
-					continue
-				}
-
-				node_i = nodes[node_parent.children[cur_child_i]]
-			} else {
-				// go to first child
-				child_i_levels[depth] = cur_child_i
-				cur_child_i = 0
-				node_i = nodes[node_i.children[cur_child_i]]
-				depth += 1
-			}
-		}
-	}
-}
-
-load_white_texture :: proc(pool: ^DXResourcePool) {
-	ct := g_dx_core
-
-	w, h, channels : c.int
-	image_data := img.load("white.png", &w, &h, &channels, 4)
-	defer img.image_free(image_data)
-	assert(image_data != nil)
-
-	img_data_mipmaps := make([][]byte, 1, context.temp_allocator)
-	img_data_mipmaps[0] = slice.clone(slice.from_ptr(image_data, cast(int)(w * h * channels)), context.temp_allocator)
-
-	texture := texture_create(img_data_mipmaps[:], u64(w), u32(h), .R8G8B8A8_UNORM, 
-		pool, {}, texture_name = "white")
-
-	// creating srv on uber heap
-	cpu_addr := get_descriptor_heap_cpu_address(ct.heap_cbv_srv_uav, TEXTURE_WHITE_INDEX)
-	ct.device->CreateShaderResourceView(texture.buffer, nil, cpu_addr)
-}
-
 // TODO: implement global tracking here
 arena_new :: proc() -> virtual.Arena {
 	arena : virtual.Arena
@@ -1415,44 +1359,6 @@ arena_allocator_new :: proc(allocator: mem.Allocator) -> mem.Allocator {
 
 arena_destroy :: proc(arena: ^virtual.Arena) {
 	virtual.arena_destroy(arena)
-}
-
-get_node_world_matrix :: proc(node: Node, scene: Scene) -> dxm {
-
-	res: dxm = 1
-
-	node_i := node
-
-	for {
-
-		boosted_t := node_i.transform_t * 1
-		translation_mat := linalg.matrix4_translate_f32(boosted_t)
-
-		boosted_s := node_i.transform_s * 1
-		scale_mat := linalg.matrix4_scale_f32(boosted_s)
-
-		rot_quat: quaternion128 = quaternion(
-			w = node_i.transform_r[3],
-			x = node_i.transform_r[0],
-			y = node_i.transform_r[1],
-			z = node_i.transform_r[2],
-		)
-		rot_mat: dxm = linalg.matrix4_from_quaternion_f32(rot_quat)
-
-		// mesh_world : dxm = translation_mat * rot_mat * scale_mat
-		// no rot
-		mesh_world: dxm = translation_mat * rot_mat * scale_mat
-		// mesh_world : dxm = scale_mat * rot_mat * translation_mat
-
-		res = res * mesh_world
-		// res = mesh_world * res
-		// break
-
-		if node_i.parent == -1 do break
-		node_i = scene.nodes[node_i.parent]
-	}
-
-	return res
 }
 
 string_append :: proc(the_strs: ..string, allocator: mem.Allocator = context.allocator) -> string {
@@ -2172,8 +2078,6 @@ dx_frame_end :: proc() {
 
 	// wait for frame to finish
 	{
-		when PROFILE do spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, name = "v-sync wait")
-
 		current_fence_value := g_dx_core.fence_value
 
 		hr := g_dx_core.queue->Signal(g_dx_core.fence, current_fence_value)
@@ -2257,7 +2161,7 @@ swapchain_create :: proc(
 	return
 }
 
-dx_generate_hlsl_types :: proc(types: []typeid) {
+dx_generate_hlsl_types :: proc(types: []typeid, out_file: string) {
 	sb := strings.builder_make_none(context.temp_allocator)
 	fmt.sbprintfln(&sb, "// Generated file from odin. DO NOT MODIFY")
 	fmt.sbprintfln(&sb, "// Contains structs that mirror structs in Odin\n")
@@ -2269,6 +2173,6 @@ dx_generate_hlsl_types :: proc(types: []typeid) {
 		fmt.sbprintfln(&sb, "\n%v", convert_struct_odin_to_hlsl(type, context.temp_allocator))
 	}
 
-	err := os.write_entire_file_from_string("src/shaders/gen/structs.gen.hlsl", strings.to_string(sb))
+	err := os.write_entire_file_from_string(out_file, strings.to_string(sb))
 	assert(err == os.General_Error.None)
 }

@@ -1,4 +1,4 @@
-package main
+package lucy3d
 
 import "core:time"
 import "core:c"
@@ -10,10 +10,18 @@ import sdl "vendor:sdl2"
 import "core:strings"
 import "core:fmt"
 import "core:mem/virtual"
+import ldx "../lucydx"
 
 Color :: v4
 
 COLOR_WHITE : v4 : {1,1,1,1}
+
+// Core types
+v2 :: ldx.v2
+v3 :: ldx.v3
+v4 :: ldx.v4
+v2i :: ldx.v2i
+dxm :: ldx.dxm
 
 PSOName :: enum {
 	Quad
@@ -28,14 +36,14 @@ Lucy2DContext :: struct {
 	resources_longterm : [dynamic]^dx.IUnknown,
 	window : ^sdl.Window,
 	window_dimensions: v2i,
-	root_signatures: [RootSignatureChoice]^dx.IRootSignature,
-	psos: [PSOName]PSO,
-	sb_sprites: StructuredBuffer,
+	root_signatures: [ldx.RootSignatureChoice]^dx.IRootSignature,
+	psos: [PSOName]ldx.PSO,
+	sb_sprites: ldx.StructuredBuffer,
 	sprites_to_render: [dynamic]Sprite,
-	cb_general: ConstantBufferUpload,
+	cb_general: ldx.ConstantBufferUpload,
 	clear_color_issued: Maybe(v4),
 	window_should_close: bool,
-	loaded_textures: map[int]Texture,
+	loaded_textures: map[int]ldx.Texture,
 
 	kb_prev: []u8,
 	kb_cur: []u8,
@@ -80,7 +88,7 @@ window_new :: proc(window_name:string, width, height: int) {
 
 	// Set up dynamic fields
 	g_lct.sprites_to_render = make([dynamic]Sprite, 0, 100)
-	g_lct.loaded_textures = make(map[int]Texture)
+	g_lct.loaded_textures = make(map[int]ldx.Texture)
 
 	// setting up resource pool for buffers tied to window size
 	g_lct.resources_resizing = make([dynamic]^dx.IUnknown)
@@ -115,18 +123,18 @@ window_new :: proc(window_name:string, width, height: int) {
 	g_lct.kb_cur = make([]u8, len(kb_slice))
 	g_lct.kb_prev = make([]u8, len(kb_slice))
 
-	dx_init(&g_lct.resources_longterm, ct.window, width, height)
+	ldx.dx_init(&g_lct.resources_longterm, ct.window, width, height)
 
-	dx_generate_hlsl_types({Sprite, GeneralConstants})
+	ldx.dx_generate_hlsl_types({Sprite, GeneralConstants}, "shaders/gen/lucy2d-structs.gen.hlsl")
 
 	g_lct.root_signatures = create_root_signatures(&g_lct.resources_longterm)
-	g_lct.cb_general = cb_upload_create(size_of(GeneralConstants), &g_lct.resources_longterm, name = "general constants cbv")
-	g_lct.sb_sprites = structured_buffer_create("Sprite buffer", &g_lct.resources_longterm, Sprite, SPRITE_MAX_COUNT, heap_type = .UPLOAD)
+	g_lct.cb_general = ldx.cb_upload_create(size_of(GeneralConstants), &g_lct.resources_longterm, name = "general constants cbv")
+	g_lct.sb_sprites = ldx.structured_buffer_create("Sprite buffer", &g_lct.resources_longterm, Sprite, SPRITE_MAX_COUNT, heap_type = .UPLOAD)
 
-	imgui_init(ct.window, &ct.resources_longterm)
+	ldx.imgui_init(ct.window, &ct.resources_longterm)
 
 	// Creating PSO's
-	g_lct.psos[.Quad] = pso_create("src/shaders/quads.hlsl", &ct.root_signatures, &ct.resources_longterm, PSOParameters {
+	g_lct.psos[.Quad] = ldx.pso_create("shaders/quads.hlsl", &ct.root_signatures, &ct.resources_longterm, ldx.PSOParameters {
 		vertex_input = struct{},
 		blend_state = .Normal,
 		cull_mode = .Back,
@@ -138,11 +146,11 @@ window_new :: proc(window_name:string, width, height: int) {
 	}, render_proc = pso_quad_render, pso_name = "Quad PSO")
 
 	// Leave the cmd list closed until it's time to render
-	close_and_execute_cmdlist()
+	ldx.close_and_execute_cmdlist()
 }
 
-create_root_signatures :: proc(pool : ^DXResourcePool) -> (root_signatures : [RootSignatureChoice]^dx.IRootSignature){
-	ct := &g_dx_core
+create_root_signatures :: proc(pool : ^ldx.DXResourcePool) -> (root_signatures : [ldx.RootSignatureChoice]^dx.IRootSignature){
+	ct := &ldx.g_dx_core
 	hr : dx.HRESULT
 
 	root_parameters:= [?]dx.ROOT_PARAMETER {
@@ -214,7 +222,7 @@ create_root_signatures :: proc(pool : ^DXResourcePool) -> (root_signatures : [Ro
 
 	serialized_desc: ^dx.IBlob
 	hr = dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
-	check(hr, "Failed to serialize root signature")
+	ldx.check(hr, "Failed to serialize root signature")
 	hr = ct.device->CreateRootSignature(
 		0,
 		serialized_desc->GetBufferPointer(),
@@ -222,7 +230,7 @@ create_root_signatures :: proc(pool : ^DXResourcePool) -> (root_signatures : [Ro
 		dx.IRootSignature_UUID,
 		(^rawptr)(&root_signatures[.Standard]),
 	)
-	check(hr, "Failed creating root signature")
+	ldx.check(hr, "Failed creating root signature")
 	append(pool, root_signatures[.Standard])
 	serialized_desc->Release()
 
@@ -234,22 +242,22 @@ create_root_signatures :: proc(pool : ^DXResourcePool) -> (root_signatures : [Ro
 window_cleanup :: proc() {
 	ct := &g_lct
 	thread.destroy(g_lct.upload_thread)
-	imgui_destroy()
+	ldx.imgui_destroy()
 	sdl.DestroyWindow(ct.window)
 	sdl.Quit()
 
-	resource_pool_release(&g_lct.resources_longterm)
-	resource_pool_release(&g_lct.resources_resizing)
+	ldx.resource_pool_release(&g_lct.resources_longterm)
+	ldx.resource_pool_release(&g_lct.resources_resizing)
 
 	delete(g_lct.resources_resizing)
 	delete(g_lct.resources_longterm)
 
 	when ODIN_DEBUG {
 	debug_device: ^dx.IDebugDevice2
-	g_dx_core.device->QueryInterface(dx.IDebugDevice2_UUID, (^rawptr)(&debug_device))
+	ldx.g_dx_core.device->QueryInterface(dx.IDebugDevice2_UUID, (^rawptr)(&debug_device))
 	// Finally, release the device (it is not in any pool)
 	// The device will be freed after we release the debug device
-	g_dx_core.device->Release()
+	ldx.g_dx_core.device->Release()
 	debug_device->ReportLiveDeviceObjects({.DETAIL, .IGNORE_INTERNAL})
 	debug_device->Release()
 
@@ -268,32 +276,32 @@ window_clear :: proc(color: Color) {
 // draws all the stuff, and resets frame state
 frame_end :: proc() {
 
-	ctd := &g_dx_core
+	ctd := &ldx.g_dx_core
 	ct := &g_lct
 
 	// Updating Constant Buffer
 	{
-		copy_to_buffer_already_mapped_value(ct.cb_general.gpu_pointer, &GeneralConstants {
+		ldx.copy_to_buffer_already_mapped_value(ct.cb_general.gpu_pointer, &GeneralConstants {
 			sb_sprites_idx = cast(u32)ct.sb_sprites.srv_index,
 			inv_screen = 1.0 / v2{cast(f32)ct.window_dimensions.x, cast(f32)ct.window_dimensions.y}
 		})
 	}
 
 	// Rendering everything
-	g_dx_core.cmdlist->Reset(ctd.command_allocator, nil)
-	swapchain_transition(dx.RESOURCE_STATE_PRESENT, {.RENDER_TARGET})
+	ldx.g_dx_core.cmdlist->Reset(ctd.command_allocator, nil)
+	ldx.swapchain_transition(dx.RESOURCE_STATE_PRESENT, {.RENDER_TARGET})
 
 	// Clear color
 	if clear_color, ok := ct.clear_color_issued.?; ok {
-		swapchain_clear(clear_color)
+		ldx.swapchain_clear(clear_color)
 	}
 
 	for pso in ct.psos {
 		pso.render_proc(pso)
 	}
 
-	imgui_end_frame()
-	dx_frame_end()
+	ldx.imgui_end_frame()
+	ldx.dx_frame_end()
 
 	new_time := time.now()
 	dur := time.diff(ct.last_time, new_time)
@@ -302,7 +310,7 @@ frame_end :: proc() {
 
 	// hot swap handling
 	for &pso in ct.psos {
-		pso_hotswap_swap(&pso, &ct.resources_longterm)
+		ldx.pso_hotswap_swap(&pso, &ct.resources_longterm)
 	}
 }
 
@@ -324,7 +332,7 @@ frame_start :: proc() {
 	sdl.PumpEvents()
 
 	for e: sdl.Event; sdl.PollEvent(&e); {
-		imgui_process_sdl_event(&e)
+		ldx.imgui_process_sdl_event(&e)
 		#partial switch e.type {
 		case .QUIT:
 			g_lct.window_should_close = true
@@ -338,10 +346,10 @@ frame_start :: proc() {
 		}
 	}
 
-	g_lct.imgui_capturing_input = imgui_start_frame()
+	g_lct.imgui_capturing_input = ldx.imgui_start_frame()
 
 	for &pso in ct.psos {
-		pso_hotswap_watch(&pso)
+		ldx.pso_hotswap_watch(&pso)
 	}
 }
 
@@ -372,7 +380,7 @@ lucy2d_upload_thread_start :: proc() {
 	// context.allocator = mem.tracking_allocator(&g_track)
 
 	// make temp allocator for upload thread
-	upload_temp_arena := arena_new()
+	upload_temp_arena := ldx.arena_new()
 	upload_temp_allocator := virtual.arena_allocator(&upload_temp_arena)
 	context.temp_allocator = upload_temp_allocator
 
@@ -381,17 +389,17 @@ lucy2d_upload_thread_start :: proc() {
 
 
 	// ending...
-	arena_destroy(&upload_temp_arena)
+	ldx.arena_destroy(&upload_temp_arena)
 }
 
-pso_quad_render :: proc(pso: PSO) {
-	ctd := &g_dx_core
+pso_quad_render :: proc(pso: ldx.PSO) {
+	ctd := &ldx.g_dx_core
 	ct := &g_lct
 
 	if len(ct.sprites_to_render) <= 0 do return
 
 	assert(len(ct.sprites_to_render) <= SPRITE_MAX_COUNT)
-	copy_to_buffer_already_mapped(ct.sb_sprites.gpu_pointer, slice.to_bytes(ct.sprites_to_render[:]))
+	ldx.copy_to_buffer_already_mapped(ct.sb_sprites.gpu_pointer, slice.to_bytes(ct.sprites_to_render[:]))
 
 	// Common render stuff
 	{
@@ -399,10 +407,10 @@ pso_quad_render :: proc(pso: PSO) {
 		ctd.cmdlist->SetDescriptorHeaps(1, &ctd.heap_cbv_srv_uav.heap)
 		ctd.cmdlist->SetGraphicsRootSignature(pso.root_signature)
 		ctd.cmdlist->SetGraphicsRoot32BitConstant(0, cast(u32)ct.cb_general.srv_index, 0)
-		set_viewport_stuff(ct.window_dimensions[0], ct.window_dimensions[1])
+		ldx.set_viewport_stuff(ct.window_dimensions[0], ct.window_dimensions[1])
 	}
 
-	swapchain_set_as_render_target()
+	ldx.swapchain_set_as_render_target()
 
 	ctd.cmdlist->IASetPrimitiveTopology(.TRIANGLESTRIP)
 	ctd.cmdlist->DrawInstanced(4, cast(u32)len(ct.sprites_to_render), 0, 0)
@@ -413,9 +421,9 @@ window_should_close :: proc() -> bool {
 }
 
 texture_load :: proc(image_filepath: string) -> int {
-	texture_dds_path := texture_cache_query(image_filepath, .BC7_UNORM_SRGB, 1, nil)
-	dds_file := parse_dds_file(texture_dds_path)
-	texture := texture_create(dds_file.mipmap_data, u64(dds_file.width), dds_file.height,
+	texture_dds_path := ldx.texture_cache_query(image_filepath, .BC7_UNORM_SRGB, 1, nil)
+	dds_file := ldx.parse_dds_file(texture_dds_path)
+	texture := ldx.texture_create(dds_file.mipmap_data, u64(dds_file.width), dds_file.height,
 		dds_file.format, &g_lct.resources_longterm, view_flags = {.SRV}, mip_levels = len(dds_file.mipmap_data), texture_name = string(image_filepath))
 
 	tid := texture.srv_index

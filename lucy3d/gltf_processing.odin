@@ -1,5 +1,5 @@
 #+private file 
-package main
+package lucy3d
 
 import "core:mem"
 import "core:os"
