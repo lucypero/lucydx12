@@ -47,8 +47,15 @@ VSOut VSMain(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
 		break;
 	}
 
+
+	// Converting to viwew space
+	output.pos = mul(general_constants.view, output.pos);
+
+	// Proj space
+	output.pos = mul(general_constants.projection, output.pos);
+
 	// Converting to homogeneus coord space
-	output.pos.xy = output.pos.xy * general_constants.inv_screen * 2 - 1;
+	// output.pos.xy = output.pos.xy * general_constants.inv_screen * 2 - 1;
 	// output.pos.xy = output.pos.xy * general_constants.inv_screen * float2(2, 2) + float2(-1, -1);
 
 	return output;

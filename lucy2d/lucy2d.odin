@@ -10,6 +10,7 @@ import sdl "vendor:sdl2"
 import "core:strings"
 import "core:fmt"
 import "core:mem/virtual"
+import "core:math/linalg"
 import ldx "../lucydx"
 
 Color :: v4
@@ -55,7 +56,9 @@ Lucy2DContext :: struct {
 	imgui_capturing_input: bool,
 
 	frame_dt: f64,
-	last_time: time.Time
+	last_time: time.Time,
+
+	camera: Camera
 }
 
 SPRITE_MAX_COUNT :: 1000
@@ -68,13 +71,18 @@ Sprite :: struct {
 	border_thickness: f32,
 }
 
+// TODO beware of padding being different here vs HLSL!!!!!!!!!!!! take care of this!
+// constant buffer alignment: fields fill the 16 byte row unless they cross the row boundary.
+// if they cross, they will start at the next row.
 GeneralConstants :: struct #align (256) {
+	view: dxm,
+	projection: dxm,
 	sb_sprites_idx: u32, // index of the sprite structured buffer into the resource heap
 	inv_screen: v2, // 1.0 / (width, height)
 	screen: v2,
-	view: dxm,
-	projection: dxm,
-	inverse_view_proj: dxm,
+	// Camera stuff,
+	// inverse_view_proj: dxm,
+	// /Camera stuff
 }
 
 g_lct : Lucy2DContext
@@ -82,6 +90,9 @@ g_lct : Lucy2DContext
 // creates the window
 // the app HAS to call this before anything else.
 window_new :: proc(window_name:string, width, height: int) {
+
+	// set up camera
+	g_lct.camera.zoom = 1
 
 	// set up allocators?
 	g_lct.upload_thread = thread.create_and_start(lucy2d_upload_thread_start)
@@ -137,7 +148,7 @@ window_new :: proc(window_name:string, width, height: int) {
 	g_lct.psos[.Quad] = ldx.pso_create("shaders/quads.hlsl", &ct.root_signatures, &ct.resources_longterm, ldx.PSOParameters {
 		vertex_input = struct{},
 		blend_state = .Normal,
-		cull_mode = .Back,
+		cull_mode = .None,
 		enable_depth = false,
 		depth_write = false,
 		root_signature = .Standard,
@@ -279,11 +290,31 @@ frame_end :: proc() {
 	ctd := &ldx.g_dx_core
 	ct := &g_lct
 
+
+
 	// Updating Constant Buffer
 	{
+		window_size := v2{cast(f32)ct.window_dimensions.x, cast(f32)ct.window_dimensions.y}
+
+		cam_pos := v3{ct.camera.pos.x, ct.camera.pos.y, 1}
+		cam_lookat := cam_pos
+		cam_lookat.z = 0
+
+		mat_view := linalg.matrix4_look_at_f32(cam_pos, cam_lookat, {0, 1, 0}, true)
+		mat_proj := ldx.matrix_ortho3d_z0_f32(
+			0,
+			cast(f32)ct.window_dimensions.x * ct.camera.zoom, 
+			0,
+			cast(f32)ct.window_dimensions.y * ct.camera.zoom, 
+			0, 10
+		)
+
 		ldx.copy_to_buffer_already_mapped_value(ct.cb_general.gpu_pointer, &GeneralConstants {
 			sb_sprites_idx = cast(u32)ct.sb_sprites.srv_index,
-			inv_screen = 1.0 / v2{cast(f32)ct.window_dimensions.x, cast(f32)ct.window_dimensions.y}
+			inv_screen = 1.0 / window_size,
+			screen = window_size,
+			view = mat_view,
+			projection = mat_proj,
 		})
 	}
 
@@ -492,7 +523,12 @@ v2_to_v2i :: proc(a: v2) -> v2i {
 
 // Camera stuff
 
-// rename to Camera
-Camera2D :: struct {
+Camera :: struct {
+	pos: v2,
+	zoom: f32,
+}
 
+
+get_camera :: proc() -> ^Camera {
+	return &g_lct.camera
 }
