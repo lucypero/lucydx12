@@ -2161,6 +2161,7 @@ swapchain_create :: proc(
 	return
 }
 
+// TODO beware of padding being different here vs HLSL!!!!!!!!!!!! take care of this!
 dx_generate_hlsl_types :: proc(types: []typeid, out_file: string) {
 	sb := strings.builder_make_none(context.temp_allocator)
 	fmt.sbprintfln(&sb, "// Generated file from odin. DO NOT MODIFY")
