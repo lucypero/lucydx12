@@ -13,12 +13,15 @@ import "audio"
 import im "../libs/odin-imgui"
 
 // Importing rendering engine
-import ldx "../src"
+import l2d "../lucy2d"
+import ldx "../lucydx"
 
-v2i :: ldx.v2i
+// Core types
 v2 :: ldx.v2
+v3 :: ldx.v3
 v4 :: ldx.v4
-
+v2i :: ldx.v2i
+dxm :: ldx.dxm
 
 AUDIO_ENABLE :: false
 START_ON_EDITOR :: true
@@ -75,7 +78,7 @@ HookVisual :: struct {
 g_hook: HookVisual
 
 main :: proc() {
-	ldx.window_new("hookin", WINDOW_WIDTH, WINDOW_HEIGHT)
+	l2d.window_new("hookin", WINDOW_WIDTH, WINDOW_HEIGHT)
 	g_lives = 3
 
 	when AUDIO_ENABLE {
@@ -93,30 +96,30 @@ main :: proc() {
 
 	HOOKIN_ASSETS_DIR :: "hookin/assets"
 
-	g_textures.player = ldx.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Player/player_01.png")
-	g_textures.crate_wood = ldx.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Crates/crate_07.png")
-	g_textures.ground = ldx.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Ground/ground_01.png")
-	g_textures.wall = ldx.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Blocks/block_01.png")
-	g_textures.crate_stone = ldx.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Blocks/block_02.png")
-	g_textures.goal = ldx.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Environment/environment_10.png")
-	g_textures.pit = ldx.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Environment/environment_06.png")
-	g_textures.move_hand = ldx.texture_load(HOOKIN_ASSETS_DIR+"/hand.png")
-	g_textures.trash = ldx.texture_load(HOOKIN_ASSETS_DIR+"/trashcanOpen.png")
-	g_textures.spawn = ldx.texture_load(HOOKIN_ASSETS_DIR+"/d42.png")
-	g_textures.hook = ldx.texture_load(HOOKIN_ASSETS_DIR+"/arrow_e.png")
+	g_textures.player = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Player/player_01.png")
+	g_textures.crate_wood = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Crates/crate_07.png")
+	g_textures.ground = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Ground/ground_01.png")
+	g_textures.wall = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Blocks/block_01.png")
+	g_textures.crate_stone = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Blocks/block_02.png")
+	g_textures.goal = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Environment/environment_10.png")
+	g_textures.pit = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Environment/environment_06.png")
+	g_textures.move_hand = l2d.texture_load(HOOKIN_ASSETS_DIR+"/hand.png")
+	g_textures.trash = l2d.texture_load(HOOKIN_ASSETS_DIR+"/trashcanOpen.png")
+	g_textures.spawn = l2d.texture_load(HOOKIN_ASSETS_DIR+"/d42.png")
+	g_textures.hook = l2d.texture_load(HOOKIN_ASSETS_DIR+"/arrow_e.png")
 
-	char_tex_size_i := ldx.texture_get_size(g_textures.player)
+	char_tex_size_i := l2d.texture_get_size(g_textures.player)
 
 	// initializing player
-	g_player.texture_size = ldx.v2i_to_v2(char_tex_size_i)
+	g_player.texture_size = l2d.v2i_to_v2(char_tex_size_i)
 	g_player.box.size = g_player.texture_size * 0.7
 	g_player.texture_offset = v2{ -10, 10}
 
 	map_start_default(&g_start_map)
 	game_restart()
 
-	outer: for !ldx.window_should_close() {
-		ldx.frame_start()
+	outer: for !l2d.window_should_close() {
+		l2d.frame_start()
 
 		when AUDIO_ENABLE {
 		audio.update()
@@ -126,7 +129,7 @@ main :: proc() {
 		timers_tick()
 
 		defer {
-			ldx.frame_end()
+			l2d.frame_end()
 			free_all(context.temp_allocator)
 
 			// doing kb stuff
@@ -142,7 +145,7 @@ main :: proc() {
 
 	}
 
-	ldx.window_cleanup()
+	l2d.window_cleanup()
 }
 
 map_draw :: proc(tm: Map, edit_mode: bool) {
@@ -151,7 +154,7 @@ map_draw :: proc(tm: Map, edit_mode: bool) {
 	for y in 0..<tm.size.y {
 		for x in 0..<tm.size.x {
 			pos, _ := map_get_tile_pos_size(tm, {x,y})
-			ldx.draw_texture(g_textures.ground, pos, tm.scale)
+			l2d.draw_texture(g_textures.ground, pos, tm.scale)
 		}
 	}
 
@@ -167,16 +170,16 @@ map_draw :: proc(tm: Map, edit_mode: bool) {
 		// TODO rest
 		switch e.et {
 		case .Wall: 
-			ldx.draw_texture(g_textures.wall, pos, tm.scale)
+			l2d.draw_texture(g_textures.wall, pos, tm.scale)
 		case .Pit: 
-			ldx.draw_solid_rect(pos, size, COLOR_BLACK)
-			ldx.draw_texture(g_textures.pit, pos, tm.scale)
+			l2d.draw_solid_rect(pos, size, COLOR_BLACK)
+			l2d.draw_texture(g_textures.pit, pos, tm.scale)
 		case .Goal:
-			ldx.draw_texture(g_textures.goal, pos, tm.scale)
+			l2d.draw_texture(g_textures.goal, pos, tm.scale)
 		case .Crate:
-			ldx.draw_texture(g_textures.crate_wood, pos, tm.scale)
+			l2d.draw_texture(g_textures.crate_wood, pos, tm.scale)
 		case .PlayerSpawn:
-			if edit_mode do  ldx.draw_texture(g_textures.spawn, pos, tm.scale)
+			if edit_mode do  l2d.draw_texture(g_textures.spawn, pos, tm.scale)
 		case .Player, .Nothing: // player is drawn separately
 		}
 	}
@@ -257,7 +260,7 @@ try_move_box :: proc(bcr: BoxCollisionRecord) {
 		box_i_last_hit = bcr.box_i
 		if hit_counter < 20 do break
 
-		dir_int := ldx.v2_to_v2i(-bcr.col_normal)
+		dir_int := l2d.v2_to_v2i(-bcr.col_normal)
 		dir_int.y *= -1
 		coord_from := e.coord
 		coord_to := coord_from + dir_int
@@ -299,7 +302,7 @@ move_box :: proc(e: ^Entity, c: Coord) {
 
 game_update :: #force_inline proc() -> (_should_quit: bool) {
 
-	if ldx.key_is_just_pressed(.TAB) || 
+	if l2d.key_is_just_pressed(.TAB) || 
 	(START_ON_EDITOR && g_frame_i == 1) {
 		// switching to editor mode
 		editor_init()
@@ -307,11 +310,11 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 		return false
 	}
 
-	if ldx.key_is_just_pressed(.ESCAPE) do return true
-	ldx.window_clear(COLOR_BACKGROUND)
+	if l2d.key_is_just_pressed(.ESCAPE) do return true
+	l2d.window_clear(COLOR_BACKGROUND)
 
 	// Update game logic
-	if ldx.key_is_just_pressed(.R) do game_restart()
+	if l2d.key_is_just_pressed(.R) do game_restart()
 
 	// What tile is the player in?
 	player_coord := map_world_box_to_coord(g_map, g_player.box)
@@ -324,19 +327,19 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 	{
 		vel : v2
 
-		if !g_input_disabled && ldx.key_is_down(.A) {
+		if !g_input_disabled && l2d.key_is_down(.A) {
 			vel.x = -1 
 			g_player.last_input_vel = {-1, 0}
 		}
-		if !g_input_disabled && ldx.key_is_down(.D) {
+		if !g_input_disabled && l2d.key_is_down(.D) {
 			vel.x = 1
 			g_player.last_input_vel = {1, 0}
 		}
-		if !g_input_disabled && ldx.key_is_down(.W) {
+		if !g_input_disabled && l2d.key_is_down(.W) {
 			vel.y = 1
 			g_player.last_input_vel = {0, -1}
 		} 
-		if !g_input_disabled && ldx.key_is_down(.S) {
+		if !g_input_disabled && l2d.key_is_down(.S) {
 			vel.y = -1
 			g_player.last_input_vel = {0, 1}
 		}
@@ -355,7 +358,7 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 
 	// Hook mechanic
 	{
-		if !g_input_disabled && ldx.key_is_just_pressed(.SPACE) {
+		if !g_input_disabled && l2d.key_is_just_pressed(.SPACE) {
 			try_do_hook()
 		}
 
@@ -366,14 +369,14 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 		map_draw(g_map, edit_mode = false)
 
 		// Draw the player
-		ldx.draw_texture(g_textures.player, g_player.pos + g_player.texture_offset + g_player.vis.offset)
+		l2d.draw_texture(g_textures.player, g_player.pos + g_player.texture_offset + g_player.vis.offset)
 
 		// Draw player hitbox
-		// ldx.draw_solid_rect(g_player.pos, g_player.size, {1,0,0,0.5})
+		// l2d.draw_solid_rect(g_player.pos, g_player.size, {1,0,0,0.5})
 
 		// draw where player is on the coord screen
 		// p_coord_pos := map_coord_to_world_pos(g_map, player_coord)
-		// ldx.draw_wirebox(p_coord_pos, g_map.cell_tex_size, {0,1,0, 1.0}, 5)
+		// l2d.draw_wirebox(p_coord_pos, g_map.cell_tex_size, {0,1,0, 1.0}, 5)
 
 		// drawing hook
 		if g_hook.visible {
@@ -388,25 +391,25 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 				hook_scale :: 2
 
 				// pivot_offset
-				tex_pivot_offset : v2 = ldx.texture_get_size_v2(g_textures.hook) * hook_scale / 2
+				tex_pivot_offset : v2 = l2d.texture_get_size_v2(g_textures.hook) * hook_scale / 2
 				tex_pivot_offset.y *= -1
 
 				hook_to -= tex_pivot_offset
 				hook_from -= tex_pivot_offset
 
 				// make the center the pivot
-				ldx.draw_texture(g_textures.hook, t * hook_from + (1 - t) * hook_to, {hook_scale, hook_scale}, {1 * t,1,1,1})
+				l2d.draw_texture(g_textures.hook, t * hook_from + (1 - t) * hook_to, {hook_scale, hook_scale}, {1 * t,1,1,1})
 			}
 
 		}
 
 		// drawing amount of lives
 		for i in 0..<g_lives {
-			ldx.draw_solid_rect({10 + 55 * cast(f32)i, 5 + 50}, {50, 50}, {1,0,0,1})
+			l2d.draw_solid_rect({10 + 55 * cast(f32)i, 5 + 50}, {50, 50}, {1,0,0,1})
 		}
 
 		for i in 0..<g_times_level_win {
-			ldx.draw_solid_rect({400 + 55 * cast(f32)i, 5 + 50}, {50, 50}, {0,1,0,1})
+			l2d.draw_solid_rect({400 + 55 * cast(f32)i, 5 + 50}, {50, 50}, {0,1,0,1})
 		}
 	}
 
@@ -553,7 +556,7 @@ tweens_update :: proc() {
 		if t.target == nil do continue
 		// advance t
 
-		t.t += ldx.get_dt_sec() * (1 / t.duration)
+		t.t += l2d.get_dt_sec() * (1 / t.duration)
 		// ease out cubic
 		the_t :f32 
 
@@ -612,7 +615,7 @@ timer :: proc(dur: f32, trigger: proc(data: rawptr), data: rawptr = nil) {
 timers_tick :: proc() {
 	for &t in g_timers {
 		if t.duration <= 0 do continue
-		t.duration -= cast(f32)ldx.get_dt_sec()
+		t.duration -= cast(f32)l2d.get_dt_sec()
 		if t.duration <= 0 {
 			t.trigger(t.data)
 		}

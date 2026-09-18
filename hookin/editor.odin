@@ -15,7 +15,8 @@ import "core:c"
 import "core:os"
 
 // Importing rendering engine
-import ldx "../src"
+import l2d "../lucy2d"
+import ldx "../lucydx"
 
 lprint :: ldx.lprintfln
 
@@ -84,23 +85,23 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 
 	bs := &g_editor.entity_brushes[g_editor.brush_selected]
 
-	ldx.window_clear(COLOR_BACKGROUND)
+	l2d.window_clear(COLOR_BACKGROUND)
 
-	if ldx.key_is_just_pressed(.TAB) {
+	if l2d.key_is_just_pressed(.TAB) {
 		// switching to play mode
 		game_restart()
 		g_play_mode = .Play
 		return false
 	}
 
-	if ldx.key_is_just_pressed(.ESCAPE) do return true
+	if l2d.key_is_just_pressed(.ESCAPE) do return true
 
 	p_coord_pos := map_coord_to_world_pos(g_start_map, g_editor.mouse_coord)
 
-	g_editor.mouse_coord = world_to_coord(g_start_map, ldx.get_mouse_pos())
+	g_editor.mouse_coord = world_to_coord(g_start_map, l2d.get_mouse_pos())
 
 	// Left click
-	if ldx.mouse_button_is_just_pressed(.Left) {
+	if l2d.mouse_button_is_just_pressed(.Left) {
 		switch bs.tool_type {
 		case .Entity:
 
@@ -140,11 +141,11 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 	{
 		map_draw(g_start_map, edit_mode =  true)
 		if bs.tool_type == .Entity {
-			ldx.draw_texture(bs.text_id, p_coord_pos, tint = {1,1,1,0.5})
+			l2d.draw_texture(bs.text_id, p_coord_pos, tint = {1,1,1,0.5})
 		}
 
 		// highlight selected coord
-		ldx.draw_wirebox(map_coord_to_world_pos(g_start_map, g_editor.coord_selected), g_start_map.cell_tex_size, {0,1,0,0.5}, 5)
+		l2d.draw_wirebox(map_coord_to_world_pos(g_start_map, g_editor.coord_selected), g_start_map.cell_tex_size, {0,1,0,0.5}, 5)
 
 	}
 
@@ -200,6 +201,7 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 			im.PushID(fmt.ctprintf("%v", i))
 			defer im.PopID()
 
+			// TODO: is it ok for app code to have to access such an implementation detail thing here?
 			gpu_ptr := ldx.get_descriptor_heap_gpu_address(ldx.g_dx_core.heap_cbv_srv_uav, eb.text_id)
 			texture_ref := im.TextureRef {_TexID = gpu_ptr.ptr}
 			if im.ImageButton("asd", texture_ref, {30, 30}) {

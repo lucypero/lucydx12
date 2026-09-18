@@ -1,4 +1,4 @@
-package main
+package lucydx
 
 import "core:math"
 import "core:math/linalg"

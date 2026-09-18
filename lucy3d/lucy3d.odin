@@ -1,4 +1,4 @@
-package main
+package lucy3d
 
 import "core:thread"
 import "core:mem/virtual"
@@ -18,6 +18,7 @@ import "base:runtime"
 import "core:prof/spall"
 _ :: spall
 import "core:encoding/json"
+import ldx "../lucydx"
 
 // imgui
 import im "../libs/odin-imgui"
@@ -28,20 +29,17 @@ import "../libs/odin-imgui/imgui_impl_dx12"
 
 PROFILE :: #config(PROFILE, false)
 
-NUM_RENDERTARGETS :: 2
+// Core types
+v2 :: ldx.v2
+v3 :: ldx.v3
+v4 :: ldx.v4
+v2i :: ldx.v2i
+dxm :: ldx.dxm
 
 @(rodata)
 TYPES_FOR_HLSL := [?]typeid{GeneralConstants, DrawConstants, LightType, Light, TextureUV, Material}
 
 TURNS_TO_RAD :: math.PI * 2
-
-v2 :: linalg.Vector2f32
-v3 :: linalg.Vector3f32
-v4 :: linalg.Vector4f32
-v2i :: [2]int
-
-dxm :: matrix[4, 4]f32
-
 
 gbuffer_shader_filename :: "src/shaders/geometry.hlsl"
 lighting_shader_filename :: "src/shaders/lighting.hlsl"
@@ -85,24 +83,6 @@ Vertex :: struct {
 	tangent: v4 `TANGENT`,
 	uv: v2 `TEXCOORD`,
 	uv_2: v2 `TEXCOORD_SECOND_UV`,
-}
-
-// Data associated with a vertex buffer
-// this could be an instance buffer too. it's the same to dx12.
-VertexBuffer :: struct {
-	buffer: ^dx.IResource,
-	gpu_pointer: rawptr, // only valid if it's on upload heap
-	vbv: dx.VERTEX_BUFFER_VIEW,
-	vertex_count: u32, // vertex count or instance count
-	buffer_size: u32,
-	buffer_stride: u32,
-}
-
-ConstantBufferUpload :: struct {
-	buffer: ^dx.IResource,
-	gpu_pointer: rawptr, // only valid if it's on upload heap
-	buffer_size: u32,
-	srv_index: int // index as constant buffer view in the uber heap
 }
 
 GBufferUnit :: struct {
@@ -839,10 +819,6 @@ do_main_loop :: proc() {
 		}
 	}
 }
-
-SWAPCHAIN_FORMAT :: dxgi.FORMAT.R8G8B8A8_UNORM
-
-
 
 update :: proc() {
 
@@ -1653,4 +1629,141 @@ init_scene_list :: proc(allocator: mem.Allocator) -> (scene_list : [dynamic]stri
 	scene_list = make([dynamic]string, 0, 20, allocator)
 	search_for_files_with_ext(MODEL_BASEDIR, ".gltf", &scene_list, allocator)
 	return
+}
+
+@(private="package")
+scene_status_load :: #force_inline proc(status: ^SceneStatus) -> SceneStatus {
+	return sync.atomic_load_explicit(status, .Acquire)
+}
+
+@(private="package")
+scene_status_store :: #force_inline proc(status: ^SceneStatus, new_status: SceneStatus) {
+	sync.atomic_store_explicit(status, new_status, .Release)
+}
+
+
+proc_walk :: proc(node: Node, scene: Scene, data: rawptr)
+
+// Walks through the scene tree and runs a proc per node
+scene_walk :: proc(scene: Scene, data: rawptr, thing_to_do: proc_walk) {
+	nodes := scene.nodes
+
+	for root_node in scene.root_nodes {
+		node_i := scene.nodes[root_node]
+
+		// algorithm state
+		cur_child_i: uint = 0
+		depth := 0
+		child_i_levels: [10]uint
+		children_are_explored: bool
+
+		for {
+
+			if !children_are_explored {
+
+				// do the stuff here
+				thing_to_do(node_i, scene, data)
+			}
+
+			if node_i.children == nil || children_are_explored {
+				children_are_explored = false
+
+				// go to next sibling
+				cur_child_i += 1
+
+				if node_i.parent == -1 {
+					break
+				}
+
+				// if there is no next sibling, go up
+
+				node_parent := nodes[node_i.parent]
+
+				if cur_child_i >= len(node_parent.children) {
+
+					depth -= 1
+
+					// if the current's node's parent doesn't have a parent, we're done!
+					if node_parent.parent == -1 {
+						break
+					}
+
+					// check if this one has a sibling
+
+					node_grandparent := nodes[node_parent.parent]
+
+					node_i = nodes[node_grandparent.children[child_i_levels[depth]]]
+					cur_child_i = child_i_levels[depth]
+					children_are_explored = true
+					continue
+				}
+
+				node_i = nodes[node_parent.children[cur_child_i]]
+			} else {
+				// go to first child
+				child_i_levels[depth] = cur_child_i
+				cur_child_i = 0
+				node_i = nodes[node_i.children[cur_child_i]]
+				depth += 1
+			}
+		}
+	}
+}
+
+
+load_white_texture :: proc(pool: ^DXResourcePool) {
+	ct := g_dx_core
+
+	w, h, channels : c.int
+	image_data := img.load("white.png", &w, &h, &channels, 4)
+	defer img.image_free(image_data)
+	assert(image_data != nil)
+
+	img_data_mipmaps := make([][]byte, 1, context.temp_allocator)
+	img_data_mipmaps[0] = slice.clone(slice.from_ptr(image_data, cast(int)(w * h * channels)), context.temp_allocator)
+
+	texture := texture_create(img_data_mipmaps[:], u64(w), u32(h), .R8G8B8A8_UNORM, 
+		pool, {}, texture_name = "white")
+
+	// creating srv on uber heap
+	cpu_addr := get_descriptor_heap_cpu_address(ct.heap_cbv_srv_uav, TEXTURE_WHITE_INDEX)
+	ct.device->CreateShaderResourceView(texture.buffer, nil, cpu_addr)
+}
+
+get_node_world_matrix :: proc(node: Node, scene: Scene) -> dxm {
+
+	res: dxm = 1
+
+	node_i := node
+
+	for {
+
+		boosted_t := node_i.transform_t * 1
+		translation_mat := linalg.matrix4_translate_f32(boosted_t)
+
+		boosted_s := node_i.transform_s * 1
+		scale_mat := linalg.matrix4_scale_f32(boosted_s)
+
+		rot_quat: quaternion128 = quaternion(
+			w = node_i.transform_r[3],
+			x = node_i.transform_r[0],
+			y = node_i.transform_r[1],
+			z = node_i.transform_r[2],
+		)
+		rot_mat: dxm = linalg.matrix4_from_quaternion_f32(rot_quat)
+
+		// mesh_world : dxm = translation_mat * rot_mat * scale_mat
+		// no rot
+		mesh_world: dxm = translation_mat * rot_mat * scale_mat
+		// mesh_world : dxm = scale_mat * rot_mat * translation_mat
+
+		res = res * mesh_world
+		// res = mesh_world * res
+		// break
+
+		if node_i.parent == -1 do break
+		node_i = scene.nodes[node_i.parent]
+	}
+
+	return res
 }

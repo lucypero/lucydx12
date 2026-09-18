@@ -1,4 +1,4 @@
-package main
+package lucy3d
 
 import "core:math"
 import sdl "vendor:sdl2"

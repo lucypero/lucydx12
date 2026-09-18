@@ -1,7 +1,7 @@
 package hookin
 
 import "core:mem"
-import ldx "../src"
+import l2d "../lucy2d"
 import "core:encoding/json"
 import "core:os"
 
@@ -115,7 +115,7 @@ entity_delete_ptr :: proc(tm: ^Map, e: ^Entity) {
 		e.et = .Nothing
 		e.gen += 1
 	} else {
-		ldx.lprintfln("tried to delete entity that isn't valid")
+		lprint("tried to delete entity that isn't valid")
 	}
 }
 
@@ -127,7 +127,7 @@ entity_get :: proc(tm: ^Map, eid: EID) -> ^Entity {
 // points to top left of coord
 map_coord_to_world_pos :: proc(the_map: Map, coord: Coord) -> v2 {
 
-	coord_f := ldx.v2i_to_v2(coord)
+	coord_f := l2d.v2i_to_v2(coord)
 	coord_f.y *= -1
 
 	return the_map.pos + the_map.cell_tex_size * the_map.scale * coord_f
@@ -136,7 +136,7 @@ map_coord_to_world_pos :: proc(the_map: Map, coord: Coord) -> v2 {
 // points to center of coord
 map_coord_to_world_pos_center :: proc(the_map: Map, coord: Coord) -> v2 {
 
-	coord_f := ldx.v2i_to_v2(coord)
+	coord_f := l2d.v2i_to_v2(coord)
 	coord_f.y *= -1
 
 	center_offset: v2 = the_map.cell_tex_size / 2
@@ -153,7 +153,7 @@ world_to_coord :: proc(tm: Map, pos: v2) -> Coord {
 	// where does this point fall in the grid?
 	cell_size : v2 = tm.cell_tex_size * tm.scale
 
-	return ldx.v2_to_v2i((pos - map_offset) / cell_size)
+	return l2d.v2_to_v2i((pos - map_offset) / cell_size)
 }
 
 map_world_box_to_coord :: proc(tm : Map, b: Box) -> Coord {
@@ -167,7 +167,7 @@ map_world_box_to_coord :: proc(tm : Map, b: Box) -> Coord {
 	// where does this point fall in the grid?
 	cell_size : v2 = tm.cell_tex_size * tm.scale
 
-	return ldx.v2_to_v2i((middle_point - map_offset) / cell_size)
+	return l2d.v2_to_v2i((middle_point - map_offset) / cell_size)
 }
 
 map_start_default :: proc(tm: ^Map) {
@@ -175,7 +175,7 @@ map_start_default :: proc(tm: ^Map) {
 	map_size := v2i{10, 6}
 
 	// initting map
-	cell_tex_size := ldx.v2i_to_v2(ldx.texture_get_size(g_textures.wall))
+	cell_tex_size := l2d.v2i_to_v2(l2d.texture_get_size(g_textures.wall))
 
 	tm^ = {
 		v2{50, WINDOW_HEIGHT - 10},

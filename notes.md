@@ -1,3 +1,11 @@
+# Current todo of technical features
+	
+	[ ] - Make camera
+	[ ] - Rotate sprites
+	[ ] - make map size tweakable
+	[ ] - read chat. associate offered many ideas for new features.
+  [ ] - separate things and make a readme per each thing
+
 # separating things
 
 - packages:
@@ -6,8 +14,6 @@
 - lucy3d (3d showcase app). deps: lucydx
 - lucy2d (2d game engine). deps: lucydx
 - hookin (2d game using lucy2d). deps: lucy2d
-
-separate things and make a readme.
 
 # LUCY2D - Todo
 
