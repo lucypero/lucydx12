@@ -103,7 +103,14 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 
 	p_coord_pos := map_coord_to_world_pos(g_start_map, g_editor.mouse_coord)
 
-	g_editor.mouse_coord = world_to_coord(g_start_map, l2d.get_mouse_pos())
+	mouse_pos_world :v2
+
+	// mouse pos to world pos (considering camera)
+	{
+		mouse_pos_world = l2d.get_mouse_pos() * g_cam.zoom + g_cam.pos
+	}
+
+	g_editor.mouse_coord = world_to_coord(g_start_map, mouse_pos_world)
 
 	// Left click
 	if l2d.mouse_button_is_just_pressed(.Left) {
