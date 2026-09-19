@@ -2177,3 +2177,74 @@ dx_generate_hlsl_types :: proc(types: []typeid, out_file: string) {
 	err := os.write_entire_file_from_string(out_file, strings.to_string(sb))
 	assert(err == os.General_Error.None)
 }
+
+dx_flush_command_queue :: proc(queue: ^dx.ICommandQueue)
+{
+	if g_dx_core.fence == nil || queue == nil do return
+
+	g_dx_core.fence_value += 1
+
+	queue->Signal(g_dx_core.fence, g_dx_core.fence_value)
+
+	if g_dx_core.fence->GetCompletedValue() < g_dx_core.fence_value
+	{
+		g_dx_core.fence->SetEventOnCompletion(g_dx_core.fence_value, g_dx_core.fence_event)
+		windows.WaitForSingleObject(g_dx_core.fence_event, windows.INFINITE)
+	}
+
+}
+
+dx_on_resize :: proc(new_width, new_height: int)
+{
+	if new_width == 0 || new_height == 0 {
+        return
+    }
+
+	dx_flush_command_queue(g_dx_core.queue)
+
+	// release back buffers
+	for i in 0..<NUM_RENDERTARGETS
+	{
+		g_dx_core.swapchain.targets[i].buffer->Release()
+		g_dx_core.swapchain.targets[i].buffer = nil
+	}
+
+	// resize swap chain buffers
+	desc: dxgi.SWAP_CHAIN_DESC
+	g_dx_core.swapchain.swapchain->GetDesc(&desc)
+
+	hr := g_dx_core.swapchain.swapchain->ResizeBuffers(
+		u32(NUM_RENDERTARGETS), u32(new_width), u32(new_height),
+		desc.BufferDesc.Format, desc.Flags
+	)
+
+	if hr < 0
+	{
+		return // TODO: Handle resize error
+	}
+
+	g_dx_core.swapchain.frame_index = int(g_dx_core.swapchain.swapchain->GetCurrentBackBufferIndex())
+
+	// recreate rtv descriptors
+	rtv_handle: dx.CPU_DESCRIPTOR_HANDLE
+	g_dx_core.heap_rtv.heap->GetCPUDescriptorHandleForHeapStart(&rtv_handle)
+
+	rtv_descriptor_size := g_dx_core.device->GetDescriptorHandleIncrementSize(.RTV)
+
+	for i in 0..<NUM_RENDERTARGETS
+	{
+		hr = g_dx_core.swapchain.swapchain->GetBuffer(
+			u32(i), 
+			dx.IResource1_UUID, 
+			cast(^rawptr)&g_dx_core.swapchain.targets[i]
+		)
+		if hr < 0 
+		{
+			return // TODO: Handle errors
+		}
+
+		g_dx_core.device->CreateRenderTargetView(g_dx_core.swapchain.targets[i].buffer, nil, rtv_handle)
+		rtv_handle.ptr += uint(rtv_descriptor_size)
+	}
+	// TODO: Update Viewport
+}

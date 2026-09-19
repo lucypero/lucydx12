@@ -382,6 +382,13 @@ frame_start :: proc() {
 				g_lct.window_should_close = true
 				// case .RESIZED:
 				// 	g_dx_context.resize_wanted = v2i{cast(int)e.window.data1, cast(int)e.window.data2}
+			case .RESIZED:
+				new_width := int(e.window.data1)
+				new_height := int(e.window.data2)
+				fmt.print("Resized: Width -> ", new_width, " Height -> ", new_height)
+				g_lct.window_dimensions = {new_width, new_height}
+				ldx.dx_on_resize(new_width, new_height)
+				fmt.print("Exited on_resize")
 			}
 		}
 	}
