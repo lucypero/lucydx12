@@ -11,6 +11,7 @@ import "core:strings"
 import "core:fmt"
 import "core:mem/virtual"
 import "core:math/linalg"
+import "core:math"
 import ldx "../lucydx"
 
 Color :: v4
@@ -301,11 +302,19 @@ frame_end :: proc() {
 		cam_lookat.z = 0
 
 		mat_view := linalg.matrix4_look_at_f32(cam_pos, cam_lookat, {0, 1, 0}, true)
+
+		mid_pixels := ct.window_dimensions / 2
+		zoom := ct.camera.zoom
+		mid_x := cast(f32)mid_pixels.x * zoom
+		mid_y := cast(f32)mid_pixels.y * zoom
+
+		// mat_proj := ldx.matrix_ortho3d_z0_f32(
+		// 	-mid_x, mid_x, -mid_y, mid_y,
+		// 	0, 10
+		// )
+
 		mat_proj := ldx.matrix_ortho3d_z0_f32(
-			0,
-			cast(f32)ct.window_dimensions.x * ct.camera.zoom, 
-			0,
-			cast(f32)ct.window_dimensions.y * ct.camera.zoom, 
+			0, cast(f32)ct.window_dimensions.x * zoom, 0, cast(f32)ct.window_dimensions.y * zoom,
 			0, 10
 		)
 
@@ -518,7 +527,7 @@ v2i_to_v2 :: proc(coord: v2i) -> v2 {
 }
 
 v2_to_v2i :: proc(a: v2) -> v2i {
-	return {cast(int)a.x, cast(int)a.y}
+	return {cast(int)math.floor(a.x), cast(int)math.floor(a.y)}
 }
 
 // Camera stuff

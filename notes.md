@@ -1,3 +1,11 @@
+# associate requirements
+
+- the default state in a level is a pit
+- a layer system of entities. they sit at different layers
+
+layers: there's the entity category of "floor" and only floor entities go in the floor layer of the level. and other things go on top of the floor layer
+
+
 # Current todo of technical features
 	
 	[ ] - Make camera
