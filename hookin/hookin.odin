@@ -35,20 +35,10 @@ COLOR_BACKGROUND :: v4{0.773, 0.686, 0.643,1}
 COLOR_CHARACTER :: v4{0.8, 0.494, 0.522, 1}
 COLOR_FOOD :: v4{0.639, 0.427, 0.565, 1}
 COLOR_BLACK :: v4{0,0,0,1}
-CHARACTER_SPEED :: 3
-CHARACTER_SIZE :: 64
+
 
 Textures :: struct {
 	player, crate_wood, ground, wall, crate_stone, goal, pit, move_hand, trash, spawn, hook: int
-}
-
-Player :: struct {
-	using box: Box,// box for collision
-	texture_size: v2,
-	texture_offset: v2,
-	current_coord: Coord,
-	vis: Visualization,
-	last_input_vel: v2i // determines where the player is facing
 }
 
 GameEvent :: enum{
@@ -108,12 +98,7 @@ main :: proc() {
 	g_textures.spawn = l2d.texture_load(HOOKIN_ASSETS_DIR+"/d42.png")
 	g_textures.hook = l2d.texture_load(HOOKIN_ASSETS_DIR+"/arrow_e.png")
 
-	char_tex_size_i := l2d.texture_get_size(g_textures.player)
-
-	// initializing player
-	g_player.texture_size = l2d.v2i_to_v2(char_tex_size_i)
-	g_player.box.size = g_player.texture_size * 0.7
-	g_player.texture_offset = v2{ -10, 10}
+	player_init(&g_player)
 
 	map_start_default(&g_start_map)
 	game_restart()
@@ -323,38 +308,13 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 		player_coord_changed(player_coord, false)
 	}
 
-	// Player update Logic
+	bcr, ok := player_update(&g_player).?
+	if ok 
 	{
-		vel : v2
-
-		if !g_input_disabled && l2d.key_is_down(.A) {
-			vel.x = -1 
-			g_player.last_input_vel = {-1, 0}
-		}
-		if !g_input_disabled && l2d.key_is_down(.D) {
-			vel.x = 1
-			g_player.last_input_vel = {1, 0}
-		}
-		if !g_input_disabled && l2d.key_is_down(.W) {
-			vel.y = 1
-			g_player.last_input_vel = {0, -1}
-		} 
-		if !g_input_disabled && l2d.key_is_down(.S) {
-			vel.y = -1
-			g_player.last_input_vel = {0, 1}
-		}
-
-		if vel != {0,0} {
-			vel = linalg.normalize(vel) * CHARACTER_SPEED
-			g_player.vel = vel
-			map_boxes, ids := generate_collisions(g_map)
-			box_i, col_normal, did_hit := move_and_slide(&g_player.box, map_boxes[:])
-			bcr := BoxCollisionRecord { map_boxes, ids, box_i, col_normal, did_hit }
-			try_move_box(bcr)
-		} else {
-			g_player.vel = {}
-		}
+		try_move_box(bcr)
 	}
+
+
 
 	// Hook mechanic
 	{
