@@ -70,6 +70,8 @@ load_levels :: proc() {
 	g_editor.level_selected = clamp(g_editor.level_selected, 0, len(g_editor.level_files) - 1)
 }
 
+ToolFilter :: enum i32 { All, Floor, NonFloor}
+
 Editor :: struct {
 	mouse_coord: Coord,
 	entity_brushes: [7]EntityBrush,
@@ -82,7 +84,9 @@ Editor :: struct {
 	level_files: [dynamic]string,
 	level_selected: int,
 
-	rename_field: [256]u8
+	rename_field: [256]u8,
+
+	filter_selected: ToolFilter
 }
 
 
@@ -182,15 +186,11 @@ do_imgui_ui :: proc() {
 
 	brush_selected := &g_editor.entity_brushes[g_editor.brush_selected]
 
-	ldx.imgui_do_text("Pointing at coord: %v", g_editor.mouse_coord)
+	// ldx.imgui_do_text("Pointing at coord: %v", g_editor.mouse_coord)
 
-	// Errors with level here.
-	im.Separator()
+	ent_title := fmt.ctprintf("Entities at Coord: %v",  g_editor.coord_selected)
+	im.SeparatorText(ent_title)
 
-	// list of things in the selected coord
-	im.Separator()
-
-	ldx.imgui_do_text("Entities At: %v", g_editor.coord_selected)
 	entities_str := make([dynamic]string, context.temp_allocator)
 	entities := map_tquery(&g_start_map, g_editor.coord_selected)
 
@@ -208,20 +208,18 @@ do_imgui_ui :: proc() {
 	if len(entities) > 0 {
 		ent_s := entities[g_editor.entity_in_coord_selected]
 		ldx.imgui_do_text("Selected Entity: %v", ent_s.et)
-		if im.Button("Delete") {
+		if im.Button("Delete Entity") {
 			// Delete this entity
 			entity_delete(&g_start_map, ent_s)
 			g_editor.entity_in_coord_selected = 0
 		}
+	} else {
+		ldx.imgui_do_text("No Entities at selected coord.")
 	}
 
-	// Info about selected brush
-	im.Separator()
+	im.SeparatorText("Tool Selection:")
 
 	ldx.imgui_do_text("Current Brush Selected: %v", brush_to_string(brush_selected^))
-
-
-	im.Separator()
 
 	for eb, i in g_editor.entity_brushes {
 		im.PushID(fmt.ctprintf("%v", i))
@@ -241,8 +239,20 @@ do_imgui_ui :: proc() {
 		}
 	}
 
-	// Level lister
-	im.Separator()
+	// Filter selection
+	im.SeparatorText("Tool Filtering:")
+
+	filter_addr := transmute(^i32)&g_editor.filter_selected
+
+	im.RadioButtonIntPtr("Floor", filter_addr, 0)
+	im.SameLine()
+	im.RadioButtonIntPtr("Non-Floor", filter_addr, 1)
+	im.SameLine()
+	im.RadioButtonIntPtr("All", filter_addr, 2)
+
+	// Row of buttons "save, load, rename, delete"
+
+	im.SeparatorText("Level Management:")
 
 	// list
 	if len(g_editor.level_files) > 0 && ldx.imgui_do_listbox("Level List", &g_editor.level_selected, g_editor.level_files[:]) {
@@ -250,8 +260,6 @@ do_imgui_ui :: proc() {
 		ls := g_editor.level_files[g_editor.level_selected]
 		map_save(&g_start_map, ls, .Load)
 	}
-
-	// Row of buttons "save, load, rename, delete"
 
 	if im.Button("Save") {
 		ls := g_editor.level_files[g_editor.level_selected]
@@ -298,6 +306,16 @@ do_imgui_ui :: proc() {
 		load_levels()
 	}
 
+
+	im.SeparatorText("Camera:")
+
+	im.DragFloat2("camera position", &g_cam.pos)
+	im.DragFloat("camera zoom", &g_cam.zoom, 0.01)
+
+	im.ShowDemoWindow()
+
+	// Popup Modals
+
 	if im.BeginPopupModal("Rename Popup") {
 
 		ldx.imgui_do_text("Rename Level to:")
@@ -322,8 +340,4 @@ do_imgui_ui :: proc() {
 
 		im.EndPopup()
 	}
-
-	im.DragFloat2("camera position", &g_cam.pos)
-	im.DragFloat("camera zoom", &g_cam.zoom, 0.01)
-	// im.ShowDemoWindow()
 }
