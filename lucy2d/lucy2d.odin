@@ -414,6 +414,10 @@ mouse_button_is_just_pressed :: proc(mouse_button: MouseButton) -> bool {
 	return !g_lct.imgui_capturing_input && (mouse_button in g_lct.mouse_cur && mouse_button not_in g_lct.mouse_prev)
 }
 
+mouse_button_is_just_unpressed :: proc(mouse_button: MouseButton) -> bool {
+	return !g_lct.imgui_capturing_input && (mouse_button not_in g_lct.mouse_cur && mouse_button in g_lct.mouse_prev)
+}
+
 key_is_down :: proc(key: sdl.Scancode) -> bool {
 	return !g_lct.imgui_capturing_input && (g_lct.kb_cur[key] == 1)
 }

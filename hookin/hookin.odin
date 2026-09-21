@@ -38,7 +38,7 @@ COLOR_BLACK :: v4{0,0,0,1}
 
 
 Textures :: struct {
-	player, crate_wood, ground, wall, crate_stone, goal, pit, move_hand, trash, spawn, hook, paint: int
+	player, crate_wood, ground, wall, crate_stone, goal, pit, move_hand, trash, spawn, hook, paint, rect_tool: int
 }
 
 GameEvent :: enum{
@@ -98,6 +98,7 @@ main :: proc() {
 	g_textures.spawn = l2d.texture_load(HOOKIN_ASSETS_DIR+"/d42.png")
 	g_textures.hook = l2d.texture_load(HOOKIN_ASSETS_DIR+"/arrow_e.png")
 	g_textures.paint = l2d.texture_load(HOOKIN_ASSETS_DIR+"/drawing_bucket.png")
+	g_textures.rect_tool = l2d.texture_load(HOOKIN_ASSETS_DIR+"/element_red_rectangle.png")
 
 	player_init(&g_player)
 

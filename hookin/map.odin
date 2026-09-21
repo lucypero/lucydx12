@@ -5,7 +5,7 @@ import l2d "../lucy2d"
 import "core:encoding/json"
 import "core:os"
 
-ENTITY_COUNT_MAX :: 200
+ENTITY_COUNT_MAX :: 2000
 Entities :: [dynamic;ENTITY_COUNT_MAX]Entity
 EID :: struct {slot: int, gen: i32}
 

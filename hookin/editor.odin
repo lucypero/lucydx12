@@ -19,7 +19,7 @@ LEVELS_DIR :: "hookin\\levels"
 g_editor : Editor
 g_cam : ^l2d.Camera
 
-ToolType :: enum {SelectTool, DeleteTool, PaintTool}
+ToolType :: enum {SelectTool, DeleteTool, PaintTool, RectPaintTool}
 
 ToolButton :: struct {
 	text_id: int,
@@ -52,6 +52,8 @@ Editor :: struct {
 	filter_selected: ToolFilter,
 
 	last_coord_clicked: Maybe(Coord),
+
+	mid_rectpaint: Maybe(Coord)
 }
 
 editor_init :: proc() {
@@ -59,7 +61,8 @@ editor_init :: proc() {
 	g_editor.tool_buttons =  {
 		.SelectTool = {g_textures.move_hand},
 		.DeleteTool = {g_textures.trash},
-		.PaintTool = {g_textures.paint}
+		.PaintTool = {g_textures.paint},
+		.RectPaintTool = {g_textures.rect_tool}
 	}
 
 	g_editor.entity_buttons = {
@@ -161,13 +164,51 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 		g_editor.last_coord_clicked = nil
 	}
 
+	if l2d.mouse_button_is_just_unpressed(.Left) {
+
+		if rect_from, ok := g_editor.mid_rectpaint.? ; ok {
+			rect_to := g_editor.mouse_coord
+
+			rf := Coord{min(rect_from.x, rect_to.x), min(rect_from.y, rect_to.y)}
+			rt := Coord{max(rect_from.x, rect_to.x), max(rect_from.y, rect_to.y)}
+
+			// get all coords from from to mouse coord
+			for x in rf.x..=rt.x {
+				for y in rf.y..=rt.y {
+					the_coord : Coord = Coord{x,y}
+					paint_on_coord(the_coord)
+				}
+			}
+		}
+
+		g_editor.mid_rectpaint = nil
+	}
+
 	// Drawing Map
 	{
 		map_draw(g_start_map, edit_mode =  true)
 
-		if g_editor.tool_button_selected == .PaintTool  {
+		if is_on_paint_tool()  {
 			entity_button_selected := g_editor.entity_buttons[g_editor.entity_button_selected]
 			l2d.draw_texture(entity_button_selected.text_id, p_coord_pos, tint = {1,1,1,0.5})
+		}
+
+		// Drawing paint rect tool
+
+		if rect_from, ok := g_editor.mid_rectpaint.? ; ok {
+			rect_to := g_editor.mouse_coord
+
+			rf := Coord{min(rect_from.x, rect_to.x), min(rect_from.y, rect_to.y)}
+			rt := Coord{max(rect_from.x, rect_to.x), max(rect_from.y, rect_to.y)}
+
+			// get all coords from from to mouse coord
+			for x in rf.x..=rt.x {
+				for y in rf.y..=rt.y {
+					the_coord : Coord = Coord{x,y}
+					entity_button_selected := g_editor.entity_buttons[g_editor.entity_button_selected]
+					l2d.draw_texture(entity_button_selected.text_id, map_coord_to_world_pos(g_start_map, the_coord), tint = {1,1,1,0.5})
+				}
+			}
 		}
 
 		// highlight selected coord
@@ -259,7 +300,7 @@ do_imgui_ui :: proc() {
 		gpu_ptr := ldx.get_descriptor_heap_gpu_address(ldx.g_dx_core.heap_cbv_srv_uav, eb.text_id)
 		texture_ref := im.TextureRef {_TexID = gpu_ptr.ptr}
 
-		if g_editor.entity_button_selected == i && g_editor.tool_button_selected == .PaintTool {
+		if g_editor.entity_button_selected == i && is_on_paint_tool() {
 			im.PushStyleColorImVec4(.Button, {1,1,1,0.5})
 		} else {
 			im.PushStyleColorImVec4(.Button, {0,0,0,0.5})
@@ -267,7 +308,9 @@ do_imgui_ui :: proc() {
 
 		if im.ImageButton("asd", texture_ref, {30, 30}) {
 			g_editor.entity_button_selected = i
-			g_editor.tool_button_selected = .PaintTool
+			if !is_on_paint_tool() {
+				g_editor.tool_button_selected = .PaintTool
+			}
 		}
 
 		im.PopStyleColor()
@@ -396,40 +439,55 @@ on_mouse_click :: proc() {
 			entity_delete(&g_start_map, e)
 		}
 	case .PaintTool:
+		paint_on_coord(g_editor.mouse_coord)
+	case.RectPaintTool:
 
-		entity_to_paint_selected := g_editor.entity_buttons[g_editor.entity_button_selected].et
+		if _, ok := g_editor.mid_rectpaint.?; !ok {
+			g_editor.mid_rectpaint = g_editor.mouse_coord
+		}
+	}
+}
 
-		// Floor Type: replace floor at cord (only one floor entity per coord)
-		if entity_is_floor(entity_to_paint_selected) {
-			ets_at_coord := map_tquery(&g_start_map, g_editor.mouse_coord)
+paint_on_coord :: proc(coord: Coord) {
+	entity_to_paint_selected := g_editor.entity_buttons[g_editor.entity_button_selected].et
 
-			for &e in ets_at_coord {
-				if entity_is_floor(e.et) {
-					// delete
-					entity_delete(&g_start_map, e)
-				}
-			}
+	// Floor Type: replace floor at cord (only one floor entity per coord)
+	if entity_is_floor(entity_to_paint_selected) {
+		ets_at_coord := map_tquery(&g_start_map, coord)
 
-			entity_new(&g_start_map, entity_to_paint_selected, g_editor.mouse_coord)
-		} else {
-
-			// Check: Only one solid per coord
-
-			good_to_insert := true
-
-			has_solid := does_coord_have_solid(g_start_map, g_editor.mouse_coord)
-			if entity_is_solid(entity_to_paint_selected) && has_solid {
-				lprint("This coordinate already has a solid entity.")
-				good_to_insert = false
-			}
-
-			// Uniqueness check ( delete previous ones)
-			if entity_to_paint_selected == .PlayerSpawn do entity_delete_kind(&g_start_map, .PlayerSpawn)
-			if entity_to_paint_selected == .Goal do entity_delete_kind(&g_start_map, .Goal)
-
-			if good_to_insert {
-				entity_new(&g_start_map, entity_to_paint_selected, g_editor.mouse_coord)
+		for &e in ets_at_coord {
+			if entity_is_floor(e.et) {
+				// delete
+				entity_delete(&g_start_map, e)
 			}
 		}
+
+		entity_new(&g_start_map, entity_to_paint_selected, coord)
+	} else {
+
+		// Check: Only one solid per coord
+
+		good_to_insert := true
+
+		has_solid := does_coord_have_solid(g_start_map, coord)
+		if entity_is_solid(entity_to_paint_selected) && has_solid {
+			lprint("This coordinate already has a solid entity.")
+			good_to_insert = false
+		}
+
+		// Uniqueness check ( delete previous ones)
+		if entity_to_paint_selected == .PlayerSpawn do entity_delete_kind(&g_start_map, .PlayerSpawn)
+		if entity_to_paint_selected == .Goal do entity_delete_kind(&g_start_map, .Goal)
+
+		if good_to_insert {
+			entity_new(&g_start_map, entity_to_paint_selected, coord)
+		}
+	}
+}
+
+is_on_paint_tool :: proc() -> bool {
+	#partial switch g_editor.tool_button_selected {
+	case .PaintTool, .RectPaintTool: return true
+	case: return false
 	}
 }
