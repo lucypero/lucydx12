@@ -59,7 +59,9 @@ Lucy2DContext :: struct {
 	frame_dt: f64,
 	last_time: time.Time,
 
-	camera: Camera
+	camera: Camera,
+
+	resize_wanted: Maybe(v2i)
 }
 
 SPRITE_MAX_COUNT :: 1000
@@ -343,6 +345,13 @@ frame_end :: proc() {
 	ldx.imgui_end_frame()
 	ldx.dx_frame_end()
 
+	if new_res, wants_to_resize := ct.resize_wanted.?; wants_to_resize {
+		// resizing
+		ldx.swapchain_resize(&ctd.swapchain, new_res)
+		ct.window_dimensions = new_res
+		ct.resize_wanted = nil
+	}
+
 	new_time := time.now()
 	dur := time.diff(ct.last_time, new_time)
 	ct.frame_dt = time.duration_milliseconds(dur)
@@ -380,15 +389,8 @@ frame_start :: proc() {
 			#partial switch e.window.event {
 			case .CLOSE:
 				g_lct.window_should_close = true
-				// case .RESIZED:
-				// 	g_dx_context.resize_wanted = v2i{cast(int)e.window.data1, cast(int)e.window.data2}
 			case .RESIZED:
-				new_width := int(e.window.data1)
-				new_height := int(e.window.data2)
-				fmt.print("Resized: Width -> ", new_width, " Height -> ", new_height)
-				g_lct.window_dimensions = {new_width, new_height}
-				ldx.dx_on_resize(new_width, new_height)
-				fmt.print("Exited on_resize")
+				g_lct.resize_wanted = v2i{cast(int)e.window.data1, cast(int)e.window.data2}
 			}
 		}
 	}
@@ -547,4 +549,8 @@ Camera :: struct {
 
 get_camera :: proc() -> ^Camera {
 	return &g_lct.camera
+}
+
+get_window_res :: proc() -> v2i {
+	return g_lct.window_dimensions
 }

@@ -1125,7 +1125,6 @@ render :: proc() {
 
 	// handle window resizing
 	if new_res, ok := ct.resize_wanted.?; ok {
-		lprintfln("resize to %v", new_res)
 		resize_window(new_res)
 		ct.resize_wanted = nil
 	}
@@ -1135,38 +1134,7 @@ resize_window :: proc(new_res: v2i) {
 	ct := &g_dx_context
 	swapchain := &g_dx_core.swapchain
 
-	// Clearing resizing resources pool
-	resource_pool_release(&g_resources_resizing)
-
-	// Releasing old textures
-	// NOTE(lucy): (probsbly u don't need to do this because you already release the buffers at swapchain creation)
-	// for swapchain_texture in swapchain.targets {
-	// 	swapchain_texture.buffer->Release()
-	// }
-
-	hr := swapchain.swapchain->ResizeBuffers(
-		NUM_RENDERTARGETS, cast(u32)new_res.x, cast(u32)new_res.y, SWAPCHAIN_FORMAT, {}
-	)
-	check(hr, "failed at resizing")
-
-	// Acquiring new textures
-	{
-		for i: u32 = 0; i < NUM_RENDERTARGETS; i += 1 {
-
-			tex := &swapchain.targets[i]
-
-			hr = swapchain.swapchain->GetBuffer(i, dx.IResource_UUID, (^rawptr)(&tex.buffer))
-			check(hr, "Failed getting render target")
-
-			tex.buffer->Release()
-
-			// creating new rtv in the same place as the old one
-			create_rtv_at(tex.buffer, tex.rtv_index)
-		}
-	}
-
-	// Updating frame index (it gets reset when resizing)
-	g_dx_core.swapchain.frame_index = cast(int)g_dx_core.swapchain.swapchain->GetCurrentBackBufferIndex()
+	ldx.swapchain_resize(&g_dx_core.swapchain, new_res)
 
 	for &gbuffer in ct.gbuffer {
 		texture_resize(&gbuffer, new_res, &g_resources_resizing)
