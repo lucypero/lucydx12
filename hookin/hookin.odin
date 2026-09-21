@@ -38,7 +38,7 @@ COLOR_BLACK :: v4{0,0,0,1}
 
 
 Textures :: struct {
-	player, crate_wood, ground, wall, crate_stone, goal, pit, move_hand, trash, spawn, hook: int
+	player, crate_wood, ground, wall, crate_stone, goal, pit, move_hand, trash, spawn, hook, paint: int
 }
 
 GameEvent :: enum{
@@ -97,6 +97,7 @@ main :: proc() {
 	g_textures.trash = l2d.texture_load(HOOKIN_ASSETS_DIR+"/trashcanOpen.png")
 	g_textures.spawn = l2d.texture_load(HOOKIN_ASSETS_DIR+"/d42.png")
 	g_textures.hook = l2d.texture_load(HOOKIN_ASSETS_DIR+"/arrow_e.png")
+	g_textures.paint = l2d.texture_load(HOOKIN_ASSETS_DIR+"/drawing_bucket.png")
 
 	player_init(&g_player)
 
@@ -136,12 +137,13 @@ main :: proc() {
 map_draw :: proc(tm: Map, edit_mode: bool) {
 
 	//first, draw ground
-	for y in 0..<tm.size.y {
-		for x in 0..<tm.size.x {
-			pos, _ := map_get_tile_pos_size(tm, {x,y})
-			l2d.draw_texture(g_textures.ground, pos, tm.scale)
-		}
-	}
+
+	// for y in 0..<tm.size.y {
+	// 	for x in 0..<tm.size.x {
+	// 		pos, _ := map_get_tile_pos_size(tm, {x,y})
+	// 		l2d.draw_texture(g_textures.ground, pos, tm.scale)
+	// 	}
+	// }
 
 	// loop through entities and draw
 	for e, i in tm.entities {
@@ -154,6 +156,8 @@ map_draw :: proc(tm: Map, edit_mode: bool) {
 
 		// TODO rest
 		switch e.et {
+		case .Ground:
+			l2d.draw_texture(g_textures.ground, pos, tm.scale)
 		case .Wall: 
 			l2d.draw_texture(g_textures.wall, pos, tm.scale)
 		case .Pit: 

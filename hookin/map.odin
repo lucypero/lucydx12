@@ -19,7 +19,7 @@ Map :: struct {
 	entities: Entities,
 }
 
-EntityType :: enum { Nothing, Player, Crate, PlayerSpawn, Goal, Wall, Pit }
+EntityType :: enum { Nothing, Ground, Player, Crate, PlayerSpawn, Goal, Wall, Pit }
 
 Visualization :: struct {
 	offset: v2

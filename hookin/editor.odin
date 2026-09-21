@@ -26,21 +26,54 @@ LEVELS_DIR :: "hookin\\levels"
 g_editor : Editor
 g_cam : ^l2d.Camera
 
-EntityBrush :: struct {
+ToolType :: enum {SelectTool, DeleteTool, PaintTool}
+
+ToolButton :: struct {
+	text_id: int,
+}
+
+EntityButton :: struct {
 	text_id: int,
 	et: EntityType,
-	tool_type: enum {Entity, SelectTool, DeleteTool}
+}
+
+ToolFilter :: enum i32 { All, Floor, NonFloor}
+
+Editor :: struct {
+	mouse_coord: Coord,
+	tool_buttons: [ToolType]ToolButton,
+	entity_buttons: [6]EntityButton,
+
+	tool_button_selected: ToolType,
+	entity_button_selected: int,
+
+	coord_selected: Coord,
+	entity_in_coord_selected: int,
+
+	// level_files
+	level_files: [dynamic]string,
+	level_selected: int,
+
+	rename_field: [256]u8,
+
+	filter_selected: ToolFilter
 }
 
 editor_init :: proc() {
-	g_editor.entity_brushes = {
-		{g_textures.move_hand, .Nothing, .SelectTool},
-		{g_textures.trash, .Nothing, .DeleteTool},
-		{g_textures.spawn, .PlayerSpawn, .Entity},
-		{g_textures.wall, .Wall, .Entity},
-		{g_textures.pit, .Pit, .Entity},
-		{g_textures.crate_wood, .Crate, .Entity},
-		{g_textures.goal, .Goal, .Entity},
+
+	g_editor.tool_buttons =  {
+		.SelectTool = {g_textures.move_hand},
+		.DeleteTool = {g_textures.trash},
+		.PaintTool = {g_textures.paint}
+	}
+
+	g_editor.entity_buttons = {
+		{g_textures.ground, .Ground},
+		{g_textures.spawn, .PlayerSpawn},
+		{g_textures.wall, .Wall},
+		{g_textures.pit, .Pit},
+		{g_textures.crate_wood, .Crate},
+		{g_textures.goal, .Goal},
 	}
 
 	g_cam = l2d.get_camera()
@@ -70,29 +103,10 @@ load_levels :: proc() {
 	g_editor.level_selected = clamp(g_editor.level_selected, 0, len(g_editor.level_files) - 1)
 }
 
-ToolFilter :: enum i32 { All, Floor, NonFloor}
-
-Editor :: struct {
-	mouse_coord: Coord,
-	entity_brushes: [7]EntityBrush,
-	brush_selected: int,
-
-	coord_selected: Coord,
-	entity_in_coord_selected: int,
-
-	// level_files
-	level_files: [dynamic]string,
-	level_selected: int,
-
-	rename_field: [256]u8,
-
-	filter_selected: ToolFilter
-}
 
 
 editor_update :: #force_inline proc() -> (_should_quit: bool){
 
-	bs := &g_editor.entity_brushes[g_editor.brush_selected]
 
 	l2d.window_clear(COLOR_BACKGROUND)
 
@@ -118,46 +132,51 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 
 	// Left click
 	if l2d.mouse_button_is_just_pressed(.Left) {
-		switch bs.tool_type {
-		case .Entity:
 
-			// Check: Only one solid per coord
 
-			good_to_insert := true
-
-			has_solid := does_coord_have_solid(g_start_map, g_editor.mouse_coord)
-			if entity_is_solid(bs.et) && has_solid {
-				lprint("This coordinate already has a solid entity.")
-				good_to_insert = false
-			}
-
-			// Uniqueness check ( delete previous ones)
-			if bs.et == .PlayerSpawn do entity_delete_kind(&g_start_map, .PlayerSpawn)
-			if bs.et == .Goal do entity_delete_kind(&g_start_map, .Goal)
-
-			if good_to_insert {
-				entity_new(&g_start_map, bs.et, g_editor.mouse_coord)
-			}
-
+		switch g_editor.tool_button_selected {
 		case .SelectTool:
 			// clicked on a coord with the select tool. select the coord.
 			// selected coord change.
 			g_editor.coord_selected = g_editor.mouse_coord
 			g_editor.entity_in_coord_selected = 0
 		case .DeleteTool:
-
 			ets := map_tquery(&g_start_map, g_editor.mouse_coord)
 			for e in ets {
 				entity_delete(&g_start_map, e)
 			}
+		case .PaintTool:
+
+			entity_to_paint_selected := g_editor.entity_buttons[g_editor.entity_button_selected].et
+
+			// Check: Only one solid per coord
+
+			good_to_insert := true
+
+			has_solid := does_coord_have_solid(g_start_map, g_editor.mouse_coord)
+			if entity_is_solid(entity_to_paint_selected) && has_solid {
+				lprint("This coordinate already has a solid entity.")
+				good_to_insert = false
+			}
+
+			// Uniqueness check ( delete previous ones)
+			if entity_to_paint_selected == .PlayerSpawn do entity_delete_kind(&g_start_map, .PlayerSpawn)
+			if entity_to_paint_selected == .Goal do entity_delete_kind(&g_start_map, .Goal)
+
+			if good_to_insert {
+				entity_new(&g_start_map, entity_to_paint_selected, g_editor.mouse_coord)
+			}
+
 		}
 	}
 
 	// Drawing Map
 	{
 		map_draw(g_start_map, edit_mode =  true)
-		if bs.tool_type == .Entity {
-			l2d.draw_texture(bs.text_id, p_coord_pos, tint = {1,1,1,0.5})
+
+		if g_editor.tool_button_selected == .PaintTool  {
+			entity_button_selected := g_editor.entity_buttons[g_editor.entity_button_selected]
+			l2d.draw_texture(entity_button_selected.text_id, p_coord_pos, tint = {1,1,1,0.5})
 		}
 
 		// highlight selected coord
@@ -171,20 +190,9 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 	return false
 }
 
-brush_to_string :: proc(b: EntityBrush) -> string {
-	#partial switch b.tool_type {
-	case .Entity:
-		return fmt.tprint(b.et)
-	case:
-		return fmt.tprint(b.tool_type)
-	}
-}
-
 do_imgui_ui :: proc() {
 	im.Begin("Level editor")
 	defer im.End()
-
-	brush_selected := &g_editor.entity_brushes[g_editor.brush_selected]
 
 	// ldx.imgui_do_text("Pointing at coord: %v", g_editor.mouse_coord)
 
@@ -219,22 +227,64 @@ do_imgui_ui :: proc() {
 
 	im.SeparatorText("Tool Selection:")
 
-	ldx.imgui_do_text("Current Brush Selected: %v", brush_to_string(brush_selected^))
+	// ldx.imgui_do_text("Current Brush Selected: %v", brush_to_string(brush_selected^))
 
-	for eb, i in g_editor.entity_brushes {
+	for tool_button, i in g_editor.tool_buttons {
+		im.PushID(fmt.ctprintf("%v", i))
+		defer im.PopID()
+
+		// TODO: is it ok for app code to have to access such an implementation detail thing here?
+		gpu_ptr := ldx.get_descriptor_heap_gpu_address(ldx.g_dx_core.heap_cbv_srv_uav, tool_button.text_id)
+		texture_ref := im.TextureRef {_TexID = gpu_ptr.ptr}
+
+		if g_editor.tool_button_selected == i {
+			im.PushStyleColorImVec4(.Button, {1,1,1,0.5})
+		} else {
+			im.PushStyleColorImVec4(.Button, {0,0,0,0.5})
+		}
+
+		if im.ImageButton("asd", texture_ref, {30, 30}) {
+			g_editor.tool_button_selected = i
+		}
+
+		im.PopStyleColor()
+
+		im.SetItemTooltip(fmt.ctprintf("%v", i))
+
+		// Rows of 4
+		i_n : int = cast(int)i
+		if (i_n % 4 != 3) && i_n != len(g_editor.tool_buttons) - 1 {
+			im.SameLine()
+		}
+	}
+
+	im.SeparatorText("Entity Type Selection")
+
+	for eb, i in g_editor.entity_buttons {
 		im.PushID(fmt.ctprintf("%v", i))
 		defer im.PopID()
 
 		// TODO: is it ok for app code to have to access such an implementation detail thing here?
 		gpu_ptr := ldx.get_descriptor_heap_gpu_address(ldx.g_dx_core.heap_cbv_srv_uav, eb.text_id)
 		texture_ref := im.TextureRef {_TexID = gpu_ptr.ptr}
-		if im.ImageButton("asd", texture_ref, {30, 30}) {
-			g_editor.brush_selected = i
+
+		if g_editor.entity_button_selected == i && g_editor.tool_button_selected == .PaintTool {
+			im.PushStyleColorImVec4(.Button, {1,1,1,0.5})
+		} else {
+			im.PushStyleColorImVec4(.Button, {0,0,0,0.5})
 		}
-		im.SetItemTooltip(fmt.ctprintf("%v", brush_to_string(eb)))
+
+		if im.ImageButton("asd", texture_ref, {30, 30}) {
+			g_editor.entity_button_selected = i
+			g_editor.tool_button_selected = .PaintTool
+		}
+
+		im.PopStyleColor()
+
+		im.SetItemTooltip(fmt.ctprintf("%v", eb.et))
 
 		// Rows of 4
-		if (i % 4 != 3) && i != len(g_editor.entity_brushes) - 1 {
+		if (i % 4 != 3) && i != len(g_editor.entity_buttons) - 1 {
 			im.SameLine()
 		}
 	}
