@@ -1,3 +1,11 @@
+# Level Editor Improvements
+
+- [ ] make map size tweakable
+- [ ] layer system
+- [ ] "Fill" tool
+- [ ] "Rect" tool
+- [ ] pan camera with middle click or something
+
 # associate requirements
 
 - the default state in a level is a pit
