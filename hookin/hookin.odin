@@ -436,6 +436,16 @@ try_do_hook :: proc() {
 				timer(0.3, proc(_:rawptr) {g_hook.visible = false})
 
 				return
+			case .MetalCrate:
+				old_pos := g_player.pos
+				box_place_at_coord(&g_player, e.coord - g_player.last_input_vel)
+				tween_v2(&g_player.vis.offset, old_pos - g_player.pos, {}, 0.3, .EaseOutCubic)
+
+				g_hook = HookVisual {
+					distance, g_player.current_coord, lookup_coord, true
+				}
+				timer(0.3, proc(_:rawptr) {g_hook.visible = false})
+				return
 			}
 		}
 
