@@ -19,7 +19,7 @@ Map :: struct {
 	entities: Entities,
 }
 
-EntityType :: enum { Nothing, Ground, Player, Crate, PlayerSpawn, Goal, Wall, Pit }
+EntityType :: enum { Nothing, Ground, Player, Crate, MetalCrate, PlayerSpawn, Goal, Wall, Pit }
 
 Visualization :: struct {
 	offset: v2
@@ -68,7 +68,7 @@ map_tquery :: proc(tm: ^Map, c: Coord) -> []^Entity {
 
 entity_is_solid :: proc(e: EntityType) -> bool{
 	#partial switch e {
-	case .Crate, .Wall:
+	case .Crate, .Wall, .MetalCrate:
 		return true
 	case: 
 		return false

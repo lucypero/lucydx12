@@ -38,7 +38,7 @@ COLOR_BLACK :: v4{0,0,0,1}
 
 
 Textures :: struct {
-	player, crate_wood, ground, wall, crate_stone, goal, pit, move_hand, trash, spawn, hook, paint, rect_tool: int
+	player, crate_wood, ground, wall, crate_stone, goal, pit, move_hand, trash, spawn, hook, paint, rect_tool, crate_metal: int
 }
 
 GameEvent :: enum{
@@ -99,6 +99,7 @@ main :: proc() {
 	g_textures.hook = l2d.texture_load(HOOKIN_ASSETS_DIR+"/arrow_e.png")
 	g_textures.paint = l2d.texture_load(HOOKIN_ASSETS_DIR+"/drawing_bucket.png")
 	g_textures.rect_tool = l2d.texture_load(HOOKIN_ASSETS_DIR+"/element_red_rectangle.png")
+	g_textures.crate_metal = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Crates/crate_04.png")
 
 	player_init(&g_player)
 
@@ -170,6 +171,8 @@ map_draw :: proc(tm: Map, edit_mode: bool) {
 			l2d.draw_texture(g_textures.crate_wood, pos, tm.scale)
 		case .PlayerSpawn:
 			if edit_mode do  l2d.draw_texture(g_textures.spawn, pos, tm.scale)
+		case .MetalCrate:
+			l2d.draw_texture(g_textures.crate_metal, pos, tm.scale)
 		}
 	}
 }
