@@ -49,7 +49,9 @@ Editor :: struct {
 
 	rename_field: [256]u8,
 
-	filter_selected: ToolFilter
+	filter_selected: ToolFilter,
+
+	last_coord_clicked: Maybe(Coord),
 }
 
 editor_init :: proc() {
@@ -147,58 +149,16 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 	g_editor.mouse_coord = world_to_coord(g_start_map, mouse_pos_world)
 
 	// Left click
-	if l2d.mouse_button_is_just_pressed(.Left) {
+	if l2d.mouse_button_is_down(.Left) {
 
-
-		switch g_editor.tool_button_selected {
-		case .SelectTool:
-			// clicked on a coord with the select tool. select the coord.
-			// selected coord change.
-			g_editor.coord_selected = g_editor.mouse_coord
-			g_editor.entity_in_coord_selected = 0
-		case .DeleteTool:
-			ets := map_tquery(&g_start_map, g_editor.mouse_coord)
-			for e in ets {
-				entity_delete(&g_start_map, e)
-			}
-		case .PaintTool:
-
-			entity_to_paint_selected := g_editor.entity_buttons[g_editor.entity_button_selected].et
-
-			// Floor Type: replace floor at cord (only one floor entity per coord)
-			if entity_is_floor(entity_to_paint_selected) {
-				ets_at_coord := map_tquery(&g_start_map, g_editor.mouse_coord)
-
-				for &e in ets_at_coord {
-					if entity_is_floor(e.et) {
-						// delete
-						entity_delete(&g_start_map, e)
-					}
-				}
-
-				entity_new(&g_start_map, entity_to_paint_selected, g_editor.mouse_coord)
-			} else {
-
-				// Check: Only one solid per coord
-
-				good_to_insert := true
-
-				has_solid := does_coord_have_solid(g_start_map, g_editor.mouse_coord)
-				if entity_is_solid(entity_to_paint_selected) && has_solid {
-					lprint("This coordinate already has a solid entity.")
-					good_to_insert = false
-				}
-
-				// Uniqueness check ( delete previous ones)
-				if entity_to_paint_selected == .PlayerSpawn do entity_delete_kind(&g_start_map, .PlayerSpawn)
-				if entity_to_paint_selected == .Goal do entity_delete_kind(&g_start_map, .Goal)
-
-				if good_to_insert {
-					entity_new(&g_start_map, entity_to_paint_selected, g_editor.mouse_coord)
-				}
-			}
-
+		if lc, ok := g_editor.last_coord_clicked.?; !ok || (ok && lc != g_editor.mouse_coord) {
+			on_mouse_click()
 		}
+
+		g_editor.last_coord_clicked = g_editor.mouse_coord
+
+	} else {
+		g_editor.last_coord_clicked = nil
 	}
 
 	// Drawing Map
@@ -420,5 +380,56 @@ do_imgui_ui :: proc() {
 		}
 
 		im.EndPopup()
+	}
+}
+
+on_mouse_click :: proc() {
+	switch g_editor.tool_button_selected {
+	case .SelectTool:
+		// clicked on a coord with the select tool. select the coord.
+		// selected coord change.
+		g_editor.coord_selected = g_editor.mouse_coord
+		g_editor.entity_in_coord_selected = 0
+	case .DeleteTool:
+		ets := map_tquery(&g_start_map, g_editor.mouse_coord)
+		for e in ets {
+			entity_delete(&g_start_map, e)
+		}
+	case .PaintTool:
+
+		entity_to_paint_selected := g_editor.entity_buttons[g_editor.entity_button_selected].et
+
+		// Floor Type: replace floor at cord (only one floor entity per coord)
+		if entity_is_floor(entity_to_paint_selected) {
+			ets_at_coord := map_tquery(&g_start_map, g_editor.mouse_coord)
+
+			for &e in ets_at_coord {
+				if entity_is_floor(e.et) {
+					// delete
+					entity_delete(&g_start_map, e)
+				}
+			}
+
+			entity_new(&g_start_map, entity_to_paint_selected, g_editor.mouse_coord)
+		} else {
+
+			// Check: Only one solid per coord
+
+			good_to_insert := true
+
+			has_solid := does_coord_have_solid(g_start_map, g_editor.mouse_coord)
+			if entity_is_solid(entity_to_paint_selected) && has_solid {
+				lprint("This coordinate already has a solid entity.")
+				good_to_insert = false
+			}
+
+			// Uniqueness check ( delete previous ones)
+			if entity_to_paint_selected == .PlayerSpawn do entity_delete_kind(&g_start_map, .PlayerSpawn)
+			if entity_to_paint_selected == .Goal do entity_delete_kind(&g_start_map, .Goal)
+
+			if good_to_insert {
+				entity_new(&g_start_map, entity_to_paint_selected, g_editor.mouse_coord)
+			}
+		}
 	}
 }
