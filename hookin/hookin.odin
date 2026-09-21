@@ -29,7 +29,7 @@ START_ON_EDITOR :: true
 ROW_COUNT :: 7
 COLUMN_COUNT :: 7
 
-WINDOW_WIDTH_START :: 1000
+WINDOW_WIDTH_START :: 1400
 WINDOW_HEIGHT_START :: 800
 COLOR_BACKGROUND :: v4{0.773, 0.686, 0.643,1}
 COLOR_CHARACTER :: v4{0.8, 0.494, 0.522, 1}
@@ -136,40 +136,39 @@ main :: proc() {
 
 map_draw :: proc(tm: Map, edit_mode: bool) {
 
-	//first, draw ground
-
-	// for y in 0..<tm.size.y {
-	// 	for x in 0..<tm.size.x {
-	// 		pos, _ := map_get_tile_pos_size(tm, {x,y})
-	// 		l2d.draw_texture(g_textures.ground, pos, tm.scale)
-	// 	}
-	// }
-
-	// loop through entities and draw
+	// Draw ground entities first
 	for e, i in tm.entities {
-		if e.et == .Nothing do continue
+		if e.et == .Nothing || !entity_is_floor(e.et) do continue
 
-		draw_ground: bool
+		pos, size := map_get_tile_pos_size(tm, e.coord)
+		pos += e.vis.offset
+
+		#partial switch e.et {
+		case .Ground:
+			l2d.draw_texture(g_textures.ground, pos, tm.scale)
+		case .Pit: 
+			l2d.draw_solid_rect(pos, size, COLOR_BLACK)
+			l2d.draw_texture(g_textures.pit, pos, tm.scale)
+		}
+	}
+
+	// Draw non-floor entities
+	for e, i in tm.entities {
+		if e.et == .Nothing || entity_is_floor(e.et) do continue
 
 		pos, size := map_get_tile_pos_size(tm, e.coord)
 		pos += e.vis.offset
 
 		// TODO rest
-		switch e.et {
-		case .Ground:
-			l2d.draw_texture(g_textures.ground, pos, tm.scale)
+		#partial switch e.et {
 		case .Wall: 
 			l2d.draw_texture(g_textures.wall, pos, tm.scale)
-		case .Pit: 
-			l2d.draw_solid_rect(pos, size, COLOR_BLACK)
-			l2d.draw_texture(g_textures.pit, pos, tm.scale)
 		case .Goal:
 			l2d.draw_texture(g_textures.goal, pos, tm.scale)
 		case .Crate:
 			l2d.draw_texture(g_textures.crate_wood, pos, tm.scale)
 		case .PlayerSpawn:
 			if edit_mode do  l2d.draw_texture(g_textures.spawn, pos, tm.scale)
-		case .Player, .Nothing: // player is drawn separately
 		}
 	}
 }

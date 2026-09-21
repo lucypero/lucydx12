@@ -1,15 +1,8 @@
 package hookin
 
-import "core:container/intrusive/list"
 import "core:strings"
 import "core:fmt"
-import "core:math"
-import "core:math/linalg"
-import mv "core:mem/virtual"
-// import "core:math/rand"
-// import "core:math/linalg"
 import sdl "vendor:sdl2"
-import "audio"
 import im "../libs/odin-imgui"
 import "core:c"
 import "core:os"
@@ -103,12 +96,11 @@ load_levels :: proc() {
 	g_editor.level_selected = clamp(g_editor.level_selected, 0, len(g_editor.level_files) - 1)
 }
 
-
-
 editor_update :: #force_inline proc() -> (_should_quit: bool){
 
-
 	l2d.window_clear(COLOR_BACKGROUND)
+
+	// Input
 
 	if l2d.key_is_just_pressed(.TAB) {
 		// switching to play mode
@@ -118,6 +110,30 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 	}
 
 	if l2d.key_is_just_pressed(.ESCAPE) do return true
+
+	// Camera controls
+	{
+		cam_vel : v2
+		CAM_SPEED :: 4
+
+		if l2d.key_is_down(.W) {
+			cam_vel.y += CAM_SPEED
+		}
+
+		if l2d.key_is_down(.A) {
+			cam_vel.x -= CAM_SPEED
+		}
+
+		if l2d.key_is_down(.S) {
+			cam_vel.y -= CAM_SPEED
+		}
+
+		if l2d.key_is_down(.D) {
+			cam_vel.x += CAM_SPEED
+		}
+
+		g_cam.pos += cam_vel
+	}
 
 	p_coord_pos := map_coord_to_world_pos(g_start_map, g_editor.mouse_coord)
 
@@ -149,22 +165,37 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 
 			entity_to_paint_selected := g_editor.entity_buttons[g_editor.entity_button_selected].et
 
-			// Check: Only one solid per coord
+			// Floor Type: replace floor at cord (only one floor entity per coord)
+			if entity_is_floor(entity_to_paint_selected) {
+				ets_at_coord := map_tquery(&g_start_map, g_editor.mouse_coord)
 
-			good_to_insert := true
+				for &e in ets_at_coord {
+					if entity_is_floor(e.et) {
+						// delete
+						entity_delete(&g_start_map, e)
+					}
+				}
 
-			has_solid := does_coord_have_solid(g_start_map, g_editor.mouse_coord)
-			if entity_is_solid(entity_to_paint_selected) && has_solid {
-				lprint("This coordinate already has a solid entity.")
-				good_to_insert = false
-			}
-
-			// Uniqueness check ( delete previous ones)
-			if entity_to_paint_selected == .PlayerSpawn do entity_delete_kind(&g_start_map, .PlayerSpawn)
-			if entity_to_paint_selected == .Goal do entity_delete_kind(&g_start_map, .Goal)
-
-			if good_to_insert {
 				entity_new(&g_start_map, entity_to_paint_selected, g_editor.mouse_coord)
+			} else {
+
+				// Check: Only one solid per coord
+
+				good_to_insert := true
+
+				has_solid := does_coord_have_solid(g_start_map, g_editor.mouse_coord)
+				if entity_is_solid(entity_to_paint_selected) && has_solid {
+					lprint("This coordinate already has a solid entity.")
+					good_to_insert = false
+				}
+
+				// Uniqueness check ( delete previous ones)
+				if entity_to_paint_selected == .PlayerSpawn do entity_delete_kind(&g_start_map, .PlayerSpawn)
+				if entity_to_paint_selected == .Goal do entity_delete_kind(&g_start_map, .Goal)
+
+				if good_to_insert {
+					entity_new(&g_start_map, entity_to_paint_selected, g_editor.mouse_coord)
+				}
 			}
 
 		}

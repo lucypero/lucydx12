@@ -75,6 +75,15 @@ entity_is_solid :: proc(e: EntityType) -> bool{
 	}
 }
 
+entity_is_floor :: proc(e:EntityType) -> bool {
+	#partial switch e {
+	case .Pit, .Ground:
+		return true
+	case: 
+		return false
+	}
+}
+
 does_coord_have_solid :: proc(tm: Map, c: Coord) -> bool {
 	for e in tm.entities {
 		if e.coord == c && entity_is_solid(e.et) do return true
