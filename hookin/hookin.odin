@@ -29,8 +29,8 @@ START_ON_EDITOR :: true
 ROW_COUNT :: 7
 COLUMN_COUNT :: 7
 
-WINDOW_WIDTH :: 1000
-WINDOW_HEIGHT :: 800
+WINDOW_WIDTH_START :: 1000
+WINDOW_HEIGHT_START :: 800
 COLOR_BACKGROUND :: v4{0.773, 0.686, 0.643,1}
 COLOR_CHARACTER :: v4{0.8, 0.494, 0.522, 1}
 COLOR_FOOD :: v4{0.639, 0.427, 0.565, 1}
@@ -68,7 +68,7 @@ HookVisual :: struct {
 g_hook: HookVisual
 
 main :: proc() {
-	l2d.window_new("hookin", WINDOW_WIDTH, WINDOW_HEIGHT)
+	l2d.window_new("hookin", WINDOW_WIDTH_START, WINDOW_HEIGHT_START)
 	g_lives = 3
 
 	when AUDIO_ENABLE {
@@ -309,8 +309,7 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 	}
 
 	bcr, ok := player_update(&g_player).?
-	if ok 
-	{
+	if ok {
 		try_move_box(bcr)
 	}
 

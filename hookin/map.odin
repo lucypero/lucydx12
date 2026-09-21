@@ -177,8 +177,10 @@ map_start_default :: proc(tm: ^Map) {
 	// initting map
 	cell_tex_size := l2d.v2i_to_v2(l2d.texture_get_size(g_textures.wall))
 
+	window_res := l2d.get_window_res()
+
 	tm^ = {
-		v2{50, WINDOW_HEIGHT - 10},
+		v2{50, cast(f32)window_res.y - 10},
 		v2{1,1},
 		map_size,
 		cell_tex_size,
