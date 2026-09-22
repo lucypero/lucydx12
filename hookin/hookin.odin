@@ -86,12 +86,12 @@ main :: proc() {
 
 	HOOKIN_ASSETS_DIR :: "hookin/assets"
 
-	g_textures.player = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Player/player_01.png")
+	//g_textures.player = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Player/player_01.png")
 	//g_textures.crate_wood = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Crates/crate_07.png")
-	g_textures.ground = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Ground/ground_01.png")
-	g_textures.wall = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Blocks/block_01.png")
+	//g_textures.ground = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Ground/ground_01.png")
+	//g_textures.wall = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Blocks/block_01.png")
 	//g_textures.crate_stone = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Blocks/block_02.png")
-	g_textures.pit = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Environment/environment_06.png")
+	//g_textures.pit = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Environment/environment_06.png")
 	//g_textures.crate_metal = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Crates/crate_04.png")
 	//g_textures.goal = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Environment/environment_10.png")
 	//g_textures.spawn = l2d.texture_load(HOOKIN_ASSETS_DIR+"/d42.png")
@@ -102,9 +102,9 @@ main :: proc() {
 	g_textures.paint = l2d.texture_load(HOOKIN_ASSETS_DIR+"/drawing_bucket.png")
 	g_textures.rect_tool = l2d.texture_load(HOOKIN_ASSETS_DIR+"/element_red_rectangle.png")
 
+	init_tile_registry()
 	player_init(&g_player)
 
-	init_tile_registry()
 
 	map_start_default(&g_start_map)
 	game_restart()
@@ -150,10 +150,10 @@ map_draw :: proc(tm: Map, edit_mode: bool) {
 
 		#partial switch e.et {
 		case .Ground:
-			l2d.draw_texture(g_textures.ground, pos, tm.scale)
+			l2d.draw_texture(g_entities[EntityType.Ground].tex_id, pos, tm.scale)
 		case .Pit: 
 			l2d.draw_solid_rect(pos, size, COLOR_BLACK)
-			l2d.draw_texture(g_textures.pit, pos, tm.scale)
+			l2d.draw_texture(g_entities[EntityType.Pit].tex_id, pos, tm.scale)
 		}
 	}
 
@@ -344,7 +344,7 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 		map_draw(g_map, edit_mode = false)
 
 		// Draw the player
-		l2d.draw_texture(g_textures.player, g_player.pos + g_player.texture_offset + g_player.vis.offset)
+		l2d.draw_texture(g_entities[EntityType.Player].tex_id, g_player.pos + g_player.texture_offset + g_player.vis.offset)
 
 		// Draw player hitbox
 		// l2d.draw_solid_rect(g_player.pos, g_player.size, {1,0,0,0.5})

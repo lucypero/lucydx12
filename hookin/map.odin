@@ -186,7 +186,7 @@ map_start_default :: proc(tm: ^Map) {
 	map_size := v2i{10, 6}
 
 	// initting map
-	cell_tex_size := l2d.v2i_to_v2(l2d.texture_get_size(g_textures.wall))
+	cell_tex_size := l2d.v2i_to_v2(l2d.texture_get_size(g_entities[EntityType.Wall].tex_id))
 
 	window_res := l2d.get_window_res()
 

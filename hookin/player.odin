@@ -21,7 +21,7 @@ Player :: struct
 
 player_init :: proc(player: ^Player)
 {
-    char_tex_size_i := l2d.texture_get_size(g_textures.player)
+    char_tex_size_i := l2d.texture_get_size(g_entities[EntityType.Player].tex_id)
     player.texture_size = l2d.v2i_to_v2(char_tex_size_i)
     player.box.size = player.texture_size * 0.7
     player.texture_offset = v2{-10,10}
