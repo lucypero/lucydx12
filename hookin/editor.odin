@@ -35,7 +35,7 @@ ToolFilter :: enum i32 { All, Floor, NonFloor}
 Editor :: struct {
 	mouse_coord: Coord,
 	tool_buttons: [ToolType]ToolButton,
-	entity_buttons: [7]EntityButton,
+	entity_buttons: [dynamic]EntityButton,
 
 	tool_button_selected: ToolType,
 	entity_button_selected: int,
@@ -65,15 +65,21 @@ editor_init :: proc() {
 		.RectPaintTool = {g_textures.rect_tool}
 	}
 
-	g_editor.entity_buttons = {
-		{g_textures.ground, .Ground},
-		{g_textures.spawn, .PlayerSpawn},
-		{g_textures.wall, .Wall},
-		{g_textures.pit, .Pit},
-		{g_textures.crate_wood, .Crate},
-		{g_textures.crate_metal, .MetalCrate},
-		{g_textures.goal, .Goal},
+	clear(&g_editor.entity_buttons)
+	for e in g_entities
+	{
+		append(&g_editor.entity_buttons, EntityButton{e.tex_id, e.type})
 	}
+
+	//g_editor.entity_buttons = {
+	//	{g_textures.ground, .Ground},
+	//	{g_textures.spawn, .PlayerSpawn},
+	//	{g_textures.wall, .Wall},
+	//	{g_textures.pit, .Pit},
+	//	{g_textures.crate_wood, .Crate},
+	//	{g_textures.crate_metal, .MetalCrate},
+	//	{g_textures.goal, .Goal},
+	//}
 
 	g_cam = l2d.get_camera()
 

@@ -87,21 +87,24 @@ main :: proc() {
 	HOOKIN_ASSETS_DIR :: "hookin/assets"
 
 	g_textures.player = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Player/player_01.png")
-	g_textures.crate_wood = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Crates/crate_07.png")
+	//g_textures.crate_wood = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Crates/crate_07.png")
 	g_textures.ground = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Ground/ground_01.png")
 	g_textures.wall = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Blocks/block_01.png")
-	g_textures.crate_stone = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Blocks/block_02.png")
-	g_textures.goal = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Environment/environment_10.png")
+	//g_textures.crate_stone = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Blocks/block_02.png")
 	g_textures.pit = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Environment/environment_06.png")
+	//g_textures.crate_metal = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Crates/crate_04.png")
+	//g_textures.goal = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Environment/environment_10.png")
+	//g_textures.spawn = l2d.texture_load(HOOKIN_ASSETS_DIR+"/d42.png")
+
 	g_textures.move_hand = l2d.texture_load(HOOKIN_ASSETS_DIR+"/hand.png")
 	g_textures.trash = l2d.texture_load(HOOKIN_ASSETS_DIR+"/trashcanOpen.png")
-	g_textures.spawn = l2d.texture_load(HOOKIN_ASSETS_DIR+"/d42.png")
 	g_textures.hook = l2d.texture_load(HOOKIN_ASSETS_DIR+"/arrow_e.png")
 	g_textures.paint = l2d.texture_load(HOOKIN_ASSETS_DIR+"/drawing_bucket.png")
 	g_textures.rect_tool = l2d.texture_load(HOOKIN_ASSETS_DIR+"/element_red_rectangle.png")
-	g_textures.crate_metal = l2d.texture_load(HOOKIN_ASSETS_DIR+"/sokoban-pack/Crates/crate_04.png")
 
 	player_init(&g_player)
+
+	init_tile_registry()
 
 	map_start_default(&g_start_map)
 	game_restart()
@@ -161,19 +164,25 @@ map_draw :: proc(tm: Map, edit_mode: bool) {
 		pos, size := map_get_tile_pos_size(tm, e.coord)
 		pos += e.vis.offset
 
-		// TODO rest
-		#partial switch e.et {
-		case .Wall: 
-			l2d.draw_texture(g_textures.wall, pos, tm.scale)
-		case .Goal:
-			l2d.draw_texture(g_textures.goal, pos, tm.scale)
-		case .Crate:
-			l2d.draw_texture(g_textures.crate_wood, pos, tm.scale)
-		case .PlayerSpawn:
-			if edit_mode do  l2d.draw_texture(g_textures.spawn, pos, tm.scale)
-		case .MetalCrate:
-			l2d.draw_texture(g_textures.crate_metal, pos, tm.scale)
+		if g_entities[e.et].tex_id != 0
+		{
+			l2d.draw_texture(g_entities[e.et].tex_id, pos, tm.scale)
+
 		}
+
+		//// TODO rest
+		//#partial switch e.et {
+		//case .Wall: 
+		//	l2d.draw_texture(g_textures.wall, pos, tm.scale)
+		//case .Goal:
+		//	l2d.draw_texture(g_textures.goal, pos, tm.scale)
+		//case .Crate:
+		//	l2d.draw_texture(g_textures.crate_wood, pos, tm.scale)
+		//case .PlayerSpawn:
+		//	if edit_mode do  l2d.draw_texture(g_textures.spawn, pos, tm.scale)
+		//case .MetalCrate:
+		//	l2d.draw_texture(g_textures.crate_metal, pos, tm.scale)
+		//}
 	}
 }
 

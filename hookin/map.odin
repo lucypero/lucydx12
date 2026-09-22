@@ -19,18 +19,18 @@ Map :: struct {
 	entities: Entities,
 }
 
-EntityType :: enum { Nothing, Ground, Player, Crate, MetalCrate, PlayerSpawn, Goal, Wall, Pit }
+//EntityType :: enum { Nothing, Ground, Player, Crate, MetalCrate, PlayerSpawn, Goal, Wall, Pit }
 
 Visualization :: struct {
 	offset: v2
 }
 
-Entity :: struct {
-	et: EntityType,
-	gen: i32,
-	coord: Coord,
-	vis: Visualization
-}
+// Entity :: struct {
+// 	et: EntityType,
+// 	gen: i32,
+// 	coord: Coord,
+// 	vis: Visualization
+// }
 
 map_get_player_spawn_coord :: proc(tm: Map) -> Coord {
 	for e in tm.entities {
@@ -67,21 +67,23 @@ map_tquery :: proc(tm: ^Map, c: Coord) -> []^Entity {
 }
 
 entity_is_solid :: proc(e: EntityType) -> bool{
-	#partial switch e {
-	case .Crate, .Wall, .MetalCrate:
-		return true
-	case: 
-		return false
-	}
+	return g_entities[e].is_solid
+	//#partial switch e {
+	//case .Crate, .Wall, .MetalCrate:
+	//	return true
+	//case: 
+	//	return false
+	//}
 }
 
 entity_is_floor :: proc(e:EntityType) -> bool {
-	#partial switch e {
-	case .Pit, .Ground:
-		return true
-	case: 
-		return false
-	}
+	return g_entities[e].is_floor
+	//#partial switch e {
+	//case .Pit, .Ground:
+	//	return true
+	//case: 
+	//	return false
+	//}
 }
 
 does_coord_have_solid :: proc(tm: Map, c: Coord) -> bool {
