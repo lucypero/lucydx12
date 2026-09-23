@@ -267,21 +267,23 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 		player_coord_changed(player_coord, false)
 	}
 
+	
 	bcr, ok := player_update(&g_player).?
 	if ok {
 		try_move_box(bcr)
 	}
-
+	
 	// Hook mechanic
 	{
 		if !g_input_disabled && l2d.key_is_just_pressed(.SPACE) {
 			try_do_hook()
 		}
-
+		
 	}
-
+	
 	// Drawing everything
 	{
+		
 		map_draw(g_map, edit_mode = false)
 
 		// Draw the player
@@ -327,6 +329,7 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 		for i in 0..<g_times_level_win {
 			l2d.draw_solid_rect({400 + 55 * cast(f32)i, 5 + 50}, {50, 50}, {0,1,0,1})
 		}
+		look_actions()
 	}
 
 	// Do imgui UI
@@ -340,6 +343,36 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 	}
 
 	return false
+}
+
+look_actions :: proc()
+{
+	last_vel := g_player.last_input_vel
+	lookup_coord := g_player.current_coord + last_vel
+
+	distance: int = 1
+
+	ent_lookup: []^Entity
+
+	outer: for
+	{
+		if distance > 30 do return
+
+		ent_lookup = map_tquery(&g_map, lookup_coord)
+
+		for e in ent_lookup
+		{
+			#partial switch e.et
+			{
+				case .FlingCrate:
+					world_coord := map_coord_to_world_pos(g_map, e.coord + (g_player.last_input_vel * distance))
+					l2d.draw_wirebox(world_coord, 60, 0xffffff, 2)
+			}
+		}
+
+		lookup_coord += last_vel
+		distance += 1
+	}
 }
 
 // TODO:  u gonna have to loop through tiles and also entities now...
