@@ -272,8 +272,6 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 		try_move_box(bcr)
 	}
 
-
-
 	// Hook mechanic
 	{
 		if !g_input_disabled && l2d.key_is_just_pressed(.SPACE) {

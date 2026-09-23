@@ -64,8 +64,10 @@ editor_init :: proc() {
 		.RectPaintTool = {g_textures.rect_tool}
 	}
 
+	// Registering brushes
 	clear(&g_editor.entity_buttons)
 	for e in g_entity_defs {
+		if !entity_is_editor_brush(e.type) do continue
 		append(&g_editor.entity_buttons, EntityButton{e.tex_id, e.type})
 	}
 
@@ -179,7 +181,7 @@ editor_update :: #force_inline proc() -> (_should_quit: bool){
 		g_editor.mid_rectpaint = nil
 	}
 
-	// Drawing Map
+	// Drawing Everything
 	{
 		map_draw(g_start_map, edit_mode =  true)
 
