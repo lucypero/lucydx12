@@ -131,3 +131,14 @@ imgui_do_listbox :: proc(list_name: string, selected: ^int, list: []string) -> b
 tc :: proc(str: string) -> cstring {
 	return strings.clone_to_cstring(str, context.temp_allocator)
 }
+
+// Helper to display a little (?) mark which shows a tooltip when hovered.
+imgui_do_helper_marker :: proc(desc: string) {
+	im.TextDisabled("(?)")
+	if im.BeginItemTooltip() {
+		im.PushTextWrapPos(im.GetFontSize() * 35.0)
+		im.TextUnformatted(fmt.ctprint(desc))
+		im.PopTextWrapPos()
+		im.EndTooltip()
+	}
+}

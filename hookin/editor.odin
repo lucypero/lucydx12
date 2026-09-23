@@ -227,7 +227,19 @@ do_imgui_ui :: proc() {
 
 	// Display of entities at selected coordinate.
 	{
-		entities_in_coord := map_tquery(&g_start_map, g_editor.coord_selected)
+		entities_in_coord := make([dynamic]^Entity, 0, 3, context.temp_allocator)
+
+		// Custom filter
+		for &e in g_start_map.entities {
+			if e.coord != g_editor.coord_selected ||
+			e.et == .Nothing ||
+			(g_editor.filter_selected == .Floor && !entity_is_floor(e.et)) ||
+			(g_editor.filter_selected == .NonFloor && entity_is_floor(e.et)) {
+				continue
+			}
+			append(&entities_in_coord, &e)
+		}
+
 		entities_in_coord_str := make([dynamic]string, 0, len(entities_in_coord), context.temp_allocator)
 
 		if g_editor.entity_in_coord_selected >= len(entities_in_coord) {
@@ -324,14 +336,15 @@ do_imgui_ui :: proc() {
 
 	// Filter selection
 	im.SeparatorText("Tool Filtering:")
+	ldx.imgui_do_helper_marker("Filters selection and deletion tools")
 
 	filter_addr := transmute(^i32)&g_editor.filter_selected
 
-	im.RadioButtonIntPtr("Floor", filter_addr, 0)
+	im.RadioButtonIntPtr("All", filter_addr, 0)
 	im.SameLine()
-	im.RadioButtonIntPtr("Non-Floor", filter_addr, 1)
+	im.RadioButtonIntPtr("Floor", filter_addr, 1)
 	im.SameLine()
-	im.RadioButtonIntPtr("All", filter_addr, 2)
+	im.RadioButtonIntPtr("Non-Floor", filter_addr, 2)
 
 	// Row of buttons "save, load, rename, delete"
 
@@ -435,12 +448,18 @@ on_mouse_click :: proc() {
 	case .DeleteTool:
 		ets := map_tquery(&g_start_map, g_editor.mouse_coord)
 		for e in ets {
-			entity_delete(&g_start_map, e)
+			switch g_editor.filter_selected {
+			case .All:
+				entity_delete(&g_start_map, e)
+			case .NonFloor:
+				if !entity_is_floor(e.et) do entity_delete(&g_start_map, e)
+			case .Floor:
+				if entity_is_floor(e.et) do entity_delete(&g_start_map, e)
+			}
 		}
 	case .PaintTool:
 		paint_on_coord(g_editor.mouse_coord)
 	case.RectPaintTool:
-
 		if _, ok := g_editor.mid_rectpaint.?; !ok {
 			g_editor.mid_rectpaint = g_editor.mouse_coord
 		}

@@ -267,23 +267,23 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 		player_coord_changed(player_coord, false)
 	}
 
-	
+
 	bcr, ok := player_update(&g_player).?
 	if ok {
 		try_move_box(bcr)
 	}
-	
+
 	// Hook mechanic
 	{
 		if !g_input_disabled && l2d.key_is_just_pressed(.SPACE) {
 			try_do_hook()
 		}
-		
+
 	}
-	
+
 	// Drawing everything
 	{
-		
+
 		map_draw(g_map, edit_mode = false)
 
 		// Draw the player
@@ -345,8 +345,7 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 	return false
 }
 
-look_actions :: proc()
-{
+look_actions :: proc() {
 	last_vel := g_player.last_input_vel
 	lookup_coord := g_player.current_coord + last_vel
 
@@ -354,19 +353,16 @@ look_actions :: proc()
 
 	ent_lookup: []^Entity
 
-	outer: for
-	{
+	outer: for {
 		if distance > 30 do return
 
 		ent_lookup = map_tquery(&g_map, lookup_coord)
 
-		for e in ent_lookup
-		{
-			#partial switch e.et
-			{
-				case .FlingCrate:
-					world_coord := map_coord_to_world_pos(g_map, e.coord + (g_player.last_input_vel * distance))
-					l2d.draw_wirebox(world_coord, 60, 0xffffff, 2)
+		for e in ent_lookup {
+			#partial switch e.et {
+			case .FlingCrate:
+				world_coord := map_coord_to_world_pos(g_map, e.coord + (g_player.last_input_vel * distance))
+				l2d.draw_wirebox(world_coord, g_map.cell_tex_size, 0xffffff, 2)
 			}
 		}
 
@@ -375,7 +371,6 @@ look_actions :: proc()
 	}
 }
 
-// TODO:  u gonna have to loop through tiles and also entities now...
 try_do_hook :: proc() {
 	// get current coord and look up coords along last input vel
 	// loop tiles along that vel
@@ -432,8 +427,7 @@ try_do_hook :: proc() {
 			case .FlingCrate:
 				old_pos := g_player.pos
 				target_position := e.coord + (g_player.last_input_vel * distance)
-				if !does_coord_have_solid(g_map, target_position)
-				{
+				if !does_coord_have_solid(g_map, target_position) {
 					box_place_at_coord(&g_player, target_position)
 					tween_v2(&g_player.vis.offset, old_pos - g_player.pos, {}, 0.3, .EaseOutCubic)
 
@@ -442,7 +436,7 @@ try_do_hook :: proc() {
 					}
 					timer(0.3, proc(_:rawptr) {g_hook.visible = false})
 				}
-				
+
 				return
 			}
 		}
