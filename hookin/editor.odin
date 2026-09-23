@@ -14,7 +14,6 @@ import ldx "../lucydx"
 lprint :: ldx.lprintfln
 LEVELS_DIR :: "hookin\\levels"
 
-
 // Global state
 g_editor : Editor
 g_cam : ^l2d.Camera
@@ -66,20 +65,9 @@ editor_init :: proc() {
 	}
 
 	clear(&g_editor.entity_buttons)
-	for e in g_entities
-	{
+	for e in g_entity_defs {
 		append(&g_editor.entity_buttons, EntityButton{e.tex_id, e.type})
 	}
-
-	//g_editor.entity_buttons = {
-	//	{g_textures.ground, .Ground},
-	//	{g_textures.spawn, .PlayerSpawn},
-	//	{g_textures.wall, .Wall},
-	//	{g_textures.pit, .Pit},
-	//	{g_textures.crate_wood, .Crate},
-	//	{g_textures.crate_metal, .MetalCrate},
-	//	{g_textures.goal, .Goal},
-	//}
 
 	g_cam = l2d.get_camera()
 
@@ -475,17 +463,17 @@ paint_on_coord :: proc(coord: Coord) {
 		// Check: Only one solid per coord
 
 		good_to_insert := true
-		
+
 		has_solid := does_coord_have_solid(g_start_map, coord)
 		if entity_is_solid(entity_to_paint_selected) && has_solid {
 			lprint("This coordinate already has a solid entity.")
 			good_to_insert = false
 		}
-		
+
 		// Uniqueness check ( delete previous ones)
 		if entity_to_paint_selected == .PlayerSpawn do entity_delete_kind(&g_start_map, .PlayerSpawn)
 		if entity_to_paint_selected == .Goal do entity_delete_kind(&g_start_map, .Goal)
-		
+
 		if good_to_insert {
 			entity_new(&g_start_map, entity_to_paint_selected, coord)
 		}

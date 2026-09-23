@@ -19,18 +19,9 @@ Map :: struct {
 	entities: Entities,
 }
 
-//EntityType :: enum { Nothing, Ground, Player, Crate, MetalCrate, PlayerSpawn, Goal, Wall, Pit }
-
 Visualization :: struct {
 	offset: v2
 }
-
-// Entity :: struct {
-// 	et: EntityType,
-// 	gen: i32,
-// 	coord: Coord,
-// 	vis: Visualization
-// }
 
 map_get_player_spawn_coord :: proc(tm: Map) -> Coord {
 	for e in tm.entities {
@@ -64,26 +55,6 @@ map_tquery :: proc(tm: ^Map, c: Coord) -> []^Entity {
 	}
 
 	return out[:]
-}
-
-entity_is_solid :: proc(e: EntityType) -> bool{
-	return g_entities[e].is_solid
-	//#partial switch e {
-	//case .Crate, .Wall, .MetalCrate:
-	//	return true
-	//case: 
-	//	return false
-	//}
-}
-
-entity_is_floor :: proc(e:EntityType) -> bool {
-	return g_entities[e].is_floor
-	//#partial switch e {
-	//case .Pit, .Ground:
-	//	return true
-	//case: 
-	//	return false
-	//}
 }
 
 does_coord_have_solid :: proc(tm: Map, c: Coord) -> bool {
@@ -186,7 +157,7 @@ map_start_default :: proc(tm: ^Map) {
 	map_size := v2i{10, 6}
 
 	// initting map
-	cell_tex_size := l2d.v2i_to_v2(l2d.texture_get_size(g_entities[EntityType.Wall].tex_id))
+	cell_tex_size := l2d.v2i_to_v2(l2d.texture_get_size(g_entity_defs[EntityType.Wall].tex_id))
 
 	window_res := l2d.get_window_res()
 
@@ -248,5 +219,38 @@ map_save :: proc(m: ^Map, file_name:string, save: enum{Save, Load}) {
 		assert(read_err == nil)
 		unmarshal_err := json.unmarshal(data, m, JSON_SPEC, context.temp_allocator)
 		assert(unmarshal_err == nil)
+	}
+}
+
+map_draw :: proc(tm: Map, edit_mode: bool) {
+
+	// Draw ground entities first
+	for e, i in tm.entities {
+		if e.et == .Nothing || !entity_is_floor(e.et) do continue
+		if entity_is_invisible(e.et) && !edit_mode do continue
+
+		pos, size := map_get_tile_pos_size(tm, e.coord)
+		pos += e.vis.offset
+
+		#partial switch e.et {
+		case .Ground:
+			l2d.draw_texture(g_entity_defs[EntityType.Ground].tex_id, pos, tm.scale)
+		case .Pit: 
+			l2d.draw_solid_rect(pos, size, COLOR_BLACK)
+			l2d.draw_texture(g_entity_defs[EntityType.Pit].tex_id, pos, tm.scale)
+		}
+	}
+
+	// Draw non-floor entities
+	for e, i in tm.entities {
+		if e.et == .Nothing || entity_is_floor(e.et) do continue
+		if entity_is_invisible(e.et) && !edit_mode do continue
+
+		pos, size := map_get_tile_pos_size(tm, e.coord)
+		pos += e.vis.offset
+
+		if g_entity_defs[e.et].tex_id != 0 {
+			l2d.draw_texture(g_entity_defs[e.et].tex_id, pos, tm.scale)
+		}
 	}
 }
