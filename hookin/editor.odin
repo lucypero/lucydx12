@@ -223,35 +223,37 @@ do_imgui_ui :: proc() {
 	im.Begin("Level editor")
 	defer im.End()
 
-	// ldx.imgui_do_text("Pointing at coord: %v", g_editor.mouse_coord)
+	im.SeparatorText(fmt.ctprintf("Entities at Coord: %v",  g_editor.coord_selected))
 
-	ent_title := fmt.ctprintf("Entities at Coord: %v",  g_editor.coord_selected)
-	im.SeparatorText(ent_title)
+	// Display of entities at selected coordinate.
+	{
+		entities_in_coord := map_tquery(&g_start_map, g_editor.coord_selected)
+		entities_in_coord_str := make([dynamic]string, 0, len(entities_in_coord), context.temp_allocator)
 
-	entities_str := make([dynamic]string, context.temp_allocator)
-	entities := map_tquery(&g_start_map, g_editor.coord_selected)
-
-	for e in entities {
-		append(&entities_str, fmt.tprint(e.et))
-	}
-
-	if len(entities_str) > 1 {
-		if ldx.imgui_do_listbox("Entities at coord:", &g_editor.entity_in_coord_selected, entities_str[:]) {
-			// fmt.printfln("clicked somewhere on table")
-		}
-	}
-
-	// Info about selected entity
-	if len(entities) > 0 {
-		ent_s := entities[g_editor.entity_in_coord_selected]
-		ldx.imgui_do_text("Selected Entity: %v", ent_s.et)
-		if im.Button("Delete Entity") {
-			// Delete this entity
-			entity_delete(&g_start_map, ent_s)
+		if g_editor.entity_in_coord_selected >= len(entities_in_coord) {
 			g_editor.entity_in_coord_selected = 0
 		}
-	} else {
-		ldx.imgui_do_text("No Entities at selected coord.")
+
+		for e in entities_in_coord {
+			append(&entities_in_coord_str, fmt.tprint(e.et))
+		}
+
+		if len(entities_in_coord_str) > 1 {
+			ldx.imgui_do_listbox("Entities at coord:", &g_editor.entity_in_coord_selected, entities_in_coord_str[:])
+		}
+
+		// Info about selected entity
+		if len(entities_in_coord) > 0 {
+			ent_s := entities_in_coord[g_editor.entity_in_coord_selected]
+			ldx.imgui_do_text("Selected Entity: %v", ent_s.et)
+			if im.Button("Delete Entity") {
+				// Delete this entity
+				entity_delete(&g_start_map, ent_s)
+				g_editor.entity_in_coord_selected = 0
+			}
+		} else {
+			ldx.imgui_do_text("No Entities at selected coord.")
+		}
 	}
 
 	im.SeparatorText("Tool Selection:")

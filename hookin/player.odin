@@ -4,10 +4,11 @@ import l2d "../lucy2d"
 
 import linalg "core:math/linalg"
 
-CHARACTER_MAX_SPEED :: 3
-CHARACTER_SPEED_RATE :: 0.08
-CHARACTER_TURN_RATE :: 4.0
+CHARACTER_MAX_SPEED :: 2
+CHARACTER_SPEED_RATE :: 0.3
+CHARACTER_TURN_RATE :: 40.0
 CHARACTER_SIZE :: 64
+CHARACTER_DECEL_SPEED :: 2
 
 Player :: struct {
 	using box: Box,// box for collision
@@ -70,7 +71,7 @@ player_update :: proc(player: ^Player) -> Maybe(BoxCollisionRecord) {
 	} else {
 		// interactions like box moves should be ignored if a collision happens with
 		// excess velocity without continued player input
-		player.vel = decelerate(player.vel, CHARACTER_SPEED_RATE * 3)
+		player.vel = decelerate(player.vel, CHARACTER_DECEL_SPEED)
 		map_boxes, ids := generate_collisions(g_map)
 		box_i, col_normal, did_hit := move_and_slide(&player.box, map_boxes[:])
 		return nil
