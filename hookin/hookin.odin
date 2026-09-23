@@ -396,6 +396,21 @@ try_do_hook :: proc() {
 				}
 				timer(0.3, proc(_:rawptr) {g_hook.visible = false})
 				return
+			case .FlingCrate:
+				old_pos := g_player.pos
+				target_position := e.coord + (g_player.last_input_vel * distance)
+				if !does_coord_have_solid(g_map, target_position)
+				{
+					box_place_at_coord(&g_player, target_position)
+					tween_v2(&g_player.vis.offset, old_pos - g_player.pos, {}, 0.3, .EaseOutCubic)
+
+					g_hook = HookVisual {
+						distance, g_player.current_coord, lookup_coord, true
+					}
+					timer(0.3, proc(_:rawptr) {g_hook.visible = false})
+				}
+				
+				return
 			}
 		}
 

@@ -7,7 +7,7 @@ HOOKIN_ASSETS_DIR :: "hookin/assets"
 g_entity_defs: [EntityType]EntityDef
 
 EntityType :: enum {
-	Nothing, Ground, Player, Crate, MetalCrate, PlayerSpawn, Goal, Wall, Pit
+	Nothing, Ground, Player, Crate, MetalCrate, FlingCrate, PlayerSpawn, Goal, Wall, Pit
 }
 
 EntityFlag :: enum {Solid, Floor, Invisible, EditorBrush}
@@ -33,9 +33,10 @@ register_tile :: proc(type: EntityType, texture_path: string, flags: EntityFlag_
 init_tile_registry :: proc() {
 	// Solids
 	register_tile(.Player, HOOKIN_ASSETS_DIR+"/sokoban-pack/Player/player_01.png", {.Solid})
-	register_tile(.Crate, HOOKIN_ASSETS_DIR+"/sokoban-pack/Crates/crate_07.png", {.Solid, .EditorBrush})
+	register_tile(.Crate, HOOKIN_ASSETS_DIR+"/sokoban-pack/Crates/crate_02.png", {.Solid, .EditorBrush})
 	register_tile(.Wall, HOOKIN_ASSETS_DIR+"/sokoban-pack/Blocks/block_01.png", {.Solid, .EditorBrush})
 	register_tile(.MetalCrate, HOOKIN_ASSETS_DIR+"/sokoban-pack/Crates/crate_04.png", {.Solid, .EditorBrush})
+	register_tile(.FlingCrate, HOOKIN_ASSETS_DIR+"/sokoban-pack/Crates/crate_06.png", {.Solid, .EditorBrush})
 
 	// Floors
 	register_tile(.Ground, HOOKIN_ASSETS_DIR+"/sokoban-pack/Ground/ground_01.png", {.Floor, .EditorBrush})

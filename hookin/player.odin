@@ -5,10 +5,10 @@ import l2d "../lucy2d"
 import linalg "core:math/linalg"
 
 CHARACTER_MAX_SPEED :: 2
-CHARACTER_SPEED_RATE :: 0.3
-CHARACTER_TURN_RATE :: 40.0
+CHARACTER_SPEED_RATE :: 0.5
+CHARACTER_TURN_RATE :: 1.0
 CHARACTER_SIZE :: 64
-CHARACTER_DECEL_SPEED :: 2
+CHARACTER_DECEL_SPEED :: 0.2
 
 Player :: struct {
 	using box: Box,// box for collision
