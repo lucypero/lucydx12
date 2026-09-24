@@ -255,7 +255,6 @@ game_update :: #force_inline proc() -> (_should_quit: bool) {
 	}
 
 	if l2d.key_is_just_pressed(.ESCAPE) do return true
-	l2d.window_clear(COLOR_BACKGROUND)
 
 	// Update game logic
 	if l2d.key_is_just_pressed(.R) do game_restart()

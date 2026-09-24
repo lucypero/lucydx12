@@ -100,8 +100,6 @@ load_levels :: proc() {
 
 editor_update :: #force_inline proc() -> (_should_quit: bool){
 
-	l2d.window_clear(COLOR_BACKGROUND)
-
 	// Input
 
 	if l2d.key_is_just_pressed(.TAB) {
