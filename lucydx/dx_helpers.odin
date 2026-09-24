@@ -141,6 +141,19 @@ swapchain_resize :: proc(swapchain: ^Swapchain, new_res: v2i) {
 	swapchain.frame_index = cast(int)swapchain.swapchain->GetCurrentBackBufferIndex()
 }
 
+// Copies given texture to the swapchain
+swapchain_copy_from :: proc(tx: Texture) {
+	copy_src := dx.TEXTURE_COPY_LOCATION {
+		pResource = tx.buffer,
+		Type = .SUBRESOURCE_INDEX,
+		SubresourceIndex = 0
+	}
+
+	copy_dest := copy_src
+	copy_dest.pResource = g_dx_core.swapchain.targets[g_dx_core.swapchain.frame_index].buffer
+	g_dx_core.cmdlist->CopyTextureRegion(&copy_dest, 0, 0, 0, &copy_src, nil)
+}
+
 swapchain_get_current_target :: proc() -> Texture {
 	return g_dx_core.swapchain.targets[g_dx_core.swapchain.frame_index]
 }
@@ -154,8 +167,8 @@ swapchain_set_as_render_target :: proc() {
 
 swapchain_transition :: proc(state_before, state_after: dx.RESOURCE_STATES) {
 	tex_swapchain := swapchain_get_current_target()
-	transition_resource(tex_swapchain.buffer,
-		g_dx_core.cmdlist, state_before, state_after, subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES)
+	texture_transition(tex_swapchain,
+		state_before, state_after, subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES)
 }
 
 swapchain_present :: proc() {
@@ -439,12 +452,12 @@ pso_create :: proc(shader_filename: string, root_signatures: ^[RootSignatureChoi
 	return pso
 }
 
-transition_resource :: proc(res: ^dx.IResource, cmd_list: ^dx.IGraphicsCommandList, state_before, state_after: dx.RESOURCE_STATES, subresource: u32 = 0) {
+texture_transition :: proc(tx: Texture, state_before, state_after: dx.RESOURCE_STATES, subresource: u32 = 0) {
 	barrier : dx.RESOURCE_BARRIER = {
 		Type = .TRANSITION,
 		Flags = {},
 		Transition = {
-			pResource = res,
+			pResource = tx.buffer,
 			StateBefore = state_before,
 			StateAfter = state_after,
 			Subresource = subresource
@@ -452,9 +465,8 @@ transition_resource :: proc(res: ^dx.IResource, cmd_list: ^dx.IGraphicsCommandLi
 	}
 
 	// run resource barrier
-	cmd_list->ResourceBarrier(1, &barrier)
+	g_dx_core.cmdlist->ResourceBarrier(1, &barrier)
 }
-
 
 g_include_handler : ^dxc.IIncludeHandler
 
@@ -847,6 +859,26 @@ texture_create :: proc(
 		opt_clear_value = opt_clear_value,
 		mip_levels = mip_levels
 	}
+}
+
+// Sets texture as Render Target
+texture_set_as_rt :: proc(tx: Texture) {
+	tex_swapchain_cpu_addr := texture_get_rtv_cpu_address(tx)
+	g_dx_core.cmdlist->OMSetRenderTargets(1, &tex_swapchain_cpu_addr, false, nil)
+}
+
+// Clears RTV with given color
+texture_clear_rtv_with :: proc(tx: Texture, color: v4) {
+	cl := color
+	rtv_handle := texture_get_rtv_cpu_address(tx)
+	g_dx_core.cmdlist->ClearRenderTargetView(rtv_handle, &cl, 0, nil)
+}
+
+// Clears RTV with optimized color
+texture_clear_rtv :: proc(tx: Texture) {
+	rtv_handle := texture_get_rtv_cpu_address(tx)
+	clear_color: v4 = tx.opt_clear_value.?.Color
+	g_dx_core.cmdlist->ClearRenderTargetView(rtv_handle, &clear_color, 0, nil)
 }
 
 texture_resize :: proc(tex: ^Texture, new_size: v2i, pool: ^DXResourcePool) {
@@ -2096,8 +2128,6 @@ dx_log_debug_callback :: proc "c" (
 
 // end of frame bureocracy
 dx_frame_end :: proc() {
-
-	// Transitioning the render target to "Present" state
 	swapchain_transition({.RENDER_TARGET}, dx.RESOURCE_STATE_PRESENT)
 	close_and_execute_cmdlist()
 	swapchain_present()

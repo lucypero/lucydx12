@@ -18,6 +18,7 @@
 #pragma pack_matrix(column_major)
 #include "src/shaders/shader_common.hlsl"
 
+// TODO do 8x8 thread groups
 [numthreads(1, 1, 1)]
 void CSMain(
 	uint3 groupID          : SV_GroupID,           // ID of the current thread group

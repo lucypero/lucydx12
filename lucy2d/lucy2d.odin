@@ -26,7 +26,8 @@ v2i :: ldx.v2i
 dxm :: ldx.dxm
 
 PSOName :: enum {
-	Quad
+	Quad,
+	PostProcess
 }
 
 MouseButton :: enum u32 {Left, Right, Middle}
@@ -46,6 +47,8 @@ Lucy2DContext :: struct {
 	clear_color_issued: Maybe(v4),
 	window_should_close: bool,
 	loaded_textures: map[int]ldx.Texture,
+
+	tx_quad_out, tx_post_process_out: ldx.Texture,
 
 	kb_prev: []u8,
 	kb_cur: []u8,
@@ -78,14 +81,23 @@ Sprite :: struct {
 // constant buffer alignment: fields fill the 16 byte row unless they cross the row boundary.
 // if they cross, they will start at the next row.
 GeneralConstants :: struct #align (256) {
-	view: dxm,
-	projection: dxm,
-	sb_sprites_idx: u32, // index of the sprite structured buffer into the resource heap
+	view: dxm, // Row 0-3
+	projection: dxm, // Row 4-7
+
+	// Row 8
 	inv_screen: v2, // 1.0 / (width, height)
 	screen: v2,
+
+	// Row 3
+	sb_sprites_idx: u32, // index of the sprite structured buffer into the resource heap
 	// Camera stuff,
 	// inverse_view_proj: dxm,
 	// /Camera stuff
+
+	// Texture indices
+	tx_idx_quad_out, tx_idx_post_process_out: i32,
+
+	// 32 bits left in ROW 3
 }
 
 g_lct : Lucy2DContext
@@ -158,6 +170,21 @@ window_new :: proc(window_name:string, width, height: int) {
 		rtv_count = 1,
 		rtv_formats = {0 = .R8G8B8A8_UNORM, 1 ..=7 = .UNKNOWN},
 	}, render_proc = pso_quad_render, pso_name = "Quad PSO")
+
+	ct.psos[.PostProcess] = ldx.pso_compute_create("shaders/2d-post-process.hlsl", ct.root_signatures, &ct.resources_longterm,
+		render_proc = pso_post_process_render, pso_name = "Post-Process Compute PSO")
+
+	// Setting up texture buffers
+
+	lighting_out_clear_value := dx.CLEAR_VALUE {
+		Format = .R8G8B8A8_UNORM,
+		Color = v4{0, 0, 0, 1}
+	}
+
+	ct.tx_quad_out = ldx.texture_create(nil, cast(u64)width, cast(u32)height, .R8G8B8A8_UNORM,
+		&ct.resources_resizing, view_flags = {.RTV, .SRV}, texture_name = "quad RT", opt_clear_value = lighting_out_clear_value)
+	ct.tx_post_process_out = ldx.texture_create(nil, cast(u64)width, cast(u32)height, .R8G8B8A8_UNORM,
+		&ct.resources_resizing, view_flags = {.UAV}, texture_name = "post process output")
 
 	// Leave the cmd list closed until it's time to render
 	ldx.close_and_execute_cmdlist()
@@ -293,8 +320,6 @@ frame_end :: proc() {
 	ctd := &ldx.g_dx_core
 	ct := &g_lct
 
-
-
 	// Updating Constant Buffer
 	{
 		window_size := v2{cast(f32)ct.window_dimensions.x, cast(f32)ct.window_dimensions.y}
@@ -326,6 +351,8 @@ frame_end :: proc() {
 			screen = window_size,
 			view = mat_view,
 			projection = mat_proj,
+			tx_idx_quad_out = cast(i32)ct.tx_quad_out.srv_index,
+			tx_idx_post_process_out = cast(i32)ct.tx_post_process_out.uav_index,
 		})
 	}
 
@@ -333,14 +360,14 @@ frame_end :: proc() {
 	ldx.g_dx_core.cmdlist->Reset(ctd.command_allocator, nil)
 	ldx.swapchain_transition(dx.RESOURCE_STATE_PRESENT, {.RENDER_TARGET})
 
-	// Clear color
-	if clear_color, ok := ct.clear_color_issued.?; ok {
-		ldx.swapchain_clear(clear_color)
-	}
-
 	for pso in ct.psos {
 		pso.render_proc(pso)
 	}
+
+	ldx.swapchain_transition({.COPY_DEST}, {.RENDER_TARGET})
+
+	// Setting swapchain as render target (for imgui drawing)
+	ldx.swapchain_set_as_render_target()
 
 	ldx.imgui_end_frame()
 	ldx.dx_frame_end()
@@ -348,6 +375,10 @@ frame_end :: proc() {
 	if new_res, wants_to_resize := ct.resize_wanted.?; wants_to_resize {
 		// resizing
 		ldx.swapchain_resize(&ctd.swapchain, new_res)
+
+		ldx.texture_resize(&ct.tx_post_process_out, new_res, &ct.resources_resizing)
+		ldx.texture_resize(&ct.tx_quad_out, new_res, &ct.resources_resizing)
+
 		ct.window_dimensions = new_res
 		ct.resize_wanted = nil
 	}
@@ -445,28 +476,60 @@ lucy2d_upload_thread_start :: proc() {
 	ldx.arena_destroy(&upload_temp_arena)
 }
 
-pso_quad_render :: proc(pso: ldx.PSO) {
+render_common_stuff :: proc(pso: ldx.PSO) {
 	ctd := &ldx.g_dx_core
 	ct := &g_lct
+	ctd.cmdlist->SetPipelineState(pso.pipeline_state)
+	ctd.cmdlist->SetDescriptorHeaps(1, &ctd.heap_cbv_srv_uav.heap)
 
-	if len(ct.sprites_to_render) <= 0 do return
-
-	assert(len(ct.sprites_to_render) <= SPRITE_MAX_COUNT)
-	ldx.copy_to_buffer_already_mapped(ct.sb_sprites.gpu_pointer, slice.to_bytes(ct.sprites_to_render[:]))
-
-	// Common render stuff
-	{
-		ctd.cmdlist->SetPipelineState(pso.pipeline_state)
-		ctd.cmdlist->SetDescriptorHeaps(1, &ctd.heap_cbv_srv_uav.heap)
+	if pso.is_compute {
+		ctd.cmdlist->SetComputeRootSignature(pso.root_signature)
+		ctd.cmdlist->SetComputeRoot32BitConstant(0, cast(u32)ct.cb_general.srv_index, 0)
+	} else {
 		ctd.cmdlist->SetGraphicsRootSignature(pso.root_signature)
 		ctd.cmdlist->SetGraphicsRoot32BitConstant(0, cast(u32)ct.cb_general.srv_index, 0)
 		ldx.set_viewport_stuff(ct.window_dimensions[0], ct.window_dimensions[1])
 	}
+}
 
-	ldx.swapchain_set_as_render_target()
+pso_quad_render :: proc(pso: ldx.PSO) {
+	ctd := &ldx.g_dx_core
+	ct := &g_lct
 
-	ctd.cmdlist->IASetPrimitiveTopology(.TRIANGLESTRIP)
-	ctd.cmdlist->DrawInstanced(4, cast(u32)len(ct.sprites_to_render), 0, 0)
+	assert(len(ct.sprites_to_render) <= SPRITE_MAX_COUNT)
+
+	ldx.copy_to_buffer_already_mapped(ct.sb_sprites.gpu_pointer, slice.to_bytes(ct.sprites_to_render[:]))
+
+	// Common render stuff
+	render_common_stuff(pso)
+
+	ldx.texture_transition(ct.tx_quad_out, {.PIXEL_SHADER_RESOURCE}, {.RENDER_TARGET})
+	ldx.texture_set_as_rt(ct.tx_quad_out)
+
+	if cc, ok := ct.clear_color_issued.?; ok {
+		ldx.texture_clear_rtv_with(ct.tx_quad_out, cc)
+	} else {
+		ldx.texture_clear_rtv(ct.tx_quad_out)
+	}
+
+	if len(ct.sprites_to_render) > 0 {
+		ctd.cmdlist->IASetPrimitiveTopology(.TRIANGLESTRIP)
+		ctd.cmdlist->DrawInstanced(4, cast(u32)len(ct.sprites_to_render), 0, 0)
+	}
+}
+
+pso_post_process_render :: proc(pso: ldx.PSO) {
+	ctd := &ldx.g_dx_core
+	ct := &g_lct
+
+	// Common render stuff
+	render_common_stuff(pso)
+	ldx.texture_transition(ct.tx_quad_out, {.RENDER_TARGET}, {.PIXEL_SHADER_RESOURCE})
+	ctd.cmdlist->Dispatch(cast(u32)ct.window_dimensions.x, cast(u32)ct.window_dimensions.y, 1)
+
+	// Copy Post Process OUT to the swapchain texture, to display the final image
+	ldx.swapchain_transition({.RENDER_TARGET}, {.COPY_DEST})
+	ldx.swapchain_copy_from(ct.tx_post_process_out)
 }
 
 window_should_close :: proc() -> bool {
