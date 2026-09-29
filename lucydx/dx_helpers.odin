@@ -49,7 +49,11 @@ ConstantBufferUpload :: struct {
 }
 
 // created buffer on the upload heap, and maps it. keeps it mapped
-cb_upload_create :: proc(size_in_bytes: u32, pool: ^DXResourcePool, name: string = "") -> ConstantBufferUpload {
+cb_upload_create :: proc(cb_type: typeid, pool: ^DXResourcePool, name: string = "") -> ConstantBufferUpload {
+
+	assert(is_struct_aligned_to_cbuffer(cb_type), "CONSTANT BUFFER STRUCT IS MISALIGNED!")
+
+	size_of_cb := reflect.size_of_typeid(cb_type)
 
 	vb: ^dx.IResource
 
@@ -59,7 +63,7 @@ cb_upload_create :: proc(size_in_bytes: u32, pool: ^DXResourcePool, name: string
 	resource_desc := dx.RESOURCE_DESC {
 		Dimension = .BUFFER,
 		Alignment = 0,
-		Width = u64(size_in_bytes),
+		Width = u64(size_of_cb),
 		Height = 1,
 		DepthOrArraySize = 1,
 		MipLevels = 1,
@@ -95,13 +99,13 @@ cb_upload_create :: proc(size_in_bytes: u32, pool: ^DXResourcePool, name: string
 	// creating our constant buffer
 	srv_index := create_cbv(&dx.CONSTANT_BUFFER_VIEW_DESC{
 		BufferLocation = vb->GetGPUVirtualAddress(),
-		SizeInBytes = size_in_bytes
+		SizeInBytes = cast(u32)size_of_cb
 	})
 
 	return ConstantBufferUpload {
 		buffer = vb,
 		gpu_pointer = gpu_data,
-		buffer_size = size_in_bytes,
+		buffer_size = cast(u32)size_of_cb,
 		srv_index = srv_index
 	}
 }
@@ -2232,4 +2236,63 @@ dx_generate_hlsl_types :: proc(types: []typeid, out_file: string) {
 
 	err := os.write_entire_file_from_string(out_file, strings.to_string(sb))
 	assert(err == os.General_Error.None)
+}
+
+
+is_basic_scalar_type :: proc(t: ^reflect.Type_Info) -> bool {
+	#partial switch type in t.variant {
+	case reflect.Type_Info_Integer, reflect.Type_Info_Float: // etcc
+		return true
+	case: return false
+	}
+}
+
+align_to :: proc(start: ^int, alignment: int){
+	rem := start^ % alignment
+	if rem != 0 {
+		start^ = start^ + (alignment - rem)
+	}
+}
+
+// Checks if a given struct would align the same way in an HLSL's constant buffer
+is_struct_aligned_to_cbuffer :: proc(cb_type: typeid) -> bool {
+
+	if reflect.align_of_typeid(cb_type) != 256 {
+		lprintfln("Constant buffer struct needs an alignment of 256")
+		return false
+	}
+
+	current_hlsl_offset: int
+
+	for i in 0..<reflect.struct_field_count(cb_type) {
+		sf := reflect.struct_field_at(cb_type, i)
+		field_size := sf.type.size
+
+		// if it's more than 16 bytes, just align it to the row
+		if field_size > 16 {
+			align_to(&current_hlsl_offset, 16)
+		} else {
+			// If it's a basic scalar type... align it to the type alignment
+			if is_basic_scalar_type(sf.type) {
+				align_to(&current_hlsl_offset, field_size)
+			}
+
+			offset_start := current_hlsl_offset
+			offset_end := current_hlsl_offset + field_size
+
+			if offset_start / 16 != (offset_end - 1) / 16 {
+				// crosses row boundary. add padding so it starts at next row.
+				current_hlsl_offset += 16 - (current_hlsl_offset % 16)
+			}
+		}
+
+		if cast(int)sf.offset != current_hlsl_offset {
+			lprintfln("Field: %v is misaligned.", i)
+			return false
+		}
+
+		current_hlsl_offset += sf.type.size
+	}
+
+	return true
 }

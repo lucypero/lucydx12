@@ -77,9 +77,6 @@ Sprite :: struct {
 	border_thickness: f32,
 }
 
-// TODO beware of padding being different here vs HLSL!!!!!!!!!!!! take care of this!
-// constant buffer alignment: fields fill the 16 byte row unless they cross the row boundary.
-// if they cross, they will start at the next row.
 GeneralConstants :: struct #align (256) {
 	view: dxm, // Row 0-3
 	projection: dxm, // Row 4-7
@@ -90,14 +87,7 @@ GeneralConstants :: struct #align (256) {
 
 	// Row 3
 	sb_sprites_idx: u32, // index of the sprite structured buffer into the resource heap
-	// Camera stuff,
-	// inverse_view_proj: dxm,
-	// /Camera stuff
-
-	// Texture indices
 	tx_idx_quad_out, tx_idx_post_process_out: i32,
-
-	// 32 bits left in ROW 3
 }
 
 g_lct : Lucy2DContext
@@ -154,7 +144,7 @@ window_new :: proc(window_name:string, width, height: int) {
 	ldx.dx_generate_hlsl_types({Sprite, GeneralConstants}, "shaders/gen/lucy2d-structs.gen.hlsl")
 
 	g_lct.root_signatures = create_root_signatures(&g_lct.resources_longterm)
-	g_lct.cb_general = ldx.cb_upload_create(size_of(GeneralConstants), &g_lct.resources_longterm, name = "general constants cbv")
+	g_lct.cb_general = ldx.cb_upload_create(GeneralConstants, &g_lct.resources_longterm, name = "general constants cbv")
 	g_lct.sb_sprites = ldx.structured_buffer_create("Sprite buffer", &g_lct.resources_longterm, Sprite, SPRITE_MAX_COUNT, heap_type = .UPLOAD)
 
 	ldx.imgui_init(ct.window, &ct.resources_longterm)

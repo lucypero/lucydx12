@@ -16,7 +16,7 @@ void CSMain(
 
 
 	float4 original_color = in_texture[dispatchThreadID.xy];
-	original_color.r *= 0.2;
+	// original_color.r *= 0.2;
 	
 	// write to result reading in_texture
 	result_texture[dispatchThreadID.xy] = original_color;
