@@ -72,6 +72,8 @@ SPRITE_MAX_COUNT :: 1000
 Sprite :: struct {
 	pos: v2,
 	size: v2,
+	pivot: v2,
+	rot: f32,
 	color: v4,
 	tex_idx: i32,
 	border_thickness: f32,
@@ -277,8 +279,8 @@ window_cleanup :: proc() {
 	sdl.DestroyWindow(ct.window)
 	sdl.Quit()
 
-	ldx.resource_pool_release(&g_lct.resources_longterm)
 	ldx.resource_pool_release(&g_lct.resources_resizing)
+	ldx.resource_pool_release(&g_lct.resources_longterm)
 
 	delete(g_lct.resources_resizing)
 	delete(g_lct.resources_longterm)
@@ -538,33 +540,48 @@ texture_load :: proc(image_filepath: string) -> int {
 }
 
 // Draws texture at the texture's resolution, scaled up given a `scale`
-draw_texture :: proc(tex_id: int, pos: v2, scale := v2{1,1}, tint: Color = COLOR_WHITE) {
+// `rot` is in turns (1 turn == 360 degrees == 2 PI radians
+
+Rotation :: struct {
+	pivot: v2,
+	val: f32,
+}
+
+draw_texture :: proc(tex_id: int, pos: v2, scale := v2{1,1}, rot := Rotation{}, tint: Color = COLOR_WHITE) {
 	tex, found := &g_lct.loaded_textures[tex_id]
 	ensure(found)
 
-	append(&g_lct.sprites_to_render, Sprite{
+	sprite := Sprite {
 		pos = pos,
 		size = v2{cast(f32)tex.width, cast(f32)tex.height} * scale,
 		tex_idx = cast(i32)tex.srv_index,
+		pivot = rot.pivot,
+		rot = rot.val,
 		color = tint
-	})
+	}
+
+	append(&g_lct.sprites_to_render, sprite)
 }
 
 // Draws a solid color rect sized by `size`
-draw_solid_rect :: proc(pos, size: v2, color: Color) {
-	append(&g_lct.sprites_to_render, Sprite{
-		pos = pos,
-		size = size,
-		color = color
-	})
-}
-
-draw_wirebox :: proc(pos, size: v2, color: Color, border_thickness: f32) {
+draw_solid_rect :: proc(pos, size: v2, color: Color, rot := Rotation{}) {
 	append(&g_lct.sprites_to_render, Sprite{
 		pos = pos,
 		size = size,
 		color = color,
-		border_thickness = border_thickness
+		rot = rot.val,
+		pivot = rot.pivot
+	})
+}
+
+draw_wirebox :: proc(pos, size: v2, color: Color, border_thickness: f32, rot := Rotation{}) {
+	append(&g_lct.sprites_to_render, Sprite{
+		pos = pos,
+		size = size,
+		color = color,
+		border_thickness = border_thickness,
+		rot = rot.val,
+		pivot = rot.pivot
 	})
 }
 

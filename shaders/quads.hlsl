@@ -15,8 +15,6 @@ VSOut VSMain(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
 	StructuredBuffer<Sprite> sprites = ResourceDescriptorHeap[general_constants.sb_sprites_idx];
 	Sprite sprite = sprites[iid];
 
-	// make the corners and stuff.. do some linear transforms
-
 	VSOut output;
 	output.color = sprite.color;
 	output.pos.z = 1;
@@ -45,7 +43,20 @@ VSOut VSMain(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
 	}
 
 
-	// Converting to viwew space
+	// Rotating
+
+	
+
+	
+	output.pos.xy -= sprite.pos + sprite.pivot;
+
+	float2 past_pos = output.pos.xy;
+	
+	output.pos.x = past_pos.x * cos(sprite.rot) - past_pos.y * sin(sprite.rot);
+	output.pos.y = past_pos.x * sin(sprite.rot) + past_pos.y * cos(sprite.rot);
+	output.pos.xy += sprite.pos + sprite.pivot;
+	
+	// Converting to view space
 	output.pos = mul(general_constants.view, output.pos);
 
 	// Proj space

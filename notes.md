@@ -1,10 +1,34 @@
+# game design material
+
+Books
+- The Art of Game Design: A Book of Lenses by Jesse Schell. It's the best general book, but it won't teach puzzle design specifically.
+- Puzzlecraft by Mike Selinker and Thomas Snyder. It's about pen-and-paper puzzles, but its ideas about building a puzzle around one "aha" transfer directly.
+
+Talks and videos (more useful here)
+- Alan Hazelden (A Monster's Expedition, Cosmic Express, Draknek). Look up his talks on puzzle design. He's the closest match to what you're making.
+- Jonathan Blow, "Designing to Reveal the Nature of the Universe." It's about finding the implications hidden in a mechanic rather than inventing puzzles.
+- Game Maker's Toolkit (Mark Brown), especially his videos on what makes a good puzzle and on Stephen's Sausage Roll.
+
+Practical advice
+Prototype your mechanics in PuzzleScript before building them into hookin. It's made for Sokoban-style games, and you can try a mechanic in minutes. Play Stephen's Sausage Roll and A Monster's Expedition as your reference games.
+
+The most useful single idea: design each level backwards from one insight. Pick a surprising thing your hook can do, build the smallest level where the player must discover it, then remove everything else from the level.
+
+
+# lucy2d todo
+
+- rotation of sprite
+- sprite sheet animation
+- the main character needs to switch sprite to indicate where he's looking
+
+
 # Level Editor Improvements
 
-- [ ] make map size tweakable
+- [x] make map size tweakable
 - [ ] layer system
 - [ ] "Fill" tool
-- [ ] "Rect" tool
-- [ ] pan camera with middle click or something
+- [x] "Rect" tool
+- [x] pan camera with middle click or something
 
 # associate requirements
 
