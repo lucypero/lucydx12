@@ -556,7 +556,7 @@ draw_texture :: proc(tex_id: int, pos: v2, scale := v2{1,1}, rot := Rotation{}, 
 		size = v2{cast(f32)tex.width, cast(f32)tex.height} * scale,
 		tex_idx = cast(i32)tex.srv_index,
 		pivot = rot.pivot,
-		rot = rot.val,
+		rot = rot.val * 2 * math.PI,
 		color = tint
 	}
 
@@ -569,7 +569,7 @@ draw_solid_rect :: proc(pos, size: v2, color: Color, rot := Rotation{}) {
 		pos = pos,
 		size = size,
 		color = color,
-		rot = rot.val,
+		rot = rot.val * 2 * math.PI,
 		pivot = rot.pivot
 	})
 }
@@ -580,7 +580,7 @@ draw_wirebox :: proc(pos, size: v2, color: Color, border_thickness: f32, rot := 
 		size = size,
 		color = color,
 		border_thickness = border_thickness,
-		rot = rot.val,
+		rot = rot.val * 2 * math.PI,
 		pivot = rot.pivot
 	})
 }
