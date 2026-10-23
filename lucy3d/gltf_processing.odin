@@ -22,7 +22,7 @@ import ldx "../lucydx"
 scene_from_gltf :: proc(scene: ^Scene) {
 
 	when PROFILE {
-	load_gltf_profile_str := string_append("loading gltf file: ", scene.path, allocator = context.temp_allocator)
+	load_gltf_profile_str := ldx.string_append("loading gltf file: ", scene.path, allocator = context.temp_allocator)
 	spall.SCOPED_EVENT(&g_spall_ctx, &g_spall_buffer, name = load_gltf_profile_str)
 	}
 
@@ -75,7 +75,7 @@ scene_from_gltf :: proc(scene: ^Scene) {
 			data.mesh_i += 1
 		})
 
-		scene.sb_model_matrices = structured_buffer_create("model matrix data",
+		scene.sb_model_matrices = ldx.structured_buffer_create("model matrix data",
 			&scene.resource_pool, ModelMatrixData, cast(int)scene.mesh_count, buffer_data = slice.to_bytes(data.sample_matrix_data))
 	}
 
@@ -87,7 +87,7 @@ scene_from_gltf :: proc(scene: ^Scene) {
 	{
 		instance_data := make([]InstanceData, MAX_GIZMOS, context.temp_allocator)
 		// TODO: when u use the upload service for this, remember to re-set the scene fence value.
-		scene.vb_gizmos_instance_data = create_vertex_buffer_upload(size_of(instance_data[0]), u32(slice.size(instance_data)), pool = &scene.resource_pool)
+		scene.vb_gizmos_instance_data = ldx.create_vertex_buffer_upload(size_of(instance_data[0]), u32(slice.size(instance_data)), pool = &scene.resource_pool)
 	}
 
 	scene.fence_value = scene.sb_model_matrices.fence_value
@@ -95,7 +95,7 @@ scene_from_gltf :: proc(scene: ^Scene) {
 
 gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 
-	TEMP_GUARD()
+	ldx.TEMP_GUARD()
 
 	vertices := make([dynamic]Vertex, context.temp_allocator)
 	indices := make([dynamic]u32, context.temp_allocator)
@@ -214,7 +214,7 @@ gltf_load_meshes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 	// add uv sphere (for gizmos)
 
 	// TODO: separate gizmos from scene
-	sphere_verts_base, sphere_indices := generate_uv_sphere(32, 32, context.temp_allocator)
+	sphere_verts_base, sphere_indices := ldx.generate_uv_sphere(32, 32, context.temp_allocator)
 
 	for v in sphere_verts_base {
 		append(&vertices, Vertex {
@@ -323,7 +323,7 @@ upload_vertex_data :: proc(vertices: []Vertex, indices: []u32, scene_out: ^Scene
 
 	vb_allocation : ^dxma.Allocation
 	hr := dxma.Allocator_CreateResource(
-		pSelf = g_dx_core.dxma_allocator,
+		pSelf = ldx.g_dx_core.dxma_allocator,
 		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT},
 		pResourceDesc = &resource_desc,
 		InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
@@ -333,7 +333,7 @@ upload_vertex_data :: proc(vertices: []Vertex, indices: []u32, scene_out: ^Scene
 		ppvResource = nil
 	)
 
-	check(hr, "failed creating vertex buffer")
+	ldx.check(hr, "failed creating vertex buffer")
 	scene_out.vertex_buffer = dxma.Allocation_GetResource(vb_allocation)
 	// todo this is wrong
 	append(&scene_out.resource_pool, cast(^dx.IUnknown)vb_allocation)
@@ -346,7 +346,7 @@ upload_vertex_data :: proc(vertices: []Vertex, indices: []u32, scene_out: ^Scene
 		SizeInBytes = u32(vertex_buffer_size),
 	}
 
-	dx_upload_trigger(&g_upload_service, scene_out.vertex_buffer, slice.to_bytes(vertices[:]))
+	ldx.upload_buffer(scene_out.vertex_buffer, slice.to_bytes(vertices[:]))
 
 	// creating index buffer resource
 
@@ -357,7 +357,7 @@ upload_vertex_data :: proc(vertices: []Vertex, indices: []u32, scene_out: ^Scene
 
 	upload_allocation_2 : ^dxma.Allocation
 	hr = dxma.Allocator_CreateResource(
-		pSelf = g_dx_core.dxma_allocator,
+		pSelf = ldx.g_dx_core.dxma_allocator,
 		pAllocDesc = &dxma.ALLOCATION_DESC{HeapType = .DEFAULT},
 		pResourceDesc = &resource_desc,
 		InitialResourceState = dx.RESOURCE_STATE_GENERIC_READ,
@@ -366,7 +366,7 @@ upload_vertex_data :: proc(vertices: []Vertex, indices: []u32, scene_out: ^Scene
 		riidResource = nil,
 		ppvResource = nil
 	)
-	check(hr, "failed creating index buffer")
+	ldx.check(hr, "failed creating index buffer")
 	scene_out.index_buffer = dxma.Allocation_GetResource(upload_allocation_2)
 	append(&scene_out.resource_pool, cast(^dx.IUnknown)upload_allocation_2)
 	scene_out.index_buffer->SetName("lucy's index buffer")
@@ -377,7 +377,7 @@ upload_vertex_data :: proc(vertices: []Vertex, indices: []u32, scene_out: ^Scene
 		Format = .R32_UINT,
 	}
 
-	dx_upload_trigger(&g_upload_service, scene_out.index_buffer, slice.to_bytes(indices[:]))
+	ldx.upload_buffer(scene_out.index_buffer, slice.to_bytes(indices[:]))
 }
 
 gltf_load_nodes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
@@ -439,7 +439,7 @@ gltf_load_nodes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 @(require_results)
 load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: string, res_pool : ^ldx.DXResourcePool) -> (srv_index: int) {
 
-	TEMP_GUARD()
+	ldx.TEMP_GUARD()
 
 	image_name : string
 	image_data : Maybe([]byte) = nil
@@ -453,10 +453,10 @@ load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: s
 		image_data = slice.bytes_from_ptr(data_multipointer[image.buffer_view.offset:], cast(int)image.buffer_view.size)
 	}
 
-	texture_final_path := texture_cache_query(image_name, format, 0, image_data)
-	dds_file := parse_dds_file(texture_final_path)
+	texture_final_path := ldx.texture_cache_query(image_name, format, 0, image_data)
+	dds_file := ldx.parse_dds_file(texture_final_path)
 
-	texture := texture_create(dds_file.mipmap_data, u64(dds_file.width), dds_file.height,
+	texture := ldx.texture_create(dds_file.mipmap_data, u64(dds_file.width), dds_file.height,
 		dds_file.format, res_pool, view_flags = {.SRV}, mip_levels = len(dds_file.mipmap_data), texture_name = string(image.name))
 
 	return texture.srv_index
@@ -518,8 +518,8 @@ gltf_load_materials_into_scene :: proc(data: ^cgltf.data, model_filepath: string
 		}
 	}
 
-	lprintfln("All textures loaded.")
+	ldx.lprintfln("All textures loaded.")
 
-	scene.sb_materials = structured_buffer_create("material buffer",
+	scene.sb_materials = ldx.structured_buffer_create("material buffer",
 		&scene.resource_pool, Material, len(mats), buffer_data = slice.to_bytes(mats))
 }

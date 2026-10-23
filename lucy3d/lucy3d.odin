@@ -18,6 +18,8 @@ import "base:runtime"
 import "core:prof/spall"
 _ :: spall
 import "core:encoding/json"
+import "core:sync"
+import img "vendor:stb/image"
 import ldx "../lucydx"
 
 // imgui
@@ -369,7 +371,7 @@ cb_general_update :: proc() {
 
 	// sending data to the cpu mapped memory that the gpu can read
 	// copy_to_buffer_already_mapped(g_dx_context.constant_buffer.gpu_pointer, slice.to_bytes([]ConstantBufferData{cbv_data}))
-	copy_to_buffer_already_mapped_value(g_dx_context.cb_general.gpu_pointer, &cbv_data)
+	ldx.copy_to_buffer_already_mapped_value(g_dx_context.cb_general.gpu_pointer, &cbv_data)
 }
 
 shadowmap_get_view_projection :: proc(light: Light) -> (view, projection: dxm){
@@ -383,7 +385,7 @@ shadowmap_get_view_projection :: proc(light: Light) -> (view, projection: dxm){
 
 	view = linalg.matrix4_look_at_f32(shadowmap_origin, 0, {0, 1, 0}, true)
 
-	projection = matrix_ortho3d_z0_f32(sm_settings.lrbt.x, 
+	projection = ldx.matrix_ortho3d_z0_f32(sm_settings.lrbt.x, 
 		sm_settings.lrbt.y, 
 		sm_settings.lrbt.z, 
 		sm_settings.lrbt.w,
@@ -405,26 +407,26 @@ byte_to_mb :: proc(bytecount: int) -> f32 {
 }
 
 tracking_allocator_report :: proc(allocator_name: string, track: mem.Tracking_Allocator, report_leaks_and_double_frees: bool) {
-	lprintfln("=== %v - Memory Report ===", allocator_name)
-	lprintfln("Peak Memory Used: %v MB", byte_to_mb(cast(int)track.peak_memory_allocated))
-	lprintfln("Total Memory Allocated: %v MB", byte_to_mb(cast(int)track.total_memory_allocated))
-	lprintfln("Total Memory Freed: %v MB", byte_to_mb(cast(int)track.total_free_count))
+	ldx.lprintfln("=== %v - Memory Report ===", allocator_name)
+	ldx.lprintfln("Peak Memory Used: %v MB", byte_to_mb(cast(int)track.peak_memory_allocated))
+	ldx.lprintfln("Total Memory Allocated: %v MB", byte_to_mb(cast(int)track.total_memory_allocated))
+	ldx.lprintfln("Total Memory Freed: %v MB", byte_to_mb(cast(int)track.total_free_count))
 
 	if !report_leaks_and_double_frees do return
 
 	// Check for leaks
 	if len(track.allocation_map) > 1 { // skipping 1 because 1 is the tracker itself
-		lprintfln("\n=== %v - MEMORY LEAKS (%v) ===", allocator_name, len(track.allocation_map))
+		ldx.lprintfln("\n=== %v - MEMORY LEAKS (%v) ===", allocator_name, len(track.allocation_map))
 		for _, entry in track.allocation_map {
-			lprintfln("- %v bytes leaked at %v", entry.size, entry.location)
+			ldx.lprintfln("- %v bytes leaked at %v", entry.size, entry.location)
 		}
 	}
 
 	// Check for bad frees (double frees, freeing wrong pointers)
 	if len(track.bad_free_array) > 0 {
-		lprintfln("\n=== %v, BAD FREES (%v) ===", allocator_name, len(track.bad_free_array))
+		ldx.lprintfln("\n=== %v, BAD FREES (%v) ===", allocator_name, len(track.bad_free_array))
 		for entry in track.bad_free_array {
-			lprintfln("- Bad free at %v", entry.location)
+			ldx.lprintfln("- Bad free at %v", entry.location)
 		}
 	}
 }
@@ -447,7 +449,7 @@ main :: proc() {
 	}
 
 	when ODIN_DEBUG {
-	lprintln("Tracking Allocations...")
+	ldx.lprintln("Tracking Allocations...")
 	mem.tracking_allocator_init(&g_track, context.allocator)
 	context.allocator = mem.tracking_allocator(&g_track)
 
@@ -489,7 +491,7 @@ main :: proc() {
 	SPALL_FILE :: "trace_test.spall"
 	g_spall_ctx = spall.context_create(SPALL_FILE)
 	defer {
-		lprintfln("Spall profiling data written to: " + SPALL_FILE)
+		ldx.lprintfln("Spall profiling data written to: " + SPALL_FILE)
 		spall.context_destroy(&g_spall_ctx)
 	}
 
@@ -525,7 +527,7 @@ main :: proc() {
 
 	defer sdl.DestroyWindow(ct.window)
 
-	dx_init(&g_resources_longterm, ct.window, WINDOW_WIDTH, WINDOW_HEIGHT)
+	ldx.dx_init(&g_resources_longterm, ct.window, WINDOW_WIDTH, WINDOW_HEIGHT)
 
 	dx_init_user()
 	context_init(ct)
@@ -536,7 +538,7 @@ main :: proc() {
 
 	// cleanup
 	{
-		imgui_destroy()
+		ldx.imgui_destroy()
 
 		thread.destroy(upload_thread)
 
@@ -545,16 +547,16 @@ main :: proc() {
 			if (st == .Ready || st == .QueuedForDeletion) do scene_destroy(&scene)
 		}
 
-		resource_pool_release(&g_resources_resizing)
-		resource_pool_release(&g_resources_longterm)
+		ldx.resource_pool_release(&g_resources_resizing)
+		ldx.resource_pool_release(&g_resources_longterm)
 
 		when ODIN_DEBUG {
 
 		debug_device: ^dx.IDebugDevice2
-		g_dx_core.device->QueryInterface(dx.IDebugDevice2_UUID, (^rawptr)(&debug_device))
+		ldx.g_dx_core.device->QueryInterface(dx.IDebugDevice2_UUID, (^rawptr)(&debug_device))
 		// Finally, release the device (it is not in any pool)
 		// The device will be freed after we release the debug device
-		g_dx_core.device->Release()
+		ldx.g_dx_core.device->Release()
 		debug_device->ReportLiveDeviceObjects({.DETAIL, .IGNORE_INTERNAL})
 		debug_device->Release()
 
@@ -569,7 +571,7 @@ main :: proc() {
 @(private="file")
 create_root_signatures :: proc() {
 
-	ct := &g_dx_core
+	ct := &ldx.g_dx_core
 	hr : dx.HRESULT
 
 	root_parameters:= [2]dx.ROOT_PARAMETER {
@@ -646,7 +648,7 @@ create_root_signatures :: proc() {
 
 	serialized_desc: ^dx.IBlob
 	hr = dx.SerializeVersionedRootSignature(&desc, &serialized_desc, nil)
-	check(hr, "Failed to serialize root signature")
+	ldx.check(hr, "Failed to serialize root signature")
 	hr = ct.device->CreateRootSignature(
 		0,
 		serialized_desc->GetBufferPointer(),
@@ -654,7 +656,7 @@ create_root_signatures :: proc() {
 		dx.IRootSignature_UUID,
 		(^rawptr)(&g_dx_context.root_signatures[.Standard]),
 	)
-	check(hr, "Failed creating root signature")
+	ldx.check(hr, "Failed creating root signature")
 	append(&g_resources_longterm, g_dx_context.root_signatures[.Standard])
 	serialized_desc->Release()
 
@@ -665,7 +667,7 @@ create_root_signatures :: proc() {
 dx_init_user :: proc() {
 	ct := &g_dx_context
 
-	dx_generate_hlsl_types(TYPES_FOR_HLSL[:])
+	ldx.dx_generate_hlsl_types(TYPES_FOR_HLSL[:], "shaders/gen/structs.gen.hlsl")
 
 	// Creating all root signatures
 	create_root_signatures()
@@ -674,7 +676,7 @@ dx_init_user :: proc() {
 	ct.gbuffer = create_gbuffer()
 
 	// constant buffer
-	ct.cb_general = cb_upload_create(size_of(GeneralConstants), &g_resources_longterm, name = "general constants cbv")
+	ct.cb_general = ldx.cb_upload_create(GeneralConstants, &g_resources_longterm, name = "general constants cbv")
 
 	// shadowmap setup
 	{
@@ -685,10 +687,10 @@ dx_init_user :: proc() {
 
 		SHADOWMAP_RES :: 2048
 
-		ct.tx_shadowmap = texture_create(nil, SHADOWMAP_RES, SHADOWMAP_RES, .R32_TYPELESS,
+		ct.tx_shadowmap = ldx.texture_create(nil, SHADOWMAP_RES, SHADOWMAP_RES, .R32_TYPELESS,
 			&g_resources_longterm, view_flags = {.DSV, .SRV}, texture_name = "shadowmap", opt_clear_value = opt_clear)
 
-		ct.psos[.Shadowmap] = pso_create("src/shaders/shadowmap.hlsl", &ct.root_signatures, &g_resources_longterm, PSOParameters {
+		ct.psos[.Shadowmap] = ldx.pso_create("src/shaders/shadowmap.hlsl", &ct.root_signatures, &g_resources_longterm, ldx.PSOParameters {
 			vertex_input = Vertex,
 			blend_state = .Off,
 			enable_depth = true,
@@ -705,7 +707,7 @@ dx_init_user :: proc() {
 		gbuffer_rtv_formats[i] = g_buffer.format
 	}
 
-	ct.psos[.GBuffer_Pass] = pso_create(gbuffer_shader_filename, &ct.root_signatures, &g_resources_longterm, PSOParameters {
+	ct.psos[.GBuffer_Pass] = ldx.pso_create(gbuffer_shader_filename, &ct.root_signatures, &g_resources_longterm, ldx.PSOParameters {
 		vertex_input = Vertex,
 		blend_state = .Off,
 		enable_depth = true,
@@ -716,7 +718,7 @@ dx_init_user :: proc() {
 		front_counter_clockwise = true,
 	}, render_proc = pso_gbuffer_render, pso_name = "geometry pass PSO")
 
-	ct.psos[.Lighting_Pass] = pso_create(lighting_shader_filename, &ct.root_signatures, &g_resources_longterm,PSOParameters {
+	ct.psos[.Lighting_Pass] = ldx.pso_create(lighting_shader_filename, &ct.root_signatures, &g_resources_longterm,ldx.PSOParameters {
 		vertex_input = struct{},
 		blend_state = .Off,
 		enable_depth = false,
@@ -724,7 +726,7 @@ dx_init_user :: proc() {
 		rtv_formats = {0 = .R8G8B8A8_UNORM, 1 ..=7 = .UNKNOWN},
 	}, render_proc = pso_lighting_render, pso_name = "lighting pass PSO")
 
-	ct.psos[.Gizmos] = pso_create(ui_shader_filename, &ct.root_signatures, &g_resources_longterm,PSOParameters {
+	ct.psos[.Gizmos] = ldx.pso_create(ui_shader_filename, &ct.root_signatures, &g_resources_longterm,ldx.PSOParameters {
 		vertex_input = Gizmos_Vertex_IA,
 		instance_vertex_input = typeid_of(InstanceData),
 		blend_state = .Off,
@@ -735,7 +737,7 @@ dx_init_user :: proc() {
 		rtv_formats = {0 = .R8G8B8A8_UNORM, 1 ..=7 = .UNKNOWN},
 	}, render_proc = pso_gizmos_render, pso_name = "Gizmos PSO")
 
-	ct.psos[.PostProcess] = pso_compute_create(post_process_shader_filename, ct.root_signatures, &g_resources_longterm,
+	ct.psos[.PostProcess] = ldx.pso_compute_create(post_process_shader_filename, ct.root_signatures, &g_resources_longterm,
 		render_proc = pso_post_process_render, pso_name = "Post-Process Compute PSO")
 
 	lighting_out_clear_value := dx.CLEAR_VALUE {
@@ -743,33 +745,33 @@ dx_init_user :: proc() {
 		Color = v4{0, 0, 0, 1}
 	}
 
-	ct.tx_lighting_out = texture_create(nil, cast(u64)WINDOW_WIDTH, cast(u32)WINDOW_HEIGHT, .R8G8B8A8_UNORM,
+	ct.tx_lighting_out = ldx.texture_create(nil, cast(u64)WINDOW_WIDTH, cast(u32)WINDOW_HEIGHT, .R8G8B8A8_UNORM,
 		&g_resources_resizing, view_flags = {.RTV, .SRV}, texture_name = "lighting pass output", opt_clear_value = lighting_out_clear_value)
 
 	// hr = ct.command_allocator->Reset(
 	// hr = ct.cmdlist->Reset(ct.command_allocator, nil)
 	create_depth_buffer()
 
-	ct.tx_post_process_output = texture_create(nil, cast(u64)WINDOW_WIDTH, cast(u32)WINDOW_HEIGHT, .R8G8B8A8_UNORM,
+	ct.tx_post_process_output = ldx.texture_create(nil, cast(u64)WINDOW_WIDTH, cast(u32)WINDOW_HEIGHT, .R8G8B8A8_UNORM,
 		&g_resources_resizing, view_flags = {.UAV}, texture_name = "post process output")
 
-	close_and_execute_cmdlist()
-	imgui_init(ct.window, &g_resources_longterm)
+	ldx.close_and_execute_cmdlist()
+	ldx.imgui_init(ct.window, &g_resources_longterm)
 	load_white_texture(&g_resources_longterm)
 
 	// post-process output
-	ct.sb_lights = structured_buffer_create("light buffer", &g_resources_longterm, Light, MAX_LIGHTS, heap_type = .UPLOAD)
+	ct.sb_lights = ldx.structured_buffer_create("light buffer", &g_resources_longterm, Light, MAX_LIGHTS, heap_type = .UPLOAD)
 
 	SCENE_MAX_LEN :: 3
 
 	// initting g_scenes
 	for &scene in g_scenes {
-		scene.allocator = arena_new()
+		scene.allocator = ldx.arena_new()
 	}
 
 	ct.scene_list = init_scene_list(context.allocator)
 
-	lprintfln("Loading scene: %v", ct.scene_list[g_config.scene_pick])
+	ldx.lprintfln("Loading scene: %v", ct.scene_list[g_config.scene_pick])
 
 	scene_schedule_load(&g_scenes[0], ct.scene_list[g_config.scene_pick])
 }
@@ -916,7 +918,7 @@ do_imgui_ui :: proc() {
 
 	// Drawing delta time
 	{
-		imgui_do_text("DT: %.2f", g_frame_dt)
+		ldx.imgui_do_text("DT: %.2f", g_frame_dt)
 	}
 
 	// Drawing cam position
@@ -928,10 +930,10 @@ do_imgui_ui :: proc() {
 	}
 
 	// AA Selection
-	if do_imgui_enum("AA Selection", &g_config.aa_options) {
+	if ldx.do_imgui_enum("AA Selection", &g_config.aa_options) {
 		// Recompile PSO's.
 		for &pso in g_dx_context.psos {
-			pso_reload(&pso)
+			ldx.pso_reload(&pso)
 		}
 	}
 
@@ -984,7 +986,7 @@ do_imgui_ui :: proc() {
 	im.ShowDemoWindow()
 
 	if im.Button("Save Settings") {
-		lprintfln("save here")
+		ldx.lprintfln("save here")
 		save_settings()
 	}
 
@@ -1129,17 +1131,17 @@ render :: proc() {
 
 resize_window :: proc(new_res: v2i) {
 	ct := &g_dx_context
-	swapchain := &g_dx_core.swapchain
+	swapchain := &ldx.g_dx_core.swapchain
 
-	ldx.swapchain_resize(&g_dx_core.swapchain, new_res)
+	ldx.swapchain_resize(&ldx.g_dx_core.swapchain, new_res)
 
 	for &gbuffer in ct.gbuffer {
-		texture_resize(&gbuffer, new_res, &g_resources_resizing)
+		ldx.texture_resize(&gbuffer, new_res, &g_resources_resizing)
 	}
 
-	texture_resize(&ct.tx_depth, new_res, &g_resources_resizing)
-	texture_resize(&ct.tx_lighting_out, new_res, &g_resources_resizing)
-	texture_resize(&ct.tx_post_process_output, new_res, &g_resources_resizing)
+	ldx.texture_resize(&ct.tx_depth, new_res, &g_resources_resizing)
+	ldx.texture_resize(&ct.tx_lighting_out, new_res, &g_resources_resizing)
+	ldx.texture_resize(&ct.tx_post_process_output, new_res, &g_resources_resizing)
 
 	// setting new width and height
 	WINDOW_WIDTH = new_res.x
@@ -1211,7 +1213,7 @@ create_gbuffer_unit :: proc(format: dxgi.FORMAT, debug_name: string) -> ldx.Text
 		Color = {0,0,0,1}
 	}
 
-	return texture_create(nil, u64(WINDOW_WIDTH), u32(WINDOW_HEIGHT),
+	return ldx.texture_create(nil, u64(WINDOW_WIDTH), u32(WINDOW_HEIGHT),
 		format, &g_resources_resizing, {.SRV, .RTV}, texture_name = debug_name, 
 		opt_clear_value = opt_clear_value)
 }
@@ -1231,7 +1233,7 @@ create_gbuffer :: proc() -> GBuffer {
 
 render_common :: proc(pso: ldx.PSO, viewport_width, viewport_height: int) {
 	// send root parameters
-	ctd := &g_dx_core
+	ctd := &ldx.g_dx_core
 
 	ctd.cmdlist->SetPipelineState(pso.pipeline_state)
 	ctd.cmdlist->SetDescriptorHeaps(1, &ctd.heap_cbv_srv_uav.heap)
@@ -1242,22 +1244,22 @@ render_common :: proc(pso: ldx.PSO, viewport_width, viewport_height: int) {
 	} else {
 		ctd.cmdlist->SetGraphicsRootSignature(pso.root_signature)
 		ctd.cmdlist->SetGraphicsRoot32BitConstant(0, cast(u32)g_dx_context.cb_general.srv_index, 0)
-		set_viewport_stuff(viewport_width, viewport_height)
+		ldx.set_viewport_stuff(viewport_width, viewport_height)
 	}
 }
 
 pso_shadowmap_render :: proc(pso: ldx.PSO) {
-	ctd := &g_dx_core
+	ctd := &ldx.g_dx_core
 	ct := &g_dx_context
 
-	transition_resource(ct.tx_depth.buffer, ctd.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
-	transition_resource(ct.tx_shadowmap.buffer, ctd.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
+	ldx.texture_transition(ct.tx_depth, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
+	ldx.texture_transition(ct.tx_shadowmap, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
 
 	render_common(pso, ct.tx_shadowmap.width, ct.tx_shadowmap.height)
 
 	// rendering
 
-	dsv_handle := texture_get_dsv_cpu_address(ct.tx_shadowmap)
+	dsv_handle := ldx.texture_get_dsv_cpu_address(ct.tx_shadowmap)
 	ctd.cmdlist->OMSetRenderTargets(0, nil, false, &dsv_handle)
 	ctd.cmdlist->ClearDepthStencilView(dsv_handle, {.DEPTH, .STENCIL}, 1.0, 0, 0, nil)
 
@@ -1313,10 +1315,10 @@ draw_scene_geometry :: proc() {
 
 // Rendering the Post-Process Compute PSO
 pso_post_process_render :: proc(pso: ldx.PSO) {
-	ct := &g_dx_core
+	ct := &ldx.g_dx_core
 
 	render_common(pso, WINDOW_WIDTH, WINDOW_HEIGHT)
-	transition_resource(g_dx_context.tx_lighting_out.buffer, ct.cmdlist, {.RENDER_TARGET}, {.PIXEL_SHADER_RESOURCE})
+	ldx.texture_transition(g_dx_context.tx_lighting_out, {.RENDER_TARGET}, {.PIXEL_SHADER_RESOURCE})
 	ct.cmdlist->Dispatch(cast(u32)WINDOW_WIDTH, cast(u32)WINDOW_HEIGHT, 1)
 
 	// Copy Post Process OUT to the swapchain texture, to display the final image
@@ -1336,7 +1338,7 @@ pso_post_process_render :: proc(pso: ldx.PSO) {
 
 pso_gbuffer_render :: proc(pso: ldx.PSO) {
 
-	ctd := &g_dx_core
+	ctd := &ldx.g_dx_core
 	ct := &g_dx_context
 
 	render_common(pso, ct.tx_depth.width, ct.tx_depth.height)
@@ -1347,11 +1349,11 @@ pso_gbuffer_render :: proc(pso: ldx.PSO) {
 	// Setting render targets. Clearing DSV and RTV.
 	{
 		rtv_handles := [GBUFFER_COUNT]dx.CPU_DESCRIPTOR_HANDLE {
-			texture_get_rtv_cpu_address(g_dx_context.gbuffer[.Albedo]),
-			texture_get_rtv_cpu_address(g_dx_context.gbuffer[.Normal]),
-			texture_get_rtv_cpu_address(g_dx_context.gbuffer[.AO_Rough_Metal]),
+			ldx.texture_get_rtv_cpu_address(g_dx_context.gbuffer[.Albedo]),
+			ldx.texture_get_rtv_cpu_address(g_dx_context.gbuffer[.Normal]),
+			ldx.texture_get_rtv_cpu_address(g_dx_context.gbuffer[.AO_Rough_Metal]),
 		}
-		dsv_handle := texture_get_dsv_cpu_address(ct.tx_depth)
+		dsv_handle := ldx.texture_get_dsv_cpu_address(ct.tx_depth)
 
 		// setting depth buffer
 		ctd.cmdlist->OMSetRenderTargets(GBUFFER_COUNT, &rtv_handles[0], false, &dsv_handle)
@@ -1399,29 +1401,29 @@ transition_gbuffers :: proc(to_render_target: bool) {
 	res_barriers[.AO_Rough_Metal] = res_barriers[.Albedo]
 	res_barriers[.AO_Rough_Metal].Transition.pResource = ct.gbuffer[.AO_Rough_Metal].buffer
 
-	g_dx_core.cmdlist->ResourceBarrier(GBUFFER_COUNT, &res_barriers[cast(GBufferUnitName)0])
+	ldx.g_dx_core.cmdlist->ResourceBarrier(GBUFFER_COUNT, &res_barriers[cast(GBufferUnitName)0])
 }
 
 pso_lighting_render :: proc(pso: ldx.PSO) {
 
 	ct := &g_dx_context
-	ctd := &g_dx_core
+	ctd := &ldx.g_dx_core
 
 	render_common(pso, ct.tx_depth.width, ct.tx_depth.height)
 
-	transition_resource(ct.tx_shadowmap.buffer, ctd.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
+	ldx.texture_transition(ct.tx_shadowmap, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
 
 	// Transitioning gbuffers from render target to SRVs
 	transition_gbuffers(false)
 
-	transition_resource(ct.tx_lighting_out.buffer, ctd.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.RENDER_TARGET})
+	ldx.texture_transition(ct.tx_lighting_out, {.PIXEL_SHADER_RESOURCE}, {.RENDER_TARGET})
 
-	transition_resource(ct.tx_depth.buffer, ctd.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
+	ldx.texture_transition(ct.tx_depth, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
 
 	// Setting render target (lighting out). Clearing RTV.
 	{
 		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
-			get_descriptor_heap_cpu_address(ctd.heap_rtv, ct.tx_lighting_out.rtv_index),
+			ldx.get_descriptor_heap_cpu_address(ctd.heap_rtv, ct.tx_lighting_out.rtv_index),
 		}
 
 		ctd.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
@@ -1446,7 +1448,7 @@ pso_gizmos_render :: proc (pso: ldx.PSO) {
 	if !ok do return
 
 	ct := &g_dx_context
-	ctd := &g_dx_core
+	ctd := &ldx.g_dx_core
 
 	render_common(pso, ct.tx_depth.width, ct.tx_depth.height)
 
@@ -1481,22 +1483,22 @@ pso_gizmos_render :: proc (pso: ldx.PSO) {
 			}
 		}
 
-		copy_to_buffer_already_mapped(scene.vb_gizmos_instance_data.gpu_pointer, slice.to_bytes(gizmos_instances))
+		ldx.copy_to_buffer_already_mapped(scene.vb_gizmos_instance_data.gpu_pointer, slice.to_bytes(gizmos_instances))
 	}
 
 	// setting rtv and dsv
-	transition_resource(ct.tx_depth.buffer, ctd.cmdlist, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
+	ldx.texture_transition(ct.tx_depth, {.PIXEL_SHADER_RESOURCE}, {.DEPTH_WRITE})
 	defer {
-		transition_resource(ct.tx_depth.buffer, ctd.cmdlist, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
+		ldx.texture_transition(ct.tx_depth, {.DEPTH_WRITE}, {.PIXEL_SHADER_RESOURCE})
 	}
 
 	// Setting render target (lighting out). Clearing RTV.
 	{
 		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
-			get_descriptor_heap_cpu_address(ctd.heap_rtv, ct.tx_lighting_out.rtv_index),
+			ldx.get_descriptor_heap_cpu_address(ctd.heap_rtv, ct.tx_lighting_out.rtv_index),
 		}
 
-		dsv_handle := texture_get_dsv_cpu_address(ct.tx_depth)
+		dsv_handle := ldx.texture_get_dsv_cpu_address(ct.tx_depth)
 
 		ctd.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, &dsv_handle)
 	}
@@ -1526,7 +1528,7 @@ print_ref_count :: proc(obj: ^dx.IUnknown) {
 
 
 arena_report :: proc(arena_name: string, arena: virtual.Arena) {
-	lprintfln("===== Arena Report: name: \"%v\": total used: %vMB, total reserved: %vMB", arena_name, cast(f32)arena.total_used / cast(f32)mem.Megabyte,
+	ldx.lprintfln("===== Arena Report: name: \"%v\": total used: %vMB, total reserved: %vMB", arena_name, cast(f32)arena.total_used / cast(f32)mem.Megabyte,
 		cast(f32)arena.total_reserved / cast(f32)mem.Megabyte)
 }
 
@@ -1547,7 +1549,7 @@ scene_swap :: proc(new_scene: string) {
 	}
 
 	if !found_free {
-		lprintln("could not find a free scene. scene swap FAILED")
+		ldx.lprintln("could not find a free scene. scene swap FAILED")
 		os.exit(1)
 	}
 }
@@ -1563,7 +1565,7 @@ scene_destroy :: proc(scene: ^Scene) {
 // call this on scene slot u wanna start to load
 scene_schedule_load :: proc(scene: ^Scene, scene_name: string) {
 	if scene_status_load(&scene.status) != .Free {
-		lprintfln("cannot schedule load for scene unless it's status=free")
+		ldx.lprintfln("cannot schedule load for scene unless it's status=free")
 		assert(false)
 		return
 	}
@@ -1590,8 +1592,51 @@ get_first_active_scene :: proc() -> (scene: ^Scene, ok: bool) {
 
 init_scene_list :: proc(allocator: mem.Allocator) -> (scene_list : [dynamic]string) {
 	scene_list = make([dynamic]string, 0, 20, allocator)
-	search_for_files_with_ext(MODEL_BASEDIR, ".gltf", &scene_list, allocator)
+	ldx.search_for_files_with_ext(MODEL_BASEDIR, ".gltf", &scene_list, allocator)
 	return
+}
+
+lucydx12_upload_thread_start :: proc() {
+
+	context.allocator = mem.tracking_allocator(&g_track)
+
+	// make temp allocator for upload thread
+	upload_temp_arena := ldx.arena_new()
+	upload_temp_allocator := virtual.arena_allocator(&upload_temp_arena)
+	context.temp_allocator = upload_temp_allocator
+
+	// TODO: do proper thread wake-up on condition
+	for {
+		// scanning for .Loading scenes
+
+		found_scene: bool
+		the_scene : ^Scene
+
+		for &scene in g_scenes {
+			if scene_status_load(&scene.status) == .Loading {
+				found_scene = true
+				the_scene = &scene
+				break
+			}
+		}
+
+		if !found_scene {
+			// sleep thread
+			thread.yield()
+		} else {
+			// loading first scene found that is scheduled for loading
+
+			scene_from_gltf(the_scene)
+
+			// Move scene to main thread by setting status as ready
+			scene_status_store(&the_scene.status, .Ready)
+			virtual.arena_free_all(&upload_temp_arena)
+		}
+
+		if g_is_app_shutting_down {
+			break
+		}
+	}
 }
 
 @(private="package")
@@ -1674,8 +1719,8 @@ scene_walk :: proc(scene: Scene, data: rawptr, thing_to_do: proc_walk) {
 }
 
 
-load_white_texture :: proc(pool: ^DXResourcePool) {
-	ct := g_dx_core
+load_white_texture :: proc(pool: ^ldx.DXResourcePool) {
+	ct := ldx.g_dx_core
 
 	w, h, channels : c.int
 	image_data := img.load("white.png", &w, &h, &channels, 4)
@@ -1685,11 +1730,11 @@ load_white_texture :: proc(pool: ^DXResourcePool) {
 	img_data_mipmaps := make([][]byte, 1, context.temp_allocator)
 	img_data_mipmaps[0] = slice.clone(slice.from_ptr(image_data, cast(int)(w * h * channels)), context.temp_allocator)
 
-	texture := texture_create(img_data_mipmaps[:], u64(w), u32(h), .R8G8B8A8_UNORM, 
+	texture := ldx.texture_create(img_data_mipmaps[:], u64(w), u32(h), .R8G8B8A8_UNORM, 
 		pool, {}, texture_name = "white")
 
 	// creating srv on uber heap
-	cpu_addr := get_descriptor_heap_cpu_address(ct.heap_cbv_srv_uav, TEXTURE_WHITE_INDEX)
+	cpu_addr := ldx.get_descriptor_heap_cpu_address(ct.heap_cbv_srv_uav, TEXTURE_WHITE_INDEX)
 	ct.device->CreateShaderResourceView(texture.buffer, nil, cpu_addr)
 }
 

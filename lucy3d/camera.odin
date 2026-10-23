@@ -3,6 +3,7 @@ package lucy3d
 import "core:math"
 import sdl "vendor:sdl2"
 import "core:math/linalg"
+import ldx "../lucydx"
 // modes
 
 // fps mode
@@ -156,7 +157,7 @@ get_view_projection :: proc(cam: Camera) -> (view: dxm, proj: dxm) {
 
 	// this function is supposedly more correct
 	// has correct depth values
-	proj = matrix4_perspective_z0_f32(fov, aspect, cam.near, cam.far)
+	proj = ldx.matrix4_perspective_z0_f32(fov, aspect, cam.near, cam.far)
 
 	return view, proj
 	// return view * proj
