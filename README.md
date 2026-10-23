@@ -11,5 +11,5 @@ I'm just here learning DX12 in Odin
 
 ```cmd
 dl_scenes.bat
-odin run src
+odin run lucy3d
 ```
