@@ -16,6 +16,8 @@ import meshopt "../libs/meshoptimizer"
 import "core:prof/spall"
 _ :: spall // To make the vet go away
 
+import ldx "../lucydx"
+
 @(private="package")
 scene_from_gltf :: proc(scene: ^Scene) {
 
@@ -44,7 +46,7 @@ scene_from_gltf :: proc(scene: ^Scene) {
 	// loading up the Scene
 
 	scene_allocator := virtual.arena_allocator(&scene.allocator)
-	scene.resource_pool = make(DXResourcePool, scene_allocator)
+	scene.resource_pool = make(ldx.DXResourcePool, scene_allocator)
 
 	assert(len(data.scenes) == 1)
 
@@ -435,7 +437,7 @@ gltf_load_nodes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 }
 
 @(require_results)
-load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: string, res_pool : ^DXResourcePool) -> (srv_index: int) {
+load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: string, res_pool : ^ldx.DXResourcePool) -> (srv_index: int) {
 
 	TEMP_GUARD()
 

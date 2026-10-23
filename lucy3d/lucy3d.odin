@@ -99,10 +99,9 @@ GBufferUnitName :: enum {
 	AO_Rough_Metal,
 }
 
-GBuffer :: [GBufferUnitName]Texture
+GBuffer :: [GBufferUnitName]ldx.Texture
 
 MAX_GIZMOS :: 20
-
 
 @(private="file")
 Context :: struct {
@@ -112,18 +111,18 @@ Context :: struct {
 	/// SDL stuff
 	window: ^sdl.Window,
 
-	tx_depth: Texture,
+	tx_depth: ldx.Texture,
 	gbuffer: GBuffer,
-	root_signatures: [RootSignatureChoice]^dx.IRootSignature,
-	psos: [PSOName]PSO,
-	cb_general: ConstantBufferUpload,
+	root_signatures: [ldx.RootSignatureChoice]^dx.IRootSignature,
+	psos: [PSOName]ldx.PSO,
+	cb_general: ldx.ConstantBufferUpload,
 
 	/// Shadowmap
-	tx_shadowmap: Texture,
-	sb_lights: StructuredBuffer,
+	tx_shadowmap: ldx.Texture,
+	sb_lights: ldx.StructuredBuffer,
 
-	tx_lighting_out: Texture,
-	tx_post_process_output: Texture,
+	tx_lighting_out: ldx.Texture,
+	tx_post_process_output: ldx.Texture,
 	resize_wanted: Maybe(v2i)
 }
 
@@ -241,8 +240,8 @@ Scene :: struct {
 	allocator: virtual.Arena,
 
 	// dx resources
-	sb_model_matrices: StructuredBuffer,
-	sb_materials: StructuredBuffer,
+	sb_model_matrices: ldx.StructuredBuffer,
+	sb_materials: ldx.StructuredBuffer,
 
 	vertex_buffer: ^dx.IResource,
 	index_buffer: ^dx.IResource,
@@ -251,9 +250,9 @@ Scene :: struct {
 
 	// gizmos (put this somewhere else later)
 	// TODO
-	vb_gizmos_instance_data: VertexBuffer,
+	vb_gizmos_instance_data: ldx.VertexBuffer,
 
-	resource_pool: DXResourcePool,
+	resource_pool: ldx.DXResourcePool,
 
 	fence_value: u64, // (set after it is ready) fence value to wait on for all scene resources to be uploaded to the GPU
 
@@ -281,8 +280,8 @@ InstanceData :: struct #align (256) {
 
 @(private="package") g_is_app_shutting_down: bool
 @(private="file") g_dx_context: Context
-@(private="file") g_resources_resizing: DXResourcePool  // pool for resources tied to a current window size (they get released when window size changes)
-@(private="file") g_resources_longterm: DXResourcePool
+@(private="file") g_resources_resizing: ldx.DXResourcePool  // pool for resources tied to a current window size (they get released when window size changes)
+@(private="file") g_resources_longterm: ldx.DXResourcePool
 @(private="package") g_scenes: [3]Scene
 
 // private global staet
@@ -567,10 +566,8 @@ main :: proc() {
 	}
 }
 
-
 @(private="file")
 create_root_signatures :: proc() {
-
 
 	ct := &g_dx_core
 	hr : dx.HRESULT
@@ -833,7 +830,7 @@ update :: proc() {
 	}
 
 	for &pso in ct.psos {
-		pso_hotswap_watch(&pso)
+		ldx.pso_hotswap_watch(&pso)
 	}
 
 	do_imgui_ui()
@@ -1053,16 +1050,16 @@ load_settings :: proc() {
 }
 
 render :: proc() {
-	ctd := &g_dx_core
+	ctd := &ldx.g_dx_core
 	ct := &g_dx_context
 
 	cb_general_update()
 
 	// updating light buffer
-	copy_to_buffer_already_mapped(ct.sb_lights.gpu_pointer, slice.to_bytes(g_config.lights[:g_config.light_count]))
+	ldx.copy_to_buffer_already_mapped(ct.sb_lights.gpu_pointer, slice.to_bytes(g_config.lights[:g_config.light_count]))
 
 	g_mesh_drawn_count = 0
-	g_dx_core.cmdlist->Reset(ctd.command_allocator, nil)
+	ctd.cmdlist->Reset(ctd.command_allocator, nil)
 
 	for pso in ct.psos {
 		pso.render_proc(pso)
@@ -1074,28 +1071,28 @@ render :: proc() {
 			Type = .TRANSITION,
 			Flags = {},
 			Transition = {
-				pResource = g_dx_core.swapchain.targets[g_dx_core.swapchain.frame_index].buffer,
+				pResource = ctd.swapchain.targets[ctd.swapchain.frame_index].buffer,
 				StateBefore = {.COPY_DEST},
 				StateAfter = {.RENDER_TARGET},
 				Subresource = dx.RESOURCE_BARRIER_ALL_SUBRESOURCES,
 			},
 		}
 
-		g_dx_core.cmdlist->ResourceBarrier(1, &to_render_target_barrier)
+		ctd.cmdlist->ResourceBarrier(1, &to_render_target_barrier)
 	}
 
 	// Setting swapchain as render target (for imgui drawing)
 	{
 		rtv_handles := [1]dx.CPU_DESCRIPTOR_HANDLE {
-			get_descriptor_heap_cpu_address(ctd.heap_rtv, ctd.swapchain.targets[ctd.swapchain.frame_index].rtv_index),
+			ldx.get_descriptor_heap_cpu_address(ctd.heap_rtv, ctd.swapchain.targets[ctd.swapchain.frame_index].rtv_index),
 		}
 
-		g_dx_core.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
+		ctd.cmdlist->OMSetRenderTargets(1, &rtv_handles[0], false, nil)
 	}
 
-	imgui_end_frame()
+	ldx.imgui_end_frame()
 
-	dx_frame_end()
+	ldx.dx_frame_end()
 
 	// swap PSO here if needed (hot reload of shaders)
 
@@ -1120,7 +1117,7 @@ render :: proc() {
 
 	// hot swap handling
 	for &pso in ct.psos {
-		pso_hotswap_swap(&pso, &g_resources_longterm)
+		ldx.pso_hotswap_swap(&pso, &g_resources_longterm)
 	}
 
 	// handle window resizing
@@ -1158,12 +1155,10 @@ create_depth_buffer :: proc() {
 		DepthStencil = {Depth = 1.0, Stencil = 0},
 	}
 
-	ct.tx_depth = texture_create(nil,
+	ct.tx_depth = ldx.texture_create(nil,
 		u64(WINDOW_WIDTH), u32(WINDOW_HEIGHT), .R32_TYPELESS, &g_resources_resizing,
 		{.DSV, .SRV}, opt_clear_value = opt_clear)
 }
-
-
 
 // helpers
 
@@ -1210,7 +1205,7 @@ get_world_mat_quat :: proc(pos, scale: v3, rot_quat: quaternion128) -> dxm {
 }
 */
 
-create_gbuffer_unit :: proc(format: dxgi.FORMAT, debug_name: string) -> Texture {
+create_gbuffer_unit :: proc(format: dxgi.FORMAT, debug_name: string) -> ldx.Texture {
 	opt_clear_value := dx.CLEAR_VALUE {
 		Format = format,
 		Color = {0,0,0,1}
@@ -1234,7 +1229,7 @@ create_gbuffer :: proc() -> GBuffer {
 	}
 }
 
-render_common :: proc(pso: PSO, viewport_width, viewport_height: int) {
+render_common :: proc(pso: ldx.PSO, viewport_width, viewport_height: int) {
 	// send root parameters
 	ctd := &g_dx_core
 
@@ -1251,7 +1246,7 @@ render_common :: proc(pso: PSO, viewport_width, viewport_height: int) {
 	}
 }
 
-pso_shadowmap_render :: proc(pso: PSO) {
+pso_shadowmap_render :: proc(pso: ldx.PSO) {
 	ctd := &g_dx_core
 	ct := &g_dx_context
 
@@ -1270,7 +1265,7 @@ pso_shadowmap_render :: proc(pso: PSO) {
 }
 
 draw_scene_geometry :: proc() {
-	ctd := &g_dx_core
+	ctd := &ldx.g_dx_core
 	ctd.cmdlist->IASetPrimitiveTopology(.TRIANGLELIST)
 
 	// drawing all scenes
@@ -1282,7 +1277,7 @@ draw_scene_geometry :: proc() {
 			continue
 		}
 
-		queue_wait_on_upload_fence(ctd.queue, scene.fence_value)
+		ldx.queue_wait_on_upload_fence(ctd.queue, scene.fence_value)
 
 		// binding vertex buffer view and instance buffer view
 		vertex_buffers_views := [?]dx.VERTEX_BUFFER_VIEW{scene.vertex_buffer_view}
@@ -1296,7 +1291,7 @@ draw_scene_geometry :: proc() {
 		// drawing scene
 
 		scene_walk(scene, nil, proc(node: Node, scene: Scene, data: rawptr) {
-			ctd := &g_dx_core
+			ctd := &ldx.g_dx_core
 
 			if node.mesh == -1 {
 				return
@@ -1317,7 +1312,7 @@ draw_scene_geometry :: proc() {
 }
 
 // Rendering the Post-Process Compute PSO
-pso_post_process_render :: proc(pso: PSO) {
+pso_post_process_render :: proc(pso: ldx.PSO) {
 	ct := &g_dx_core
 
 	render_common(pso, WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -1339,7 +1334,7 @@ pso_post_process_render :: proc(pso: PSO) {
 	}
 }
 
-pso_gbuffer_render :: proc(pso: PSO) {
+pso_gbuffer_render :: proc(pso: ldx.PSO) {
 
 	ctd := &g_dx_core
 	ct := &g_dx_context
@@ -1407,7 +1402,7 @@ transition_gbuffers :: proc(to_render_target: bool) {
 	g_dx_core.cmdlist->ResourceBarrier(GBUFFER_COUNT, &res_barriers[cast(GBufferUnitName)0])
 }
 
-pso_lighting_render :: proc(pso: PSO) {
+pso_lighting_render :: proc(pso: ldx.PSO) {
 
 	ct := &g_dx_context
 	ctd := &g_dx_core
@@ -1443,7 +1438,7 @@ pso_lighting_render :: proc(pso: PSO) {
 }
 
 // TODO: this is using resources from any loaded scene. change that.
-pso_gizmos_render :: proc (pso: PSO) {
+pso_gizmos_render :: proc (pso: ldx.PSO) {
 
 	if !g_light_draw_gizmos do return
 

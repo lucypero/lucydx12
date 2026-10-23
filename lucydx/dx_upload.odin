@@ -204,7 +204,6 @@ dx_upload_texture_trigger :: proc(up_service: ^DXUploadService, resource_dest : 
 	return up_service.fence_value
 }
 
-@(private="package")
 queue_wait_on_upload_fence :: proc(queue: ^dx.ICommandQueue, fence_value: u64) {
 	queue->Wait(g_upload_service.fence, fence_value)
 }
