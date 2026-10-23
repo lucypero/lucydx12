@@ -1441,6 +1441,17 @@ string_append :: proc(the_strs: ..string, allocator: mem.Allocator = context.all
 	return strings.to_string(sb)
 }
 
+// Public entry points to the upload service (dx_upload.odin is file-private).
+
+// Uploads data into a DEFAULT heap buffer. Returns the fence value to wait on.
+upload_buffer :: proc(resource_dest: ^dx.IResource, data: []byte) -> u64 {
+	return dx_upload_trigger(&g_upload_service, resource_dest, data)
+}
+
+queue_wait_on_upload_fence :: proc(queue: ^dx.ICommandQueue, fence_value: u64) {
+	queue->Wait(g_upload_service.fence, fence_value)
+}
+
 structured_buffer_create :: proc(
 	buffer_name: string,
 	pool_resource : ^DXResourcePool,
