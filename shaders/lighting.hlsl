@@ -2,7 +2,7 @@
 //  outputs the final image.
 
 #pragma pack_matrix(column_major)
-#include "src/shaders/shader_common.hlsl"
+#include "shaders/shader_common.hlsl"
 
 struct PSInput
 {
@@ -162,8 +162,6 @@ float3 ComputeDirectionalLight(Light light, float3 worldPosition,
 
 	float3 light_coords = light_proj.xyz / light_proj.w;
 
-	float shadow = 0;
-
 	/// FROM NDC (-1, +1) TO UV (0, 1)
 	float2 shadow_uv;
 	shadow_uv = light_coords.xy * 0.5f + 0.5f;
@@ -186,10 +184,8 @@ float3 ComputeDirectionalLight(Light light, float3 worldPosition,
 		float x, y;
 
 		//perform PCF filtering on a 4 x 4 texel neighborhood
-		for (y = -1.5; y <= 1.5; y += 1.0)
-		{
-			for (x = -1.5; x <= 1.5; x += 1.0)
-			{
+		for (y = -1.5; y <= 1.5; y += 1.0) {
+			for (x = -1.5; x <= 1.5; x += 1.0) {
 				sum += tex_shadowmap.SampleCmpLevelZero(sampler_shadowmap, shadow_uv + get_shadowmap_sampling_offset(x,y, tex_shadowmap), current_depth);
 			}
 		}
@@ -345,8 +341,7 @@ float4 PSMain(PSInput input) : SV_TARGET
 
 	// 3. Check if the current pixel being rendered is inside the minimap box
 	if (general_constants.draw_shadowmap && input.uvs.x >= minX && input.uvs.x <= maxX && 
-		input.uvs.y >= minY && input.uvs.y <= maxY) 
-	{
+		input.uvs.y >= minY && input.uvs.y <= maxY) {
 		// 4. Remap the full-screen UVs to local UVs (0.0 to 1.0) for the texture
 		float2 localUV;
 		localUV.x = (input.uvs.x - minX) / width;

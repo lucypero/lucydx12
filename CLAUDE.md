@@ -186,7 +186,7 @@ How it works:
 
 - `window_new` creates the SDL window, calls `init_dx`, builds the one standard root signature, the
   `GeneralConstants` CBV, the sprite structured buffer, and the single `.Quad` PSO
-  (`src/shaders/quads.hlsl`).
+  (`shaders/quads.hlsl`).
 - `draw_sprite` just appends to `g_lct.sprites_to_render` (max `SPRITE_MAX_COUNT`).
 - `present` clears, runs every PSO's `render_proc`, then `frame_end` resets frame state and pumps
   SDL events.
@@ -215,7 +215,7 @@ Odin structs that get uploaded to the GPU must match their HLSL counterparts **e
 
 **The generator.** `convert_struct_odin_to_hlsl` (`dx_helpers.odin:1840`) walks Odin RTTI and emits
 HLSL structs/enums. `init_dx_user` runs it over `TYPES_FOR_HLSL` (`main.odin:34`) at startup and
-writes `src/shaders/gen/structs.gen.hlsl`, which the 3D shaders `#include`. If you add a
+writes `shaders/gen/structs.gen.hlsl`, which the 3D shaders `#include`. If you add a
 GPU-visible struct on the 3D side, add its `typeid` to `TYPES_FOR_HLSL` rather than hand-writing
 HLSL. The generated file is gitignored (`*.gen.hlsl`) and regenerated every run.
 

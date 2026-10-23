@@ -9,14 +9,14 @@
 #define FXAA_HLSL_5 1
 #define FXAA_QUALITY__PRESET 12
 
-#include "src/shaders/FXAA3_11.hlsl"
+#include "shaders/FXAA3_11.hlsl"
 
 #endif
 
 // Rest of shader
 
 #pragma pack_matrix(column_major)
-#include "src/shaders/shader_common.hlsl"
+#include "shaders/shader_common.hlsl"
 
 // TODO do 8x8 thread groups
 [numthreads(1, 1, 1)]

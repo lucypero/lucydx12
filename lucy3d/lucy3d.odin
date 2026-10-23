@@ -43,11 +43,11 @@ TYPES_FOR_HLSL := [?]typeid{GeneralConstants, DrawConstants, LightType, Light, T
 
 TURNS_TO_RAD :: math.PI * 2
 
-gbuffer_shader_filename :: "src/shaders/geometry.hlsl"
-lighting_shader_filename :: "src/shaders/lighting.hlsl"
-ui_shader_filename :: "src/shaders/ui.hlsl"
-text_shader_filename :: "src/shaders/text.hlsl"
-post_process_shader_filename :: "src/shaders/post_process.hlsl"
+gbuffer_shader_filename :: "shaders/geometry.hlsl"
+lighting_shader_filename :: "shaders/lighting.hlsl"
+ui_shader_filename :: "shaders/ui.hlsl"
+text_shader_filename :: "shaders/text.hlsl"
+post_process_shader_filename :: "shaders/post_process.hlsl"
 
 INITIAL_WINDOW_WIDTH :: 2000
 INITIAL_WINDOW_HEIGHT :: 1000
@@ -690,7 +690,7 @@ dx_init_user :: proc() {
 		ct.tx_shadowmap = ldx.texture_create(nil, SHADOWMAP_RES, SHADOWMAP_RES, .R32_TYPELESS,
 			&g_resources_longterm, view_flags = {.DSV, .SRV}, texture_name = "shadowmap", opt_clear_value = opt_clear)
 
-		ct.psos[.Shadowmap] = ldx.pso_create("src/shaders/shadowmap.hlsl", &ct.root_signatures, &g_resources_longterm, ldx.PSOParameters {
+		ct.psos[.Shadowmap] = ldx.pso_create("shaders/shadowmap.hlsl", &ct.root_signatures, &g_resources_longterm, ldx.PSOParameters {
 			vertex_input = Vertex,
 			blend_state = .Off,
 			enable_depth = true,

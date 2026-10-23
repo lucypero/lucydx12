@@ -13,6 +13,6 @@ struct MeshTransform
 	float4x4 model; 
 };
 
-#include "src/shaders/gen/structs.gen.hlsl"
+#include "shaders/gen/structs.gen.hlsl"
 
 ConstantBuffer<DrawConstants> draw_constants : register(b1);

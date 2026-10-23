@@ -1,7 +1,7 @@
 // this renders all the gizmos (light position, etc)
 
 #pragma pack_matrix(column_major)
-#include "src/shaders/shader_common.hlsl"
+#include "shaders/shader_common.hlsl"
 
 
 struct VSInput {
@@ -22,7 +22,6 @@ struct PSInput {
 PSInput VSMain(VSInput the_input) {
 
 	ConstantBuffer<GeneralConstants> general_constants = ResourceDescriptorHeap[cbv_index];
-	StructuredBuffer<MeshTransform> mesh_transforms = ResourceDescriptorHeap[general_constants.current_scene_mesh_transforms_idx];
 
 	// instanced drawing
 	float4x4 world_matrix = float4x4(the_input.worldM0, the_input.worldM1, the_input.worldM2, the_input.worldM3);
@@ -41,7 +40,7 @@ PSInput VSMain(VSInput the_input) {
 }
 
 float4 PSMain(PSInput input) : SV_TARGET {
-	float4 red = float4(1.0f, 0.0f, 0.0f, 1.0f);
-	float4 green = float4(0.0f, 1.0f, 0.0f, 1.0f);
+	// float4 red = float4(1.0f, 0.0f, 0.0f, 1.0f);
+	// float4 green = float4(0.0f, 1.0f, 0.0f, 1.0f);
 	return input.color;
 }
