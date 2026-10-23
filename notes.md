@@ -1,6 +1,7 @@
 # TODO
 
 - fix memory leaks
+- make it friendly to any desktop resolution (window is too big for my laptop)
 - make it more presentable for someone running it for the first time.
 
 # general todo
