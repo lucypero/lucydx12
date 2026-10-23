@@ -983,7 +983,7 @@ do_imgui_ui :: proc() {
 	// 	im.TreePop()
 	// }
 
-	im.ShowDemoWindow()
+	// im.ShowDemoWindow()
 
 	if im.Button("Save Settings") {
 		ldx.lprintfln("save here")

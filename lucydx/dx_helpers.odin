@@ -1247,7 +1247,6 @@ get_mip_level_size :: proc(width, height: u32, format_is_compressed: bool, bytes
 }
 
 
-
 /*
 Converts an image file into an optimized format. Stores it in a cache.
 If it's already in the cache, it does nothing
@@ -1258,7 +1257,7 @@ If it's already in the cache, it does nothing
 - out_format: image format for the output DDS file
 - mip_levels: 0 for max amount of mip map levels
 - image_data: Unoptimized image data if there's no original image file yet. 
-	If this isn't nil, the image file will be created with this data as its contents, named `image_name`.
+	If this isn't nil, the image file will be created with this data as its contents, named `image_filepath`.
 
 **Returns**
 - the path of the optimized (DDS) texture file.

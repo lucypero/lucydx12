@@ -1,6 +1,7 @@
 #+private file 
 package lucy3d
 
+import "core:path/filepath"
 import "core:mem"
 import "core:os"
 import "core:fmt"
@@ -30,12 +31,13 @@ scene_from_gltf :: proc(scene: ^Scene) {
 	cgltf_options: cgltf.options
 
 	data, ok := cgltf.parse_file(cgltf_options, model_filepath_c)
-	defer cgltf.free(data)
 
 	if ok != .success {
 		fmt.eprintln("could not read glb")
 		os.exit(1)
 	}
+
+	defer cgltf.free(data)
 
 	load_buffers_result := cgltf.load_buffers(cgltf_options, data, model_filepath_c)
 	if load_buffers_result != .success {
@@ -444,10 +446,16 @@ load_texture :: proc(image: ^cgltf.image, format: dxgi.FORMAT, model_filepath: s
 	image_name : string
 	image_data : Maybe([]byte) = nil
 
+	model_dir := filepath.dir(model_filepath)
+
 	if image.uri != nil {
-		image_name = string(image.uri)
+		image_uri_cstr := strings.clone_from_cstring(image.uri, context.temp_allocator)
+		image_name, _ = filepath.join({model_dir, image_uri_cstr}, context.temp_allocator)
 	} else {
-		image_name = string(image.name)
+		image_name_cstr := strings.clone_from_cstring(image.name, context.temp_allocator)
+		image_name, _ = filepath.join({model_dir, image_name_cstr}, context.temp_allocator)
+		image_name = image_name
+
 		// Turning image data (offset from the buffer) to a []byte
 		data_multipointer : [^]byte = cast([^]byte)image.buffer_view.buffer.data
 		image_data = slice.bytes_from_ptr(data_multipointer[image.buffer_view.offset:], cast(int)image.buffer_view.size)
