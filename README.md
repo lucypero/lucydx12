@@ -32,7 +32,7 @@ odin run lucy3d
 
 ## Gallery
 
-### Scene switch while the camera moves; assets stream in without stutter.
+### Scene switch while the camera moves; assets stream in without stutter
 
 https://github.com/user-attachments/assets/df3caadb-f1ec-47eb-85ac-1e4af6b54708
 
