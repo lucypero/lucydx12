@@ -2,7 +2,9 @@
 
 A Direct3D 12 renderer I'm building in [Odin](https://odin-lang.org/) to learn modern graphics programming.
 
-![lucydx12](../assets/lucydx12/lucydx12_wSHvcXNoc5.jpg)
+<img width="2000" height="1000" alt="image" src="https://github.com/user-attachments/assets/94c0b5f5-3202-42d3-807a-2a219abac2a6" />
+
+[Article about this project](https://lucypero.com/lucydx12.html)
 
 ## Features
 
@@ -30,15 +32,14 @@ odin run lucy3d
 
 ## Gallery
 
-<video controls>
-  <source src="../assets/lucydx12/lucydx12_1ydJcmnS2Q.mp4" type="video/mp4">
-</video>
-_Scene switch while the camera moves; assets stream in without stutter._
+### Scene switch while the camera moves; assets stream in without stutter.
 
-<video controls>
-  <source src="../assets/lucydx12/lucydx12_4ECcmMXWgj.mp4" type="video/mp4">
-</video>
-_Shadow maps._
+https://github.com/user-attachments/assets/df3caadb-f1ec-47eb-85ac-1e4af6b54708
 
-![G-buffer in RenderDoc](../assets/lucydx12/qrenderdoc_Su2VCUDu8B.png)
-_G-Buffer view in Renderdoc_
+### Shadow maps.
+
+https://github.com/user-attachments/assets/3dedebbc-ad13-444a-9ff0-554fcaeba689
+
+### G-Buffer view in Renderdoc
+<img width="942" height="227" alt="image" src="https://github.com/user-attachments/assets/818d5790-52e7-47d1-90b4-835873c46216" />
+
