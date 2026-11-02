@@ -36,7 +36,7 @@ odin run lucy3d
 
 https://github.com/user-attachments/assets/df3caadb-f1ec-47eb-85ac-1e4af6b54708
 
-### Shadow maps.
+### Shadow maps
 
 https://github.com/user-attachments/assets/3dedebbc-ad13-444a-9ff0-554fcaeba689
 
