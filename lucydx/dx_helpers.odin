@@ -3,7 +3,6 @@ package lucydx
 import "core:strconv"
 import "core:time"
 import "core:c"
-import img "vendor:stb/image"
 import "core:math/linalg"
 import "core:mem/virtual"
 import "core:reflect"

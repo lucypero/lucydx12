@@ -14,7 +14,6 @@ import sdl "vendor:sdl2"
 import "core:c"
 import "core:math"
 import "core:math/linalg"
-import "base:runtime"
 import "core:prof/spall"
 _ :: spall
 import "core:encoding/json"
@@ -1131,7 +1130,6 @@ render :: proc() {
 
 resize_window :: proc(new_res: v2i) {
 	ct := &g_dx_context
-	swapchain := &ldx.g_dx_core.swapchain
 
 	ldx.swapchain_resize(&ldx.g_dx_core.swapchain, new_res)
 
