@@ -417,10 +417,14 @@ gltf_load_nodes_into_scene :: proc(data: ^cgltf.data, scene: ^Scene) {
 		flipped_rotation.y *= -1
 		flipped_rotation.z *= -1
 
+		// same X mirror that's applied to the vertices
+		flipped_translation := node.translation
+		flipped_translation.x *= -1
+
 		nodes[i] = Node {
 			name = strings.clone_from_cstring(node.name, scene_allocator),
-			transform_t = node.translation,
-			transform_r = node.rotation,
+			transform_t = flipped_translation,
+			transform_r = flipped_rotation,
 			transform_s = node.scale,
 			children = node_children,
 			parent = node.parent == nil ? -1 : int(cgltf.node_index(data, node.parent)),
