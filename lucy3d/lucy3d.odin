@@ -1765,8 +1765,8 @@ get_node_world_matrix :: proc(node: Node, scene: Scene) -> dxm {
 		mesh_world: dxm = translation_mat * rot_mat * scale_mat
 		// mesh_world : dxm = scale_mat * rot_mat * translation_mat
 
-		res = res * mesh_world
-		// res = mesh_world * res
+		// walking child -> root, so each parent goes on the left
+		res = mesh_world * res
 		// break
 
 		if node_i.parent == -1 do break
