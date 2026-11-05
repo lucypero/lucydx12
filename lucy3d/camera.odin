@@ -56,7 +56,7 @@ camera_static_tick :: proc(buttons: u32, keyboard: []u8) {
 
 	// cruise
 	cam_dir := cam_get_direction(g_cur_cam)
-	g_cur_cam.pos += cam_dir * - g_cur_cam.cruising_speed
+	g_cur_cam.pos += cam_dir * g_cur_cam.cruising_speed
 }
 
 camera_tick :: proc(keyboard: []u8) {
@@ -76,7 +76,7 @@ camera_fps_tick :: proc(buttons: u32, dx, dy: i32, keyboard: []u8) {
 	sens :: 0.005
 
 	g_cur_cam.yaw -= f32(dx) * sens
-	g_cur_cam.pitch += f32(dy) * sens
+	g_cur_cam.pitch -= f32(dy) * sens
 
 
 	pitch_clamp :: 0.24
@@ -90,24 +90,23 @@ camera_fps_tick :: proc(buttons: u32, dx, dy: i32, keyboard: []u8) {
 
 	// assuming world up is 0 1 0 
 	right := linalg.vector_cross3(v3{0,1,0}, cam_dir)
-	// this might be "left" because "cam_dir" might be "back"
 	right = linalg.normalize(right)
 
 	if keyboard[sdl.Scancode.W] == 1 {
 		// go forward
-		g_cur_cam.pos += cam_dir * -cam_speed
-	}
-
-	if keyboard[sdl.Scancode.S] == 1 {
 		g_cur_cam.pos += cam_dir * cam_speed
 	}
 
+	if keyboard[sdl.Scancode.S] == 1 {
+		g_cur_cam.pos += cam_dir * -cam_speed
+	}
+
 	if keyboard[sdl.Scancode.A] == 1 {
-		g_cur_cam.pos += right * cam_speed
+		g_cur_cam.pos += right * -cam_speed
 	}
 
 	if keyboard[sdl.Scancode.D] == 1 {
-		g_cur_cam.pos += right * -cam_speed
+		g_cur_cam.pos += right * cam_speed
 	}
 
 	if keyboard[sdl.Scancode.Q] == 1 {
@@ -128,7 +127,6 @@ camera_fps_tick :: proc(buttons: u32, dx, dy: i32, keyboard: []u8) {
 }
 
 // get direction vector (front) (where the camera is looking at)
-// (this might actually be "back")
 cam_get_direction :: proc(cam: Camera) -> v3 {
 	// Offset yaw by -90 degrees (math.PI/2) so that 0 yaw faces 'forward' 
 	// instead of 'right'
@@ -149,7 +147,7 @@ get_view_projection :: proc(cam: Camera) -> (view: dxm, proj: dxm) {
 
 	look_at := cam.pos + cam_get_direction(cam)
 
-	view = linalg.matrix4_look_at_f32(cam.pos, look_at, {0, 1, 0}, true)
+	view = ldx.matrix4_look_at_lh_f32(cam.pos, look_at, {0, 1, 0})
 
 	fov := linalg.to_radians(f32(fov_deg))
 	aspect := f32(WINDOW_WIDTH) / f32(WINDOW_HEIGHT)

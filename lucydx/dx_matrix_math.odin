@@ -3,6 +3,22 @@ package lucydx
 import "core:math"
 import "core:math/linalg"
 
+// Left-handed view matrix: `target` ends up on +Z, which is what matrix4_perspective_z0_f32 expects.
+// (linalg.matrix4_look_at_f32 always puts the target on -Z.)
+@(require_results)
+matrix4_look_at_lh_f32 :: proc(eye, target, up: linalg.Vector3f32) -> linalg.Matrix4f32 {
+	f := linalg.normalize(target - eye)
+	s := linalg.normalize(linalg.vector_cross3(up, f))
+	u := linalg.vector_cross3(f, s)
+
+	return linalg.Matrix4f32 {
+		s.x, s.y, s.z, -linalg.dot(s, eye),
+		u.x, u.y, u.z, -linalg.dot(u, eye),
+		f.x, f.y, f.z, -linalg.dot(f, eye),
+		0,   0,   0,   1,
+	}
+}
+
 @(require_results)
 matrix4_perspective_z0_f32 :: proc "contextless" (
 	fovy, aspect, near, far: f32,
